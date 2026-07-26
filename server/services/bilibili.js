@@ -78,27 +78,44 @@ export async function searchSongs(keyword, limit = 50) {
   }
 }
 
-export async function getSongUrl(bvid, cid) {
+export async function getSongUrl(bvid, cid, musicId) {
   try {
-    let realCid = cid
-    if (!realCid && bvid) {
-      const { data } = await axios.get('https://api.bilibili.com/x/player/pagelist', {
-        headers, params: { bvid }
-      })
-      realCid = data?.data?.[0]?.cid
-    }
-    if (!realCid) return null
+    let rawUrl = null
 
-    const { data } = await axios.get('https://api.bilibili.com/x/player/playurl', {
-      headers,
-      params: { bvid, cid: realCid, qn: 16, type: 'mp4', platform: 'web' }
-    })
-    const audio = data?.data?.dash?.audio
-    if (audio?.length) {
-      const best = audio.sort((a, b) => b.bandwidth - a.bandwidth)[0]
-      return best.baseUrl || best.backupUrl?.[0] || null
+    if (musicId) {
+      const { data } = await axios.get('https://api.bilibili.com/x/audio/music/playurl', {
+        headers,
+        params: { music_id: musicId, privilege: 2, quality: 2 }
+      })
+      rawUrl = data?.data?.cdns?.[0] || data?.data?.url || null
+    } else {
+      let realCid = cid
+      if (!realCid && bvid) {
+        const { data } = await axios.get('https://api.bilibili.com/x/player/pagelist', {
+          headers, params: { bvid }
+        })
+        realCid = data?.data?.[0]?.cid
+      }
+      if (realCid) {
+        const { data } = await axios.get('https://api.bilibili.com/x/player/playurl', {
+          headers,
+          params: { bvid, cid: realCid, qn: 16, type: 'mp4', platform: 'web' }
+        })
+        const audio = data?.data?.dash?.audio
+        if (audio?.length) {
+          const best = audio.sort((a, b) => b.bandwidth - a.bandwidth)[0]
+          rawUrl = best.baseUrl || best.backupUrl?.[0] || null
+        }
+        if (!rawUrl) rawUrl = data?.data?.durl?.[0]?.url || null
+      }
     }
-    return data?.data?.durl?.[0]?.url || null
+
+    if (rawUrl) {
+      const proxyUrl = new URL('/api/proxy/audio', 'http://localhost:3001')
+      proxyUrl.searchParams.set('url', rawUrl)
+      return proxyUrl.toString()
+    }
+    return null
   } catch (e) {
     console.error('Bilibili audio URL error:', e.message)
     return null
