@@ -52,6 +52,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
+import { platforms } from '../data/mockData'
 import { searchSongs as mockSearchSongs, searchArtists as mockSearchArtists, hotSearchTags } from '../data/mockData'
 import { searchAll as apiSearchAll } from '../services/api'
 import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils/storage'
@@ -83,19 +84,40 @@ async function doSearch() {
   }
   addSearchHistory(kw)
   searchHistory.value = getSearchHistory()
+
+  let apiSongs = []
+  let apiArtists = []
   try {
     const apiData = await apiSearchAll(kw)
-    if (apiData?.songs?.length || apiData?.artists?.length) {
-      songResults.value = apiData.songs || []
-      artistResults.value = apiData.artists || []
-    } else {
-      songResults.value = mockSearchSongs(kw)
-      artistResults.value = mockSearchArtists(kw)
+    apiSongs = apiData?.songs || []
+    apiArtists = apiData?.artists || []
+  } catch {}
+
+  const mockSongs = mockSearchSongs(kw)
+  const mockArtists = mockSearchArtists(kw)
+
+  const platformsWithApi = new Set(apiSongs.map(s => s.platform))
+  const platformsWithMock = new Set(mockSongs.map(s => s.platform))
+
+  const mergedSongs = [...apiSongs]
+
+  for (const platform of platforms) {
+    if (!platformsWithApi.has(platform) && platformsWithMock.has(platform)) {
+      const platformMock = mockSongs.filter(s => s.platform === platform)
+      mergedSongs.push(...platformMock)
     }
-  } catch {
-    songResults.value = mockSearchSongs(kw)
-    artistResults.value = mockSearchArtists(kw)
   }
+
+  const apiPlatforms = new Set(apiArtists.map(a => a.platform))
+  const mergedArtists = [...apiArtists]
+  for (const artist of mockArtists) {
+    if (!apiArtists.find(a => a.id === artist.id)) {
+      mergedArtists.push(artist)
+    }
+  }
+
+  songResults.value = mergedSongs
+  artistResults.value = mergedArtists
   router.replace({ query: { q: kw } })
 }
 

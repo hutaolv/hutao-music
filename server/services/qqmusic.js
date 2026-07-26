@@ -88,29 +88,31 @@ async function getToplistDetail(topId) {
 
 export async function searchSongs(keyword, limit = 50) {
   try {
-    const { data } = await axios.get(BASE, {
-      headers,
+    const { data } = await axios.get('https://c.y.qq.com/soso/fcgi-bin/client_search_cp', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.1 Safari/537.36',
+        'Referer': 'https://y.qq.com/'
+      },
       params: {
+        w: keyword,
+        t: 0,
+        p: 1,
+        n: limit,
         format: 'json',
-        data: JSON.stringify({
-          comm: { ct: 24, cv: 0 },
-          search: {
-            module: 'music.search.SearchCgiService',
-            method: 'DoSearchForQQMusicDesktop',
-            param: { num_per_page: limit, page_num: 1, query: keyword, search_type: 0 }
-          }
-        })
+        ct: 24,
+        cv: 0,
+        lossless: 1
       }
     })
-    const songs = data?.search?.data?.body?.song?.list || []
+    const songs = data?.data?.song?.list || []
     return songs.map(track => ({
       id: `qqmusic_${track.id || track.mid}`,
       platformId: String(track.mid || track.id),
-      title: track.title || track.name,
+      title: track.title || track.name || track.songname || '',
       artist: (track.singer || []).map(s => s.name).join(' / '),
       artistId: track.singer?.[0]?.mid ? `qqmusic_artist_${track.singer[0].mid}` : '',
-      album: track.album?.name || '',
-      cover: track.album?.mid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.album.mid}.jpg` : '',
+      album: track.album?.name || track.albumname || '',
+      cover: track.album?.mid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.album.mid}.jpg` : (track.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.albummid}.jpg` : ''),
       duration: formatDuration(track.interval),
       durationMs: (track.interval || 0) * 1000,
       platform: 'QQ音乐',
