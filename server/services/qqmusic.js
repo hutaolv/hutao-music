@@ -225,9 +225,6 @@ export async function getSongUrl(mid, mediaMid) {
     if (urlInfo?.purl) {
       return `https://dl.stream.qqmusic.qq.com/${urlInfo.purl}`
     }
-    if (mediaMid) {
-      return `https://dl.stream.qqmusic.qq.com/C400${mediaMid}.m4a?fromtag=38`
-    }
     return null
   } catch (e) {
     console.error('QQ song URL error:', e.message)

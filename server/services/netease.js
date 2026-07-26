@@ -132,10 +132,10 @@ export async function getSongUrl(id) {
     if (data.code === 200 && data.data?.[0]?.url) {
       return data.data[0].url
     }
-    return `https://music.163.com/song/media/outer/url?id=${id}.mp3`
+    return null
   } catch (e) {
     console.error('NetEase song URL error:', e.message)
-    return `https://music.163.com/song/media/outer/url?id=${id}.mp3`
+    return null
   }
 }
 
