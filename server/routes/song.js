@@ -35,7 +35,7 @@ function getDemoUrl(id) {
 }
 
 router.get('/url', async (req, res) => {
-  const { platform, id, bvid, cid, mid, mediaMid } = req.query
+  const { platform, id, bvid, cid, mid, mediaMid, musicId } = req.query
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
@@ -50,7 +50,7 @@ router.get('/url', async (req, res) => {
         url = await qqmusic.getSongUrl(mid || id, mediaMid)
         break
       case 'B站':
-        url = await bilibili.getSongUrl(bvid, cid)
+        url = await bilibili.getSongUrl(bvid, cid, musicId)
         break
       case '抖音':
       case '汽水音乐':
