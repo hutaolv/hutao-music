@@ -54,17 +54,17 @@ export async function searchSongs(keyword, limit = 50) {
   try {
     const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
       headers,
-      params: { search_type: 'video', keyword, page: 1, order: 'click', tids: 3 }
+      params: { search_type: 'music', keyword, page: 1 }
     })
     const results = data?.data?.result || []
     return results.slice(0, limit).map(v => ({
-      id: `bilibili_${v.bvid}`,
-      platformId: v.bvid,
-      title: v.title.replace(/<[^>]*>/g, ''),
-      artist: v.author || '未知',
-      artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
-      album: v.tname || '',
-      cover: v.pic || '',
+      id: `bilibili_${v.bvid || v.music_id || v.id}`,
+      platformId: v.bvid || v.music_id || '',
+      title: (v.title || v.music_title || '').replace(/<[^>]*>/g, ''),
+      artist: v.author || v.singer || v.uname || '未知',
+      artistId: v.mid || v.up_mid ? `bilibili_artist_${v.mid || v.up_mid}` : '',
+      album: '',
+      cover: v.pic || v.cover || v.music_cover || '',
       duration: formatDuration(v.duration),
       durationMs: (v.duration || 0) * 1000,
       platform: 'B站',
