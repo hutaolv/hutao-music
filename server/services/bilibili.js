@@ -7,36 +7,45 @@ const headers = {
 
 export async function getToplist() {
   try {
-    const { data } = await axios.get('https://api.bilibili.com/x/web-interface/popular', {
+    const { data } = await axios.get('https://api.bilibili.com/x/copyright-music-publicity/toplist/all_period', {
       headers,
-      params: { pn: 1, ps: 50 }
+      params: { list_type: 1 }
     })
-    if (data.code !== 0) return null
+    if (data.code !== 0 || !data.data?.list?.length) return null
 
-    const songs = (data.data?.list || []).slice(0, 50).map((v, i) => ({
-      id: `bilibili_${v.bvid}`,
-      platformId: v.bvid,
-      title: v.title,
-      artist: v.owner?.name || '未知',
-      artistId: `bilibili_artist_${v.owner?.mid || ''}`,
-      album: v.tname || '',
-      cover: v.pic || '',
-      duration: formatDuration(v.duration),
-      durationMs: v.duration * 1000,
+    const latestPeriod = data.data.list[0]
+    const listId = latestPeriod.id
+
+    const { data: detail } = await axios.get('https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list', {
+      headers,
+      params: { list_id: listId }
+    })
+    if (detail.code !== 0 || !detail.data?.list?.length) return null
+
+    const songs = detail.data.list.slice(0, 50).map((item, i) => ({
+      id: `bilibili_${item.music_id || item.creation_bvid || i}`,
+      platformId: item.music_id || item.creation_bvid || '',
+      title: item.music_title || item.creation_title || '未知歌曲',
+      artist: item.singer || item.creation_nickname || '未知',
+      artistId: item.creation_up ? `bilibili_artist_${item.creation_up}` : '',
+      album: item.album || '',
+      cover: item.mv_cover || item.creation_cover || item.cover_url || '',
+      duration: formatDuration(item.creation_duration),
+      durationMs: (item.creation_duration || 0) * 1000,
       platform: 'B站',
       audioUrl: '',
-      bvid: v.bvid,
-      aid: v.aid,
-      cid: v.cid
+      bvid: item.creation_bvid || item.mv_bvid || '',
+      aid: item.creation_aid || item.mv_aid || 0,
+      musicId: item.music_id
     }))
 
     return [{
-      name: 'B站热门视频',
-      cover: songs[0]?.cover || '',
+      name: `B站音乐热榜 · ${latestPeriod.name || latestPeriod.year || ''}`,
+      cover: songs[0]?.cover || detail.data.cover_url || '',
       songs
     }]
   } catch (e) {
-    console.error('Bilibili toplist error:', e.message)
+    console.error('Bilibili music toplist error:', e.message)
     return null
   }
 }
@@ -45,16 +54,16 @@ export async function searchSongs(keyword, limit = 50) {
   try {
     const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
       headers,
-      params: { search_type: 'video', keyword, page: 1, order: 'click', duration: 0, tids: 0 }
+      params: { search_type: 'video', keyword, page: 1, order: 'click', tids: 3 }
     })
     const results = data?.data?.result || []
-    return results.filter(v => v.tag === '音乐' || v.tname === '音乐').slice(0, limit).map(v => ({
+    return results.slice(0, limit).map(v => ({
       id: `bilibili_${v.bvid}`,
       platformId: v.bvid,
       title: v.title.replace(/<[^>]*>/g, ''),
       artist: v.author || '未知',
       artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
-      album: '',
+      album: v.tname || '',
       cover: v.pic || '',
       duration: formatDuration(v.duration),
       durationMs: (v.duration || 0) * 1000,
@@ -71,9 +80,18 @@ export async function searchSongs(keyword, limit = 50) {
 
 export async function getSongUrl(bvid, cid) {
   try {
+    let realCid = cid
+    if (!realCid && bvid) {
+      const { data } = await axios.get('https://api.bilibili.com/x/player/pagelist', {
+        headers, params: { bvid }
+      })
+      realCid = data?.data?.[0]?.cid
+    }
+    if (!realCid) return null
+
     const { data } = await axios.get('https://api.bilibili.com/x/player/playurl', {
       headers,
-      params: { bvid, cid, qn: 16, type: 'mp4', platform: 'web' }
+      params: { bvid, cid: realCid, qn: 16, type: 'mp4', platform: 'web' }
     })
     const audio = data?.data?.dash?.audio
     if (audio?.length) {
