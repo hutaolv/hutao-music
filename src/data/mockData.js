@@ -123,15 +123,11 @@ function randomDuration() {
 }
 
 function randomCover(title) {
-  const colors = ['4A90D9', 'D94A4A', '4AD97A', 'D9C24A', '9B4AD9', 'D94A9B', '4AD9D9', 'D97A4A']
-  const color = colors[Math.floor(Math.random() * colors.length)]
-  return `https://placehold.co/400x400/${color}/FFFFFF?text=${encodeURIComponent(title.slice(0, 4))}`
+  return `https://picsum.photos/seed/${encodeURIComponent(title)}/400/400`
 }
 
 function getAvatar(name) {
-  const colors = ['3B82F6', 'EF4444', '10B981', 'F59E0B', '8B5CF6', 'EC4899', '06B6D4', 'F97316']
-  const color = colors[Math.floor(Math.random() * colors.length)]
-  return `https://placehold.co/200x200/${color}/FFFFFF?text=${encodeURIComponent(name.slice(0, 2))}`
+  return `https://picsum.photos/seed/${encodeURIComponent(name)}/200/200`
 }
 
 const artists = artistPool.map(a => ({

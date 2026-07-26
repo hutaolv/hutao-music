@@ -3,7 +3,7 @@
     <div class="player-inner">
       <div class="player-left">
         <div v-if="store.currentSong" class="song-info">
-          <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" />
+          <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" />
           <div class="text">
             <div class="title">{{ store.currentSong.title }}</div>
             <div class="artist">{{ store.currentSong.artist }}</div>
@@ -199,6 +199,10 @@ function formatTime(t) {
   const m = Math.floor(t / 60)
   const s = Math.floor(t % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function onImgError(e) {
+  e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect fill="%23333" width="200" height="200"/><text fill="%23666" font-size="14" text-anchor="middle" x="100" y="105">暂无图片</text></svg>'
 }
 
 onMounted(() => {

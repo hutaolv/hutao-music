@@ -1,7 +1,7 @@
 <template>
   <div class="artist-detail">
     <div v-if="artist" class="artist-header">
-      <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" />
+      <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" @error="e => e.target.style.display = 'none'" />
       <div class="artist-info">
         <h1 class="artist-name">{{ artist.name }}</h1>
         <div class="artist-meta">
@@ -22,7 +22,7 @@
       <div class="song-list">
         <div v-for="(song, idx) in songs" :key="song.id" class="song-row" @dblclick="store.playSong(song)">
           <span class="song-rank">{{ idx + 1 }}</span>
-          <img :src="song.cover" :alt="song.title" class="song-cover" />
+          <img :src="song.cover" :alt="song.title" class="song-cover" @error="e => e.target.style.display = 'none'" />
           <div class="song-info">
             <div class="song-title">{{ song.title }}</div>
             <div class="song-album">{{ song.album }}</div>

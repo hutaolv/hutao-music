@@ -35,7 +35,7 @@
         <h3 class="section-title" style="font-size:18px;">歌手结果 ({{ artistResults.length }})</h3>
         <div v-if="artistResults.length" class="artist-result-grid">
           <div v-for="artist in artistResults" :key="artist.id" class="artist-result-item" @click="router.push(`/artist/${artist.id}`)">
-            <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" />
+            <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" @error="e => e.target.style.display = 'none'" />
             <div class="artist-info">
               <div class="artist-name">{{ artist.name }}</div>
               <div class="artist-meta">{{ artist.region }} &middot; {{ artist.genre }}</div>

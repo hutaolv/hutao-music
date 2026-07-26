@@ -6,7 +6,7 @@
     </div>
     <div class="playlist-list" v-if="store.playlist.length">
       <div v-for="(song, idx) in store.playlist" :key="song.id" class="playlist-item" :class="{ active: idx === store.currentIndex }" @click="store.playSong(song)">
-        <img :src="song.cover" :alt="song.title" class="item-cover" />
+        <img :src="song.cover" :alt="song.title" class="item-cover" @error="hideImg" />
         <div class="item-info">
           <div class="item-title">{{ song.title }}</div>
           <div class="item-artist">{{ song.artist }}</div>
@@ -22,6 +22,10 @@
 <script setup>
 import { usePlayerStore } from '../stores/player'
 const store = usePlayerStore()
+
+function hideImg(e) {
+  e.target.style.display = 'none'
+}
 </script>
 
 <style scoped>
