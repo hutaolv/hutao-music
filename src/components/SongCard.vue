@@ -3,7 +3,7 @@
     <div class="rank" v-if="rank !== undefined">
       <span class="rank-num" :class="{ 'top-three': rank <= 3 }">{{ rank }}</span>
     </div>
-    <img :src="song.cover" :alt="song.title" class="cover" />
+    <img :src="song.cover" :alt="song.title" class="cover" @error="hideImg" />
     <div class="info">
       <div class="title-row">
         <span class="title">{{ song.title }}</span>
@@ -34,6 +34,8 @@ const platformColor = platformColors[props.song.platform] || '#6366f1'
 watch(() => props.song.id, () => {
   isFav.value = getFavorites().some(s => s.id === props.song.id)
 }, { immediate: true })
+
+function hideImg(e) { e.target.style.display = 'none' }
 
 function toggleFav() {
   if (isFav.value) {

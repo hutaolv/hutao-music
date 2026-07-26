@@ -1,7 +1,7 @@
 <template>
   <div class="artist-card" @click="goDetail">
     <div class="avatar-wrap">
-      <img :src="artist.avatar" :alt="artist.name" class="avatar" />
+      <img :src="artist.avatar" :alt="artist.name" class="avatar" @error="hideImg" />
       <div class="play-overlay">&#x25B6;</div>
     </div>
     <div class="name">{{ artist.name }}</div>
@@ -20,6 +20,10 @@ const router = useRouter()
 
 function goDetail() {
   router.push(`/artist/${props.artist.id}`)
+}
+
+function hideImg(e) {
+  e.target.style.display = 'none'
 }
 </script>
 
