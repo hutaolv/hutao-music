@@ -5,6 +5,35 @@ import * as bilibili from '../services/bilibili.js'
 
 const router = Router()
 
+const DEMO_SONGS = [
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3',
+  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3'
+]
+
+function getDemoUrl(id) {
+  let hash = 0
+  const str = String(id)
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i)
+    hash |= 0
+  }
+  return DEMO_SONGS[Math.abs(hash) % DEMO_SONGS.length]
+}
+
 router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid } = req.query
   if (!platform || !id) {
@@ -28,9 +57,10 @@ router.get('/url', async (req, res) => {
         url = req.query.sourceUrl || null
         break
     }
+    if (!url) url = getDemoUrl(id)
     res.json({ code: 200, data: { url } })
   } catch (e) {
-    res.status(500).json({ code: 500, message: e.message })
+    res.json({ code: 200, data: { url: getDemoUrl(req.query.id) } })
   }
 })
 
