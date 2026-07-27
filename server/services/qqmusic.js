@@ -249,15 +249,28 @@ export async function getSongUrl(mid, mediaMid) {
 
 export async function getLyrics(mid) {
   try {
-    const { data } = await axios.get('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_yqq.fcg', {
-      headers: {
-        ...headers,
-        'Referer': `https://y.qq.com/n/yqq/song/${mid}.html`
-      },
-      params: { songmid: mid, nobase64: 1 }
+    const { data } = await axios.get(BASE, {
+      headers,
+      params: {
+        format: 'json',
+        data: JSON.stringify({
+          comm: { ct: 24, cv: 0 },
+          lyric: {
+            module: 'music.musichallSong.PlayLyricInfo',
+            method: 'GetPlayLyricInfo',
+            param: { songmid: mid }
+          }
+        })
+      }
     })
-    if (data?.retcode === 0 && data?.lyric) return { lyrics: data.lyric, transLyrics: data.trans || '' }
-    if (data?.code === 0 && data?.lyric) return { lyrics: data.lyric, transLyrics: data.trans || '' }
+    if (data?.lyric?.code === 0 && data?.lyric?.data?.lyric) {
+      const lyrics = Buffer.from(data.lyric.data.lyric, 'base64').toString('utf-8')
+      let transLyrics = ''
+      if (data.lyric.data.trans) {
+        transLyrics = Buffer.from(data.lyric.data.trans, 'base64').toString('utf-8')
+      }
+      return { lyrics, transLyrics }
+    }
     return null
   } catch (e) {
     console.error('QQ lyrics error:', e.message)
