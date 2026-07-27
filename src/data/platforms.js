@@ -1,4 +1,5 @@
-export const platforms = ['抖音', 'QQ音乐', '网易云音乐', 'B站', '汽水音乐', '咪咕音乐']
+export const platforms = ['抖音', 'QQ音乐', '网易云音乐', 'B站', '咪咕音乐']
+// '汽水音乐' - 暂时隐藏
 
 export const platformColors = {
   '抖音': '#000000',
