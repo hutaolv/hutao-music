@@ -40,8 +40,8 @@ function mapSong(item) {
 export async function getToplist() {
   for (const ep of endpoints) {
     try {
-      const { data, status } = await axios.get(ep.url, { headers: ep.headers, params: ep.params, timeout: 8000 })
-      const songs = data?.music_list || []
+      const res = await axios.get(ep.url, { headers: ep.headers, params: ep.params, timeout: 8000 })
+      const songs = res.data?.music_list || []
       if (songs.length) {
         console.log(`Douyin toplist OK: ${ep.url} => ${songs.length} songs`)
         return [{
@@ -50,6 +50,7 @@ export async function getToplist() {
           songs: songs.slice(0, 50).map(mapSong)
         }]
       }
+      console.log(`Douyin endpoint ${ep.url}: status=${res.status}, has music_list=${!!res.data?.music_list}, keys=${Object.keys(res.data || {}).join(',')}`)
     } catch (e) {
       console.error(`Douyin endpoint ${ep.url}: ${e.message}`)
     }
