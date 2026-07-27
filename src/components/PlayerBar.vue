@@ -122,7 +122,11 @@ const parsedLyrics = computed(() => {
 })
 
 function goLyrics() {
-  router.push('/lyrics')
+  if (router.currentRoute.value.path === '/lyrics') {
+    router.back()
+  } else {
+    router.push('/lyrics')
+  }
 }
 
 function seekTo(time) {
