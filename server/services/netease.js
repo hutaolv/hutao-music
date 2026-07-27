@@ -8,40 +8,60 @@ const headers = {
   'Origin': 'https://music.163.com'
 }
 
+const KNOWN_LISTS = [
+  { id: 3778678, name: '云音乐热歌榜' },
+  { id: 3779629, name: '云音乐新歌榜' },
+  { id: 19723756, name: '云音乐飙升榜' },
+  { id: 2884035, name: '网易原创歌曲榜' }
+]
+
+async function getPlaylist(id) {
+  try {
+    const { data } = await axios.get(`${BASE}/playlist/detail`, {
+      headers: { ...headers, 'Cookie': 'appver=2.0.2; os=pc' },
+      params: { id }
+    })
+    if (data.code !== 200 || !data?.playlist?.trackIds?.length) return null
+    const ids = data.playlist.trackIds.slice(0, 50).map(t => t.id).join(',')
+    const { data: detail } = await axios.get(`${BASE}/song/detail`, {
+      headers: { ...headers, 'Cookie': 'appver=2.0.2; os=pc' },
+      params: { ids }
+    })
+    if (detail.code !== 200 || !detail.songs?.length) return null
+    return detail.songs.map(track => ({
+      id: `netease_${track.id}`,
+      platformId: String(track.id),
+      title: track.name,
+      artist: (track.ar || []).map(a => a.name).join(' / '),
+      artistId: track.ar?.[0]?.id ? `netease_artist_${track.ar[0].id}` : '',
+      album: track.al?.name || '',
+      cover: track.al?.picUrl || '',
+      duration: formatDuration(track.dt),
+      durationMs: track.dt || 0,
+      platform: '网易云音乐',
+      audioUrl: '',
+      vip: track.fee === 1 || track.fee === 4,
+      platformIdNum: track.id
+    }))
+  } catch (e) {
+    return null
+  }
+}
+
 export async function getToplist() {
   try {
-    const { data } = await axios.get(`${BASE}/toplist`, {
-      headers: { ...headers, 'Cookie': 'appver=2.0.2' },
-      params: { csrf_token: '' }
-    })
-    if (data.code !== 200 || !data.list?.length) return null
-
-    const topList = data.list.slice(0, 4)
     const result = []
-    for (const list of topList) {
-      if (!list.tracks?.length) continue
-      const songs = list.tracks.slice(0, 50).map((track, i) => ({
-        id: `netease_${track.id}`,
-        platformId: String(track.id),
-        title: track.name,
-        artist: (track.artists || []).map(a => a.name).join(' / '),
-        artistId: track.artists?.[0]?.id ? `netease_artist_${track.artists[0].id}` : '',
-        album: track.album?.name || '',
-        cover: track.album?.picUrl || (track.artists?.[0]?.img1v1Url || ''),
-        duration: formatDuration(track.duration),
-        durationMs: track.duration || 0,
-        platform: '网易云音乐',
-        audioUrl: '',
-        vip: track.fee === 1 || track.fee === 4,
-        platformIdNum: track.id
-      }))
-      result.push({
-        name: list.name,
-        cover: list.coverImgUrl,
-        songs
-      })
+    for (const list of KNOWN_LISTS) {
+      const songs = await getPlaylist(list.id)
+      if (songs?.length) {
+        result.push({
+          name: list.name,
+          cover: songs[0]?.cover || '',
+          songs
+        })
+      }
     }
-    return result
+    return result.length ? result : null
   } catch (e) {
     console.error('NetEase toplist error:', e.message)
     return null
