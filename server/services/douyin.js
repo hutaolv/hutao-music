@@ -6,80 +6,72 @@ const headers = {
   'Origin': 'https://www.douyin.com'
 }
 
-const cookieHeaders = {
-  ...headers,
-  'Cookie': 'msToken=abc123def456; odin_tt=; passport_csrf_token='
+const endpoints = [
+  {
+    url: 'https://www.douyin.com/aweme/v1/web/music/list/',
+    params: { type: 1, cursor: 0, count: 50 },
+    headers: { ...headers, 'Cookie': '' }
+  },
+  {
+    url: 'https://www.iesdouyin.com/web/api/v2/music/list/',
+    params: { device_platform: 'webapp', aid: 6383, channel: 'channel_pc_web', cursor: 0, count: 50, type: 1 },
+    headers: { ...headers, 'Cookie': '' }
+  }
+]
+
+function mapSong(item) {
+  return {
+    id: `douyin_${item.id}`,
+    platformId: String(item.id),
+    title: item.title || '未知歌曲',
+    artist: item.author || '未知',
+    artistId: '',
+    album: '',
+    cover: item.cover_url || item.cover_thumb?.url_list?.[0] || item.cover_thumb || '',
+    duration: formatDuration(item.duration),
+    durationMs: (item.duration || 0) * 1000,
+    platform: '抖音',
+    audioUrl: item.play_url?.url_list?.[0] || item.play_url || '',
+    sourceUrl: item.play_url?.url_list?.[0] || item.play_url || '',
+    vip: false
+  }
 }
 
 export async function getToplist() {
-  try {
-    const { data } = await axios.get('https://www.douyin.com/aweme/v1/web/music/list/', {
-      headers: cookieHeaders,
-      params: {
-        type: 1,
-        cursor: 0,
-        count: 50
+  for (const ep of endpoints) {
+    try {
+      const { data, status } = await axios.get(ep.url, { headers: ep.headers, params: ep.params, timeout: 8000 })
+      const songs = data?.music_list || []
+      if (songs.length) {
+        console.log(`Douyin toplist OK: ${ep.url} => ${songs.length} songs`)
+        return [{
+          name: '抖音热歌榜',
+          cover: songs[0]?.cover || songs[0]?.cover_url || '',
+          songs: songs.slice(0, 50).map(mapSong)
+        }]
       }
-    })
-    if (data?.status_code !== 0) return null
-    const songs = (data?.music_list || []).slice(0, 50).map(item => ({
-      id: `douyin_${item.id}`,
-      platformId: String(item.id),
-      title: item.title || '未知歌曲',
-      artist: item.author || '未知',
-      artistId: '',
-      album: '',
-      cover: item.cover_url || item.cover_thumb?.url_list?.[0] || '',
-      duration: formatDuration(item.duration),
-      durationMs: (item.duration || 0) * 1000,
-      platform: '抖音',
-      audioUrl: item.play_url?.url_list?.[0] || item.play_url || '',
-      sourceUrl: item.play_url?.url_list?.[0] || item.play_url || '',
-      vip: false
-    }))
-
-    return [{
-      name: '抖音热歌榜',
-      cover: songs[0]?.cover || '',
-      songs
-    }]
-  } catch (e) {
-    console.error('Douyin toplist error:', e.message)
-    return null
+    } catch (e) {
+      console.error(`Douyin endpoint ${ep.url}: ${e.message}`)
+    }
   }
+  console.error('Douyin toplist: all endpoints failed')
+  return null
 }
 
 export async function searchSongs(keyword, limit = 50) {
-  try {
-    const { data } = await axios.get('https://www.douyin.com/aweme/v1/web/music/search/', {
-      headers: cookieHeaders,
-      params: {
-        keyword,
-        cursor: 0,
-        count: limit,
-        type: 1
-      }
-    })
-    const songs = data?.music_list || []
-    return songs.map(item => ({
-      id: `douyin_${item.id}`,
-      platformId: String(item.id),
-      title: item.title || '未知歌曲',
-      artist: item.author || '未知',
-      artistId: '',
-      album: '',
-      cover: item.cover_url || '',
-      duration: formatDuration(item.duration),
-      durationMs: (item.duration || 0) * 1000,
-      platform: '抖音',
-      audioUrl: item.play_url?.url_list?.[0] || '',
-      sourceUrl: item.play_url?.url_list?.[0] || '',
-      vip: false
-    }))
-  } catch (e) {
-    console.error('Douyin search error:', e.message)
-    return []
+  for (const ep of [
+    { url: 'https://www.douyin.com/aweme/v1/web/music/search/', params: { keyword, cursor: 0, count: limit, type: 1 } },
+    { url: 'https://www.iesdouyin.com/web/api/v2/music/search/', params: { device_platform: 'webapp', aid: 6383, channel: 'channel_pc_web', cursor: 0, count: limit, keyword, type: 1 } }
+  ]) {
+    try {
+      const { data } = await axios.get(ep.url, { headers, params: ep.params, timeout: 8000 })
+      const songs = data?.music_list || []
+      if (songs.length) return songs.slice(0, limit).map(mapSong)
+    } catch (e) {
+      console.error(`Douyin search endpoint ${ep.url}: ${e.message}`)
+    }
   }
+  return []
 }
 
 function formatDuration(s) {
