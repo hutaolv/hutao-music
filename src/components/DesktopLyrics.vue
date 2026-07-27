@@ -115,61 +115,65 @@ function onMouseUp() {
 }
 
 let popupWin = null
+let popupInterval = null
+let popupColor = lyricColor.value
 
 function openPopup() {
   if (popupWin && !popupWin.closed) { popupWin.focus(); return }
+  popupColor = lyricColor.value
   popupWin = window.open('', 'desktopLyrics',
-    'width=400,height=200,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no')
+    'width=380,height=180,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no')
   if (!popupWin) { return }
   popupWin.document.write(`
     <html><head><style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        background: transparent; font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-        display: flex; align-items: center; justify-content: center; height: 100vh;
-        user-select: none; overflow: hidden;
-      }
-      .lyric { font-size: 22px; font-weight: 700; color: ${lyricColor.value}; text-align: center; padding: 16px; line-height: 1.6; }
-      .prev { font-size: 15px; color: ${lyricColor.value}66; text-align: center; padding: 0 16px; }
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{background:rgba(0,0,0,0.7);font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;user-select:none;overflow:hidden}
+      .wrap{text-align:center;width:100%;padding:8px 16px}
+      #prev{font-size:14px;color:#ffffff66;margin-bottom:4px;line-height:1.4;min-height:20px}
+      #lyric{font-size:22px;font-weight:700;color:${popupColor};line-height:1.5;word-break:break-word}
     </style></head><body>
-      <div id="app"><div class="prev" id="prev"></div><div class="lyric" id="lyric">...</div></div>
+      <div class="wrap"><div id="prev"></div><div id="lyric">...</div></div>
       <script>
-        let lastIdx = -1;
-        setInterval(() => {
-          if (window.opener && !window.opener.closed) {
-            try {
-              const idx = window.opener.document.querySelector('#__nuxt')?.__vue_app__?.config?.globalProperties?.$pinia?.state?.value?.player?.currentLyricIndex;
-              if (idx !== undefined && idx !== lastIdx) {
-                lastIdx = idx;
-                const store = window.opener.document.querySelector('#__nuxt')?.__vue_app__?.config?.globalProperties?.$pinia?.state?.value?.player;
-                if (store) {
-                  const raw = store.rawLyrics || '';
-                  const lines = raw.split('\\n');
-                  const parsed = [];
-                  for (const l of lines) {
-                    const m = l.match(/\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})\\](.*)/);
-                    if (m) parsed.push({ time: parseInt(m[1])*60+parseInt(m[2])+parseInt(m[3].padEnd(3,'0'))/1000, text: m[4].trim() });
-                  }
-                  parsed.sort((a,b)=>a.time-b.time);
-                  const ci = typeof idx === 'number' ? idx : -1;
-                  document.getElementById('lyric').textContent = ci >= 0 && ci < parsed.length ? parsed[ci].text : '...';
-                  document.getElementById('prev').textContent = ci > 0 && ci < parsed.length ? parsed[ci-1].text : '';
-                }
-              }
-            } catch(e) {}
-          } else if (window.opener && window.opener.closed) { window.close(); }
-        }, 200);
+        var po=window.opener;
+        function sync(){
+          if(!po||po.closed){window.close();return}
+          try{
+            var d=po.document.getElementById('app');
+            if(!d)return;
+            var s=d.__vue_app__?.config?.globalProperties?.$pinia?.state?.value?.player;
+            if(!s)return;
+            var idx=s.currentLyricIndex;
+            var raw=s.rawLyrics||'';
+            var lines=raw.split('\\n');
+            var parsed=[];
+            for(var i=0;i<lines.length;i++){
+              var m=lines[i].match(/\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})\\](.*)/);
+              if(m)parsed.push({time:parseInt(m[1])*60+parseInt(m[2])+parseInt(m[3].padEnd(3,'0'))/1000,text:m[4].trim()});
+            }
+            parsed.sort(function(a,b){return a.time-b.time});
+            var ci=typeof idx==='number'?idx:-1;
+            document.getElementById('lyric').textContent=ci>=0&&ci<parsed.length?parsed[ci].text:'...';
+            document.getElementById('prev').textContent=ci>0&&ci<parsed.length?parsed[ci-1].text:'';
+          }catch(e){}
+        }
+        setInterval(sync,200);
       <\/script>
     </body></html>
   `)
   popupWin.document.close()
-  const checkClosed = setInterval(() => {
-    if (!popupWin || popupWin.closed) { clearInterval(checkClosed); popupWin = null }
-  }, 1000)
+
+  if (popupInterval) { clearInterval(popupInterval); popupInterval = null }
+  popupInterval = setInterval(() => {
+    if (!popupWin || popupWin.closed) {
+      if (popupInterval) { clearInterval(popupInterval); popupInterval = null }
+      popupWin = null
+    }
+  }, 2000)
 }
 
 watch(() => store.desktopLyrics, (v) => {
   if (!v && popupWin && !popupWin.closed) { popupWin.close(); popupWin = null }
+  if (!v && popupInterval) { clearInterval(popupInterval); popupInterval = null }
 })
 
 onMounted(() => {
