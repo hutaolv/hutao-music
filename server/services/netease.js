@@ -31,6 +31,7 @@ export async function getToplist() {
         durationMs: track.duration || 0,
         platform: '网易云音乐',
         audioUrl: '',
+        vip: track.fee === 1 || track.fee === 4,
         platformIdNum: track.id
       }))
       result.push({
@@ -65,6 +66,7 @@ export async function searchSongs(keyword, limit = 50) {
       durationMs: track.duration || 0,
       platform: '网易云音乐',
       audioUrl: '',
+      vip: track.fee === 1 || track.fee === 4,
       platformIdNum: track.id
     }))
   } catch (e) {
@@ -115,6 +117,7 @@ export async function getArtistSongs(artistId) {
       durationMs: track.duration || 0,
       platform: '网易云音乐',
       audioUrl: '',
+      vip: track.fee === 1 || track.fee === 4,
       platformIdNum: track.id
     }))
   } catch (e) {

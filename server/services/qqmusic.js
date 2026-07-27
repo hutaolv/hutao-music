@@ -78,6 +78,7 @@ async function getToplistDetail(topId) {
       durationMs: (track.interval || 0) * 1000,
       platform: 'QQ音乐',
       audioUrl: '',
+      vip: track.pay?.pay_play === 1 || track.pay?.pay_status === 1,
       platformSongMid: track.mid || track.id,
       platformMediaMid: track.file?.media_mid || track.mid
     }))
@@ -117,6 +118,7 @@ export async function searchSongs(keyword, limit = 50) {
       durationMs: (track.interval || 0) * 1000,
       platform: 'QQ音乐',
       audioUrl: '',
+      vip: track.pay?.pay_play === 1 || track.pay?.pay_status === 1,
       platformSongMid: track.mid || track.id,
       platformMediaMid: track.file?.media_mid || track.mid
     }))
@@ -187,6 +189,7 @@ export async function getArtistSongs(artistMid) {
         durationMs: (track.interval || 0) * 1000,
         platform: 'QQ音乐',
         audioUrl: '',
+        vip: track.pay?.pay_play === 1 || track.pay?.pay_status === 1,
         platformSongMid: track.mid || track.id,
         platformMediaMid: track.file?.media_mid || track.mid
       }

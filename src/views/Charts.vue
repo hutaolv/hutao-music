@@ -26,9 +26,10 @@
         <span class="col-cover">
           <img :src="song.cover" :alt="song.title" class="row-cover" @error="e => e.target.style.display = 'none'" />
         </span>
-        <span class="col-title">
-          <span class="row-title">{{ song.title }}</span>
-        </span>
+          <span class="col-title">
+            <span class="row-title">{{ song.title }}</span>
+            <span v-if="song.vip" class="chart-vip">VIP</span>
+          </span>
         <span class="col-artist">{{ song.artist }}</span>
         <span class="col-duration">{{ song.duration }}</span>
         <span class="col-action">
@@ -181,6 +182,17 @@ function toggleFav(song) {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.chart-vip {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  font-weight: 700;
+  margin-left: 6px;
+  letter-spacing: 0.5px;
 }
 
 .action-btn {

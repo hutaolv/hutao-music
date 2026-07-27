@@ -7,6 +7,7 @@
     <div class="info">
       <div class="title-row">
         <span class="title">{{ song.title }}</span>
+        <span v-if="song.vip" class="vip-badge">VIP</span>
         <span class="platform-tag" :style="{ background: platformColor + '20', color: platformColor }">{{ song.platform }}</span>
       </div>
       <div class="artist">{{ song.artist }}</div>
@@ -109,6 +110,17 @@ function toggleFav() {
   border-radius: 4px;
   flex-shrink: 0;
   font-weight: 500;
+}
+
+.vip-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  font-weight: 700;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
 }
 
 .artist {
