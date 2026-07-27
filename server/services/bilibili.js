@@ -11,55 +11,43 @@ const cookieHeaders = {
   'Cookie': 'buvid3=local; b_nut=1700000000; _uuid=local'
 }
 
-async function tryToplist(headersToUse) {
-  const { data } = await axios.get('https://api.bilibili.com/x/copyright-music-publicity/toplist/all_period', {
-    headers: headersToUse,
-    params: { list_type: 1 }
-  })
-  if (data.code !== 0 || !data.data?.list?.length) return null
-  const latestPeriod = data.data.list[0]
-  const { data: detail } = await axios.get('https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list', {
-    headers: headersToUse,
-    params: { list_id: latestPeriod.id }
-  })
-  if (detail.code !== 0 || !detail.data?.list?.length) return null
-  return { name: `B站音乐热榜 · ${latestPeriod.name || ''}`, songs: detail.data.list }
-}
-
 export async function getToplist() {
-  for (const h of [cookieHeaders, headers]) {
-    try {
-      const result = await tryToplist(h)
-      if (result) {
-        console.log(`Bilibili toplist OK: ${result.songs.length} songs`)
-        return [{
-          name: result.name,
-          cover: result.songs[0]?.mv_cover || result.songs[0]?.creation_cover || '',
-          songs: result.songs.slice(0, 50).map((item, i) => ({
-            id: `bilibili_${item.music_id || item.creation_bvid || i}`,
-            platformId: item.music_id || item.creation_bvid || '',
-            title: item.music_title || item.creation_title || '未知歌曲',
-            artist: item.singer || item.creation_nickname || '未知',
-            artistId: item.creation_up ? `bilibili_artist_${item.creation_up}` : '',
-            album: item.album || '',
-            cover: item.mv_cover || item.creation_cover || item.cover_url || '',
-            duration: formatDuration(item.creation_duration),
-            durationMs: parseDuration(item.creation_duration) * 1000,
-            platform: 'B站',
-            audioUrl: '',
-            vip: false,
-            bvid: item.creation_bvid || item.mv_bvid || '',
-            aid: item.creation_aid || item.mv_aid || 0,
-            musicId: item.music_id
-          }))
-        }]
-      }
-    } catch (e) {
-      console.error(`Bilibili endpoint (cookie=${h === cookieHeaders}): ${e.message}`)
+  try {
+    const { data } = await axios.get('https://api.bilibili.com/x/web-interface/ranking/v2', {
+      headers,
+      params: { type: 3 }
+    })
+    const items = data?.data?.list || []
+    if (!items.length) {
+      console.error('Bilibili ranking: empty list')
+      return null
     }
+    console.log(`Bilibili ranking OK: ${items.length} songs`)
+    const songs = items.slice(0, 50).map(v => ({
+      id: `bilibili_${v.bvid}`,
+      platformId: v.bvid,
+      title: v.title.replace(/<[^>]*>/g, ''),
+      artist: v.owner?.name || '未知',
+      artistId: v.owner?.mid ? `bilibili_artist_${v.owner.mid}` : '',
+      album: v.tname || '',
+      cover: v.pic || '',
+      duration: formatDuration(v.duration),
+      durationMs: parseDuration(v.duration) * 1000,
+      platform: 'B站',
+      audioUrl: '',
+      vip: false,
+      bvid: v.bvid,
+      aid: v.aid
+    }))
+    return [{
+      name: 'B站音乐排行榜',
+      cover: songs[0]?.cover || '',
+      songs
+    }]
+  } catch (e) {
+    console.error('Bilibili ranking error:', e.message)
+    return null
   }
-  console.error('Bilibili toplist: all attempts failed')
-  return null
 }
 
 export async function searchSongs(keyword, limit = 50) {

@@ -34,10 +34,11 @@ function mapSong(item) {
 }
 
 export async function getToplist() {
+  const hotKeywords = ['热歌', '流行', '新歌', '抖音热歌', '热门']
   for (const ep of endpoints) {
     try {
-      const { data, status } = await axios.get(ep.url, { headers, params: ep.params, timeout: 8000 })
-      const songs = data?.data?.list || data?.data || data?.musics || []
+      const res = await axios.get(ep.url, { headers, params: ep.params, timeout: 8000 })
+      const songs = res.data?.data?.list || res.data?.data || res.data?.musics || []
       if (songs.length) {
         console.log(`Qishui toplist OK: ${ep.url} => ${songs.length} songs`)
         return [{
@@ -46,11 +47,36 @@ export async function getToplist() {
           songs: songs.slice(0, 50).map(mapSong)
         }]
       }
+      console.log(`Qishui endpoint ${ep.url}: status=${res.status}, keys=${Object.keys(res.data || {}).join(',')}`)
     } catch (e) {
       console.error(`Qishui endpoint ${ep.url}: ${e.message}`)
     }
   }
-  console.error('Qishui toplist: all endpoints failed')
+  // fallback: use search API with trending keywords
+  try {
+    const allSongs = []
+    for (const kw of hotKeywords) {
+      const { data } = await axios.get(`${BASE}/api/search/music/v2/`, {
+        headers, params: { keyword: kw, offset: 0, limit: 20 }, timeout: 5000
+      })
+      const songs = data?.data || data?.musics || []
+      for (const s of songs) {
+        if (!allSongs.find(x => x.id === s.id)) allSongs.push(s)
+      }
+      if (allSongs.length >= 30) break
+    }
+    if (allSongs.length) {
+      console.log(`Qishui toplist fallback: ${allSongs.length} songs from search`)
+      return [{
+        name: '汽水音乐热榜',
+        cover: allSongs[0]?.cover_medium?.url || allSongs[0]?.cover_thumb?.url || '',
+        songs: allSongs.slice(0, 50).map(mapSong)
+      }]
+    }
+  } catch (e) {
+    console.error('Qishui search fallback error:', e.message)
+  }
+  console.error('Qishui toplist: all endpoints + search fallback failed')
   return null
 }
 
