@@ -22,33 +22,44 @@ const cookieHeaders = {
 
 async function getPlaylist(id) {
   try {
-    const { data } = await axios.get(`https://music.163.com/api/v3/playlist/detail`, {
-      headers: cookieHeaders,
-      params: { id, n: 1000, s: 0, t: -1 }
-    })
-    if (!data?.playlist?.trackIds?.length) return null
-    const ids = data.playlist.trackIds.slice(0, 50).map(t => t.id).join(',')
-    const { data: detail } = await axios.get(`https://music.163.com/api/song/detail`, {
-      headers: cookieHeaders,
-      params: { ids }
-    })
-    if (!detail?.songs?.length) return null
-    return detail.songs.map(track => ({
+    const endpoints = [
+      { url: `${BASE}/playlist/detail`, params: { id } },
+      { url: `${BASE}/v3/playlist/detail`, params: { id, n: 50, s: 0, t: -1 } },
+      { url: `https://music.163.com/api/v3/playlist/detail`, params: { id, n: 50, s: 0, t: -1 } }
+    ]
+    let data = null
+    for (const ep of endpoints) {
+      try {
+        const res = await axios.get(ep.url, { headers: cookieHeaders, params: ep.params })
+        if (res.data?.code === 200) { data = res.data; break }
+      } catch {}
+    }
+    if (!data) {
+      console.error(`NetEase playlist ${id}: all endpoints failed`)
+      return null
+    }
+    const rawTracks = data?.result?.tracks || data?.playlist?.tracks || data?.songs || []
+    if (!rawTracks.length) {
+      console.error(`NetEase playlist ${id} no tracks, keys:`, Object.keys(data?.result || data?.playlist || data || {}))
+      return null
+    }
+    return rawTracks.slice(0, 50).map(track => ({
       id: `netease_${track.id}`,
       platformId: String(track.id),
       title: track.name,
-      artist: (track.ar || []).map(a => a.name).join(' / '),
-      artistId: track.ar?.[0]?.id ? `netease_artist_${track.ar[0].id}` : '',
-      album: track.al?.name || '',
-      cover: track.al?.picUrl || '',
-      duration: formatDuration(track.dt),
-      durationMs: track.dt || 0,
+      artist: (track.ar || track.artists || []).map(a => a.name || a).join(' / '),
+      artistId: (track.ar?.[0]?.id || track.artists?.[0]?.id) ? `netease_artist_${(track.ar?.[0]?.id || track.artists?.[0]?.id)}` : '',
+      album: track.al?.name || track.album?.name || '',
+      cover: track.al?.picUrl || track.album?.picUrl || '',
+      duration: formatDuration(track.dt || track.duration),
+      durationMs: track.dt || track.duration || 0,
       platform: '网易云音乐',
       audioUrl: '',
       vip: track.fee === 1 || track.fee === 4,
       platformIdNum: track.id
     }))
   } catch (e) {
+    console.error(`NetEase playlist ${id} error:`, e.message)
     return null
   }
 }
@@ -64,6 +75,8 @@ export async function getToplist() {
           cover: songs[0]?.cover || '',
           songs
         })
+      } else {
+        console.error(`NetEase list ${list.id} (${list.name}) returned no songs`)
       }
     }
     return result.length ? result : null
