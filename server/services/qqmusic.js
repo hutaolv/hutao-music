@@ -201,6 +201,8 @@ export async function getArtistSongs(artistMid) {
 }
 
 export async function getSongUrl(mid, mediaMid) {
+  const guid = String(Math.floor(Math.random() * 10000000000))
+  const useMid = mediaMid || mid
   try {
     const { data } = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
       headers: {
@@ -215,8 +217,8 @@ export async function getSongUrl(mid, mediaMid) {
             module: 'vkey.GetVkeyServer',
             method: 'CgiGetVkey',
             param: {
-              guid: '1234567890',
-              songmid: [mid],
+              guid,
+              songmid: [useMid],
               songtype: [0],
               uin: '0',
               loginflag: 1,
