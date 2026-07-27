@@ -8,7 +8,7 @@ const headers = {
 
 const cookieHeaders = {
   ...headers,
-  'Cookie': 'buvid3=local; b_nut=1700000000; _uuid=local'
+  'Cookie': 'buvid3=26E3B8D0-3C4D-4A7E-9B2E-5F4A2D1C6B8E12345infoc; b_nut=1700000000; _uuid=A1B2C3D4-1234-5678-9ABC-DEF012345678; buvid_fp=cl5w; buvid4=26E3B8D0-3C4D-4A7E-9B2E-5F4A2D1C6B8E12345-20240101-123456-A1B2C3D4'
 }
 
 export async function getToplist() {
