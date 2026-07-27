@@ -91,7 +91,9 @@ function selectColor(c) {
 }
 
 function onMouseDown(e) {
+  if (e.target.closest('button') || e.target.closest('.color-picker') || e.target.closest('.resize-handle')) return
   isDragging = true
+  containerRef.value.style.cursor = 'grabbing'
   startX = e.clientX
   startY = e.clientY
   const rect = containerRef.value.getBoundingClientRect()
@@ -119,6 +121,7 @@ function onMouseUp() {
   if (isResizing) { isResizing = false; document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); return }
   isDragging = false
   if (containerRef.value) {
+    containerRef.value.style.cursor = 'grab'
     const rect = containerRef.value.getBoundingClientRect()
     setDesktopLyricsPos({ top: rect.top, right: window.innerWidth - rect.right })
   }
@@ -136,8 +139,8 @@ function startResize(e) {
 }
 
 onMounted(() => {
-  const h = headerRef.value
-  if (h) h.addEventListener('mousedown', onMouseDown)
+  const el = containerRef.value
+  if (el) el.addEventListener('mousedown', onMouseDown)
 })
 
 onUnmounted(() => {
@@ -154,9 +157,9 @@ onUnmounted(() => {
   padding: 0;
   min-width: 160px;
   max-width: 600px;
-  cursor: move;
   user-select: none;
   pointer-events: auto;
+  cursor: grab;
 }
 .desktop-header {
   display: flex;
@@ -165,7 +168,6 @@ onUnmounted(() => {
   padding: 4px;
   opacity: 0;
   transition: opacity 0.2s;
-  cursor: move;
 }
 .desktop-lyrics:hover .desktop-header { opacity: 1; }
 .desktop-controls {
@@ -202,7 +204,6 @@ onUnmounted(() => {
 .color-swatch:hover { border-color: rgba(255,255,255,0.5); }
 .color-swatch.active { border-color: white; }
 .desktop-body {
-  cursor: default;
   padding: 0 8px;
 }
 .desktop-next-row {
