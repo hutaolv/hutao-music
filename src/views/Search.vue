@@ -17,10 +17,7 @@
       </div>
 
       <div v-if="!keyword && !searchHistory.length" class="section">
-        <h3 class="section-title" style="font-size:18px;">热门搜索</h3>
-        <div class="hot-tags">
-          <span v-for="tag in hotSearchTags" :key="tag" class="hot-tag" @click="clickHistory(tag)">{{ tag }}</span>
-        </div>
+        <p class="no-result">输入关键词开始搜索</p>
       </div>
 
       <div v-if="keyword" class="section">
@@ -52,8 +49,6 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { platforms } from '../data/mockData'
-import { searchSongs as mockSearchSongs, searchArtists as mockSearchArtists, hotSearchTags } from '../data/mockData'
 import { searchAll as apiSearchAll } from '../services/api'
 import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils/storage'
 import SongCard from '../components/SongCard.vue'
@@ -85,39 +80,14 @@ async function doSearch() {
   addSearchHistory(kw)
   searchHistory.value = getSearchHistory()
 
-  let apiSongs = []
-  let apiArtists = []
   try {
     const apiData = await apiSearchAll(kw)
-    apiSongs = apiData?.songs || []
-    apiArtists = apiData?.artists || []
-  } catch {}
-
-  const mockSongs = mockSearchSongs(kw)
-  const mockArtists = mockSearchArtists(kw)
-
-  const platformsWithApi = new Set(apiSongs.map(s => s.platform))
-  const platformsWithMock = new Set(mockSongs.map(s => s.platform))
-
-  const mergedSongs = [...apiSongs]
-
-  for (const platform of platforms) {
-    if (!platformsWithApi.has(platform) && platformsWithMock.has(platform)) {
-      const platformMock = mockSongs.filter(s => s.platform === platform)
-      mergedSongs.push(...platformMock)
-    }
+    songResults.value = apiData?.songs || []
+    artistResults.value = apiData?.artists || []
+  } catch {
+    songResults.value = []
+    artistResults.value = []
   }
-
-  const apiPlatforms = new Set(apiArtists.map(a => a.platform))
-  const mergedArtists = [...apiArtists]
-  for (const artist of mockArtists) {
-    if (!apiArtists.find(a => a.id === artist.id)) {
-      mergedArtists.push(artist)
-    }
-  }
-
-  songResults.value = mergedSongs
-  artistResults.value = mergedArtists
   router.replace({ query: { q: kw } })
 }
 

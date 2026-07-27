@@ -1,17 +1,8 @@
 <template>
   <div class="home">
-    <div class="banner-section">
-      <div class="banner" v-for="b in banners" :key="b.id" :style="{ background: b.color }">
-        <div class="banner-content">
-          <h2>{{ b.title }}</h2>
-          <p>{{ b.subtitle }}</p>
-        </div>
-      </div>
-    </div>
-
     <section class="section">
       <h2 class="section-title">热门榜单速览</h2>
-      <div class="chart-preview-grid">
+      <div v-if="Object.keys(top3ByPlatform).length" class="chart-preview-grid">
         <div v-for="(songs, platform) in top3ByPlatform" :key="platform" class="chart-preview-card" @click="router.push('/charts')">
           <div class="chart-header" :style="{ borderColor: platformColors[platform] }">
             <span class="chart-platform" :style="{ color: platformColors[platform] }">{{ platform }}</span>
@@ -26,13 +17,7 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">热门歌手推荐</h2>
-      <div class="artist-grid">
-        <ArtistCard v-for="artist in hotArtists" :key="artist.id" :artist="artist" />
-      </div>
+      <p v-else class="no-result">正在加载榜单数据...</p>
     </section>
 
     <section class="section" v-if="recentPlays.length">
@@ -48,10 +33,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { platforms, platformColors, platformSongs, artists, banners } from '../data/mockData'
+import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
 import { getRecentPlays } from '../utils/storage'
-import ArtistCard from '../components/ArtistCard.vue'
 import SongCard from '../components/SongCard.vue'
 
 const router = useRouter()
@@ -66,16 +50,9 @@ const top3ByPlatform = computed(() => {
     const live = liveCharts.value[platform]
     if (live?.songs?.length) {
       result[platform] = live.songs.slice(0, 3)
-    } else {
-      result[platform] = (platformSongs[platform] || []).slice(0, 3)
     }
   }
   return result
-})
-
-const hotArtists = computed(() => {
-  const shuffled = [...artists].sort(() => Math.random() - 0.5)
-  return shuffled.slice(0, 12)
 })
 
 onMounted(async () => {
@@ -93,37 +70,9 @@ onMounted(async () => {
 <style scoped>
 .home { padding-bottom: 32px; }
 
-.banner-section {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-bottom: 40px;
-}
-
-.banner {
-  border-radius: var(--radius);
-  padding: 32px;
-  min-height: 160px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.banner:hover { transform: translateY(-2px); }
-
-.banner-content h2 {
-  font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-
-.banner-content p {
-  font-size: 14px;
-  opacity: 0.8;
-}
-
 .section { margin-bottom: 40px; }
+
+.no-result { padding: 40px; text-align: center; color: var(--text-muted); font-size: 15px; }
 
 .chart-preview-grid {
   display: grid;
@@ -201,12 +150,6 @@ onMounted(async () => {
   margin-top: 2px;
 }
 
-.artist-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
-}
-
 .recent-list {
   background: var(--bg-card);
   border-radius: var(--radius);
@@ -215,7 +158,6 @@ onMounted(async () => {
 
 @media (max-width: 1024px) {
   .chart-preview-grid { grid-template-columns: repeat(3, 1fr); }
-  .banner-section { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

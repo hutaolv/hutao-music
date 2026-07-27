@@ -1,16 +1,9 @@
 <template>
   <div class="artist-detail">
-    <div v-if="artist" class="artist-header">
-      <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" @error="e => e.target.style.display = 'none'" />
+    <div v-if="songs.length" class="artist-header">
+      <img :src="songs[0]?.cover" :alt="songs[0]?.artist" class="artist-avatar" @error="e => e.target.style.display = 'none'" />
       <div class="artist-info">
-        <h1 class="artist-name">{{ artist.name }}</h1>
-        <div class="artist-meta">
-          <span>{{ artist.region }}</span>
-          <span class="dot">&middot;</span>
-          <span>{{ artist.genre }}</span>
-          <span class="dot">&middot;</span>
-          <span>{{ (artist.fans / 10000).toFixed(1) }}万粉丝</span>
-        </div>
+        <h1 class="artist-name">{{ songs[0]?.artist || '歌手' }}</h1>
         <div class="artist-actions">
           <button class="play-all-btn" @click="playAll">&#x25B6; 播放全部</button>
         </div>
@@ -41,10 +34,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { getArtistById, getSongsByArtist, platformColors } from '../data/mockData'
+import { platformColors } from '../data/platforms'
 import { getArtistSongs as apiArtistSongs } from '../services/api'
 
 const router = useRouter()
@@ -56,21 +49,12 @@ const songs = ref([])
 
 onMounted(async () => {
   const id = route.params.id
-  artist.value = getArtistById(id)
-
   if (id.startsWith('netease_artist_')) {
     const realId = id.replace('netease_artist_', '')
-    const apiSongs = await apiArtistSongs('网易云音乐', realId)
-    if (apiSongs?.length) { songs.value = apiSongs; return }
-  }
-  if (id.startsWith('qqmusic_artist_')) {
+    songs.value = await apiArtistSongs('网易云音乐', realId) || []
+  } else if (id.startsWith('qqmusic_artist_')) {
     const realId = id.replace('qqmusic_artist_', '')
-    const apiSongs = await apiArtistSongs('QQ音乐', realId)
-    if (apiSongs?.length) { songs.value = apiSongs; return }
-  }
-
-  if (artist.value) {
-    songs.value = getSongsByArtist(id)
+    songs.value = await apiArtistSongs('QQ音乐', realId) || []
   }
 })
 

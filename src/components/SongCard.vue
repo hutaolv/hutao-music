@@ -20,7 +20,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
-import { platformColors } from '../data/mockData'
+import { platformColors } from '../data/platforms'
 
 const props = defineProps({
   song: { type: Object, required: true },

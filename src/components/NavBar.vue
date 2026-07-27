@@ -29,8 +29,7 @@ const keyword = ref('')
 const navItems = [
   { path: '/', name: '首页' },
   { path: '/charts', name: '排行榜' },
-  { path: '/search', name: '搜索' },
-  { path: '/artists', name: '歌手' }
+  { path: '/search', name: '搜索' }
 ]
 
 function doSearch() {

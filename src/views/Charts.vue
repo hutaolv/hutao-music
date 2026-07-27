@@ -8,8 +8,9 @@
     </div>
 
     <div v-if="loading" class="loading-bar">正在获取 {{ activePlatform }} 最新榜单...</div>
+    <div v-if="!loading && !currentSongs.length" class="no-result">暂无榜单数据</div>
 
-    <div class="chart-header-row">
+    <div v-if="currentSongs.length" class="chart-header-row">
       <span class="col-rank">#</span>
       <span class="col-cover"></span>
       <span class="col-title">歌曲</span>
@@ -18,7 +19,7 @@
       <span class="col-action">操作</span>
     </div>
 
-    <div class="chart-list">
+    <div v-if="currentSongs.length" class="chart-list">
       <div v-for="(song, idx) in currentSongs" :key="song.id" class="chart-row" @dblclick="store.playSong(song)">
         <span class="col-rank">
           <span class="rank-badge" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
@@ -45,7 +46,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
-import { platforms, platformColors, platformSongs } from '../data/mockData'
+import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 
@@ -58,7 +59,7 @@ const loading = ref(false)
 const currentSongs = computed(() => {
   const live = liveData.value[activePlatform.value]
   if (live?.songs?.length) return live.songs
-  return platformSongs[activePlatform.value] || []
+  return []
 })
 
 async function loadPlatform(platform) {
@@ -212,6 +213,8 @@ function toggleFav(song) {
 .play-btn:hover { color: var(--accent-light); }
 .add-btn:hover { color: #10b981; }
 .fav-btn.favorited { color: #ef4444; }
+
+.no-result { padding: 40px; text-align: center; color: var(--text-muted); font-size: 15px; }
 
 .loading-bar {
   padding: 12px 16px;
