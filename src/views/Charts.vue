@@ -4,7 +4,11 @@
     <p class="section-subtitle">汇聚五大平台热门歌曲，每日更新</p>
 
     <div class="platform-tabs">
-      <button v-for="p in platforms" :key="p" class="platform-tab" :class="{ active: activePlatform === p }" :style="activePlatform === p ? { color: platformColors[p], borderColor: platformColors[p] } : {}" @click="activePlatform = p">{{ p }}</button>
+      <button v-for="p in platforms" :key="p" class="platform-tab" :class="{ active: activePlatform === p }" :style="activePlatform === p ? { color: platformColors[p], borderColor: platformColors[p] } : {}" @click="switchPlatform(p)">{{ p }}</button>
+    </div>
+
+    <div v-if="sublists.length > 1" class="sublist-tabs">
+      <button v-for="(list, i) in sublists" :key="i" class="sublist-tab" :class="{ active: activeSubList === i }" @click="activeSubList = i">{{ list.name }}</button>
     </div>
 
     <div v-if="loading" class="loading-bar">正在获取 {{ activePlatform }} 最新榜单...</div>
@@ -52,22 +56,33 @@ import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 
 const store = usePlayerStore()
 const activePlatform = ref(platforms[0])
+const activeSubList = ref(0)
 
 const liveData = ref({})
 const loading = ref(false)
 
-const currentSongs = computed(() => {
-  const live = liveData.value[activePlatform.value]
-  if (live?.songs?.length) return live.songs
-  return []
+const sublists = computed(() => {
+  return liveData.value[activePlatform.value] || []
 })
+
+const currentSongs = computed(() => {
+  const lists = liveData.value[activePlatform.value]
+  if (!lists?.length) return []
+  const list = lists[activeSubList.value]
+  return list?.songs || []
+})
+
+function switchPlatform(p) {
+  activePlatform.value = p
+  activeSubList.value = 0
+}
 
 async function loadPlatform(platform) {
   loading.value = true
   try {
     const data = await fetchCharts(platform)
-    if (data?.[0]?.songs?.length) {
-      liveData.value[platform] = data[0]
+    if (data?.length) {
+      liveData.value[platform] = data
     }
   } catch (e) {
   } finally {
@@ -100,7 +115,7 @@ function toggleFav(song) {
 .platform-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
@@ -122,6 +137,36 @@ function toggleFav(song) {
 
 .platform-tab.active {
   background: transparent;
+}
+
+.sublist-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  padding-left: 4px;
+}
+
+.sublist-tab {
+  padding: 6px 16px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.sublist-tab:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-muted);
+}
+
+.sublist-tab.active {
+  color: var(--accent-light);
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .chart-header-row, .chart-row {

@@ -23,7 +23,7 @@ export async function getToplist() {
       return null
     }
     console.log(`Bilibili ranking OK: ${items.length} songs`)
-    const songs = items.slice(0, 50).map(v => ({
+    const songs = items.map(v => ({
       id: `bilibili_${v.bvid}`,
       platformId: v.bvid,
       title: v.title.replace(/<[^>]*>/g, ''),
