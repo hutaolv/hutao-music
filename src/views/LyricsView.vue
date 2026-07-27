@@ -165,6 +165,7 @@ function onImgError(e) {
   text-align: center;
   transition: color 0.4s, font-size 0.4s, font-weight 0.4s;
   padding: 6px 0;
+  cursor: pointer;
 }
 .lyric-line.active {
   color: var(--text-primary);

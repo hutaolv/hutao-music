@@ -456,6 +456,7 @@ onUnmounted(() => {
   text-align: center;
   transition: color 0.3s, font-size 0.3s;
   padding: 4px 0;
+  cursor: pointer;
 }
 
 .lyric-line.active {
