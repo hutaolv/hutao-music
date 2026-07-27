@@ -239,6 +239,20 @@ export async function getSongUrl(mid, mediaMid) {
   }
 }
 
+export async function getLyrics(mid) {
+  try {
+    const { data } = await axios.get('https://api.qq.com/api/v2/lyric', {
+      headers,
+      params: { songmid: mid }
+    })
+    if (data?.code === 0 && data?.lyric) return { lyrics: data.lyric, transLyrics: '' }
+    return null
+  } catch (e) {
+    console.error('QQ lyrics error:', e.message)
+    return null
+  }
+}
+
 function formatDuration(s) {
   if (!s) return '0:00'
   const m = Math.floor(s / 60)

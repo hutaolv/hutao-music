@@ -46,6 +46,8 @@
       </div>
 
       <div class="player-right">
+        <button class="ctrl-btn" :class="{ active: showLyrics }" @click="showLyrics = !showLyrics" title="歌词">&#x1F3B5;</button>
+        <a v-if="downloadUrl" :href="downloadUrl" download class="ctrl-btn download-btn" title="下载">&#x2B07;</a>
         <button class="ctrl-btn" @click="toggleMute">&#x1F50A;</button>
         <div class="volume-bar" ref="volumeRef" @click="seekVolume">
           <div class="volume-track">
@@ -54,6 +56,15 @@
         </div>
       </div>
     </div>
+
+    <transition name="slide-up">
+      <div v-if="showLyrics && currentLyrics" class="lyrics-panel">
+        <div class="lyrics-content">
+          <pre>{{ currentLyrics }}</pre>
+          <pre v-if="currentTransLyrics" class="trans">{{ currentTransLyrics }}</pre>
+        </div>
+      </div>
+    </transition>
 
     <transition name="slide-up">
       <Playlist v-if="store.showPlaylist" />
@@ -65,7 +76,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
-import { getSongUrl } from '../services/api'
+import { getSongUrl, getLyrics } from '../services/api'
 import Playlist from './Playlist.vue'
 
 const store = usePlayerStore()
@@ -73,6 +84,10 @@ const progressRef = ref(null)
 const volumeRef = ref(null)
 const audioEl = ref(null)
 const isFav = ref(false)
+const showLyrics = ref(false)
+const currentLyrics = ref('')
+const currentTransLyrics = ref('')
+const downloadUrl = ref('')
 
 const durationSec = computed(() => {
   if (!store.currentSong) return 0
@@ -120,6 +135,10 @@ function onEnded() {
 
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
+  showLyrics.value = false
+  currentLyrics.value = ''
+  currentTransLyrics.value = ''
+  downloadUrl.value = ''
   if (song) {
     isFav.value = getFavorites().some(s => s.id === song.id)
     let url = song.audioUrl || song.sourceUrl || ''
@@ -130,11 +149,23 @@ watch(() => store.currentSong, async (song) => {
       audio.src = url
       audio.play().catch(() => {})
       store.isPlaying = true
+      downloadUrl.value = url
+      fetchLyrics(song)
     } else {
       simulatePlayback()
     }
   }
 }, { immediate: true })
+
+async function fetchLyrics(song) {
+  try {
+    const result = await getLyrics(song)
+    if (result?.lyrics) {
+      currentLyrics.value = result.lyrics
+      currentTransLyrics.value = result.transLyrics || ''
+    }
+  } catch {}
+}
 
 watch(() => store.isPlaying, (playing) => {
   if (!audio) return
@@ -241,178 +272,80 @@ onUnmounted(() => {
   gap: 24px;
 }
 
-.player-left {
-  width: 280px;
-  flex-shrink: 0;
-}
+.player-left { width: 280px; flex-shrink: 0; }
 
-.song-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
+.song-info { display: flex; align-items: center; gap: 12px; }
+.song-info .cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+.song-info .text .title { font-size: 14px; font-weight: 600; color: var(--text-primary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.song-info .text .artist { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.song-info.empty .text .title { color: var(--text-muted); }
 
-.song-info .cover {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  object-fit: cover;
-}
-
-.song-info .text .title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.song-info .text .artist {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.song-info.empty .text .title {
-  color: var(--text-muted);
-}
-
-.fav-btn {
-  font-size: 18px;
-  color: var(--text-muted);
-  transition: color 0.2s, transform 0.2s;
-  margin-left: auto;
-}
-
+.fav-btn { font-size: 18px; color: var(--text-muted); transition: color 0.2s, transform 0.2s; margin-left: auto; }
 .fav-btn:hover { color: var(--text-secondary); }
 .fav-btn.favorited { color: #ef4444; }
 
-.player-center {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
+.player-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.controls { display: flex; align-items: center; gap: 16px; }
 
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.ctrl-btn {
-  font-size: 18px;
-  color: var(--text-secondary);
-  transition: color 0.2s;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-}
-
+.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .ctrl-btn.active { color: var(--accent-light); }
 
-.play-btn {
-  width: 40px;
-  height: 40px;
-  background: var(--accent);
-  color: white;
-  font-size: 16px;
-}
-
+.play-btn { width: 40px; height: 40px; background: var(--accent); color: white; font-size: 16px; }
 .play-btn:hover { background: var(--accent-light); color: white; }
 
-.progress-area {
-  width: 100%;
-  max-width: 520px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.time {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 35px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.progress-track {
-  width: 100%;
-  height: 4px;
-  background: var(--border-color);
-  border-radius: 2px;
-  position: relative;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width 0.1s linear;
-}
-
-.progress-thumb {
-  position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  background: white;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  opacity: 0;
-  transition: opacity 0.2s;
-  pointer-events: none;
-}
-
+.progress-area { width: 100%; max-width: 520px; display: flex; align-items: center; gap: 12px; }
+.time { font-size: 11px; color: var(--text-muted); min-width: 35px; text-align: center; font-variant-numeric: tabular-nums; }
+.progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
+.progress-track { width: 100%; height: 4px; background: var(--border-color); border-radius: 2px; position: relative; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s linear; }
+.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
 .progress-bar:hover .progress-thumb { opacity: 1; }
 .progress-bar:hover .progress-track { height: 6px; }
 .progress-bar:hover .progress-fill { height: 6px; }
 
-.player-right {
-  width: 200px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  justify-content: flex-end;
+.player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
+
+.download-btn { text-decoration: none; }
+.download-btn:hover { color: #10b981; }
+
+.volume-bar { width: 100px; height: 20px; display: flex; align-items: center; cursor: pointer; }
+.volume-track { width: 100%; height: 4px; background: var(--border-color); border-radius: 2px; }
+.volume-fill { height: 100%; background: var(--accent-light); border-radius: 2px; }
+
+.lyrics-panel {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 600px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: rgba(12, 12, 20, 0.96);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  padding: 20px;
 }
 
-.volume-bar {
-  width: 100px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
+.lyrics-content pre {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  margin: 0;
 }
 
-.volume-track {
-  width: 100%;
-  height: 4px;
-  background: var(--border-color);
-  border-radius: 2px;
-}
+.lyrics-content .trans { color: var(--text-muted); font-size: 13px; margin-top: 12px; }
 
-.volume-fill {
-  height: 100%;
-  background: var(--accent-light);
-  border-radius: 2px;
-}
+.lyrics-panel::-webkit-scrollbar { width: 4px; }
+.lyrics-panel::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+.slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s, opacity 0.3s; }
+.slide-up-enter-from, .slide-up-leave-to { transform: translateY(20px); opacity: 0; }
 
 @media (max-width: 768px) {
   .player-left { width: 180px; }

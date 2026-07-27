@@ -181,6 +181,23 @@ export async function getSongUrl(id) {
   }
 }
 
+export async function getLyrics(id) {
+  try {
+    const { data } = await axios.get(`https://music.163.com/api/song/lyric`, {
+      headers: cookieHeaders,
+      params: { id, lv: 1, kv: 1, tv: -1 }
+    })
+    if (data.code !== 200) return null
+    return {
+      lyrics: data.lrc?.lyric || '',
+      transLyrics: data.tlyric?.lyric || ''
+    }
+  } catch (e) {
+    console.error('NetEase lyrics error:', e.message)
+    return null
+  }
+}
+
 function formatDuration(ms) {
   if (!ms) return '0:00'
   const s = Math.floor(ms / 1000)
