@@ -15,7 +15,8 @@
         <div v-for="(line, i) in parsedLyrics" :key="i"
           class="lyric-line"
           :class="{ active: store.currentLyricIndex === i }"
-          :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }">
+          :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }"
+          @click="seekTo(line.time)">
           {{ line.text }}
         </div>
       </div>
@@ -65,6 +66,10 @@ watch(() => store.currentLyricIndex, () => {
 
 function toggleDesktop() {
   store.desktopLyrics = !store.desktopLyrics
+}
+
+function seekTo(time) {
+  store.seekTime = time
 }
 
 function goBack() {

@@ -66,7 +66,8 @@
           <div v-for="(line, i) in parsedLyrics" :key="i"
             class="lyric-line"
             :class="{ active: store.currentLyricIndex === i }"
-            :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }">
+            :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }"
+            @click="seekTo(line.time)">
             {{ line.text }}
           </div>
         </div>
@@ -117,6 +118,10 @@ const parsedLyrics = computed(() => {
 
 function goLyrics() {
   router.push('/lyrics')
+}
+
+function seekTo(time) {
+  store.seekTime = time
 }
 
 const durationSec = computed(() => {
@@ -234,6 +239,14 @@ watch(() => store.isPlaying, (playing) => {
 
 watch(() => store.volume, (v) => {
   if (audio) audio.volume = v
+})
+
+watch(() => store.seekTime, (t) => {
+  if (t >= 0 && audio && audio.src) {
+    audio.currentTime = t
+    store.currentTime = t
+    store.seekTime = -1
+  }
 })
 
 function simulatePlayback() {
