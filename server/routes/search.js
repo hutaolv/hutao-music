@@ -4,6 +4,7 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as qishui from '../services/qishui.js'
+import * as migu from '../services/migu.js'
 
 const router = Router()
 
@@ -28,19 +29,21 @@ router.get('/', async (req, res) => {
     }
 
     if (type === 'song' || !type) {
-      const [n, q, b, d, qs] = await Promise.allSettled([
+      const [n, q, b, d, qs, mg] = await Promise.allSettled([
         netease.searchSongs(keyword),
         qqmusic.searchSongs(keyword),
         bilibili.searchSongs(keyword),
         douyin.searchSongs(keyword),
-        qishui.searchSongs(keyword)
+        qishui.searchSongs(keyword),
+        migu.searchSongs(keyword)
       ])
       results.songs = [
         ...(n.status === 'fulfilled' ? n.value : []),
         ...(q.status === 'fulfilled' ? q.value : []),
         ...(b.status === 'fulfilled' ? b.value : []),
         ...(d.status === 'fulfilled' ? d.value : []),
-        ...(qs.status === 'fulfilled' ? qs.value : [])
+        ...(qs.status === 'fulfilled' ? qs.value : []),
+        ...(mg.status === 'fulfilled' ? mg.value : [])
       ]
     }
 
