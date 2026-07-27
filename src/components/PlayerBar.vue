@@ -73,6 +73,10 @@
     <transition name="slide-up">
       <Playlist v-if="store.showPlaylist" />
     </transition>
+
+    <transition name="fade">
+      <div v-if="vipToast" class="vip-toast">付费音乐，暂时无法播放，2秒后自动跳过</div>
+    </transition>
   </div>
 </template>
 
@@ -130,6 +134,8 @@ const playModeText = computed(() => {
   }
 })
 
+const vipToast = ref(false)
+let vipSkipTimer = null
 let audio = null
 let intervalId = null
 
@@ -172,12 +178,25 @@ function onEnded() {
 
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
+  if (vipSkipTimer) { clearTimeout(vipSkipTimer); vipSkipTimer = null }
+  vipToast.value = false
   showLyrics.value = false
   rawLyrics.value = ''
   rawTransLyrics.value = ''
   downloadUrl.value = ''
   currentLyricIndex.value = -1
   if (song) {
+    if (song.vip) {
+      store.isPlaying = false
+      audio.pause()
+      audio.src = ''
+      vipToast.value = true
+      vipSkipTimer = setTimeout(() => {
+        vipToast.value = false
+        store.playNext()
+      }, 2000)
+      return
+    }
     isFav.value = getFavorites().some(s => s.id === song.id)
     let url = song.audioUrl || song.sourceUrl || ''
     if (!url) {
@@ -200,7 +219,7 @@ watch(() => store.currentSong, async (song) => {
 }, { immediate: true })
 
 watch(() => store.isPlaying, (playing) => {
-  if (!audio) return
+  if (!audio || store.currentSong?.vip) return
   if (playing && audio.src) {
     audio.play().catch(() => {})
   } else {
@@ -318,6 +337,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearInterval(intervalId)
+  if (vipSkipTimer) clearTimeout(vipSkipTimer)
   if (audio) {
     audio.pause()
     audio = null
@@ -431,6 +451,25 @@ onUnmounted(() => {
 
 .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s, opacity 0.3s; }
 .slide-up-enter-from, .slide-up-leave-to { transform: translateY(20px); opacity: 0; }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.vip-toast {
+  position: absolute;
+  top: -48px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(239, 68, 68, 0.92);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  z-index: 300;
+  pointer-events: none;
+}
 
 @media (max-width: 768px) {
   .player-left { width: 180px; }
