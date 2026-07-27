@@ -44,7 +44,7 @@ export async function getToplist() {
         return [{
           name: '汽水音乐热榜',
           cover: songs[0]?.cover_medium?.url || songs[0]?.cover_thumb?.url || '',
-          songs: songs.slice(0, 50).map(mapSong)
+          songs: songs.map(mapSong)
         }]
       }
       console.log(`Qishui endpoint ${ep.url}: status=${res.status}, keys=${Object.keys(res.data || {}).join(',')}`)
@@ -70,7 +70,7 @@ export async function getToplist() {
       return [{
         name: '汽水音乐热榜',
         cover: allSongs[0]?.cover_medium?.url || allSongs[0]?.cover_thumb?.url || '',
-        songs: allSongs.slice(0, 50).map(mapSong)
+        songs: allSongs.map(mapSong)
       }]
     }
   } catch (e) {

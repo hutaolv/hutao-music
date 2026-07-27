@@ -43,7 +43,7 @@ async function getPlaylist(id) {
       console.error(`NetEase playlist ${id} no tracks, keys:`, Object.keys(data?.result || data?.playlist || data || {}))
       return null
     }
-    return rawTracks.slice(0, 50).map(track => ({
+    return rawTracks.map(track => ({
       id: `netease_${track.id}`,
       platformId: String(track.id),
       title: track.name,

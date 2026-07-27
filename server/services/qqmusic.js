@@ -60,13 +60,13 @@ async function getToplistDetail(topId) {
           detail: {
             module: 'musicToplist.ToplistInfoServer',
             method: 'GetDetail',
-            param: { topId, offset: 0, num: 50 }
+            param: { topId, offset: 0, num: 100 }
           }
         })
       }
     })
     const songList = data?.detail?.data?.songInfoList || []
-    return songList.slice(0, 50).map((track, i) => ({
+    return songList.map((track, i) => ({
       id: `qqmusic_${track.id || track.mid}`,
       platformId: String(track.mid || track.id),
       title: track.title || track.name,

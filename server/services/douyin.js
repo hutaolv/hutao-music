@@ -47,7 +47,7 @@ export async function getToplist() {
         return [{
           name: '抖音热歌榜',
           cover: songs[0]?.cover || songs[0]?.cover_url || '',
-          songs: songs.slice(0, 50).map(mapSong)
+          songs: songs.map(mapSong)
         }]
       }
       console.log(`Douyin endpoint ${ep.url}: status=${res.status}, has music_list=${!!res.data?.music_list}, keys=${Object.keys(res.data || {}).join(',')}`)
