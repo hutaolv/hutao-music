@@ -3,7 +3,7 @@
     <div class="player-inner">
       <div class="player-left">
         <div v-if="store.currentSong" class="song-info">
-          <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" />
+          <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" @click="goLyrics" />
           <div class="text">
             <div class="title">{{ store.currentSong.title }}</div>
             <div class="artist">{{ store.currentSong.artist }}</div>
@@ -46,7 +46,10 @@
       </div>
 
       <div class="player-right">
-        <button class="ctrl-btn" :class="{ active: showLyrics }" @click="showLyrics = !showLyrics" title="歌词">&#x1F3B5;</button>
+        <button class="ctrl-btn" :class="{ active: store.showLyricsPanel }" @click="store.showLyricsPanel = !store.showLyricsPanel" title="歌词面板">&#x1F3B5;</button>
+        <button class="ctrl-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
+        </button>
         <button v-if="downloadUrl" class="ctrl-btn download-btn" @click="downloadSong" title="下载">&#x2B07;</button>
         <button class="ctrl-btn" @click="toggleMute">&#x1F50A;</button>
         <div class="volume-bar" ref="volumeRef" @click="seekVolume">
@@ -58,12 +61,12 @@
     </div>
 
     <transition name="slide-up">
-      <div v-if="showLyrics && parsedLyrics.length" class="lyrics-panel" ref="lyricsRef">
+      <div v-if="store.showLyricsPanel && parsedLyrics.length" class="lyrics-panel" ref="lyricsRef">
         <div class="lyrics-content">
           <div v-for="(line, i) in parsedLyrics" :key="i"
             class="lyric-line"
-            :class="{ active: currentLyricIndex === i }"
-            :ref="el => { if (i === currentLyricIndex) lyricActiveEl = el }">
+            :class="{ active: store.currentLyricIndex === i }"
+            :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }">
             {{ line.text }}
           </div>
         </div>
@@ -82,25 +85,23 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import Playlist from './Playlist.vue'
 
 const store = usePlayerStore()
+const router = useRouter()
 const progressRef = ref(null)
 const volumeRef = ref(null)
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
 const isFav = ref(false)
-const showLyrics = ref(false)
-const currentLyricIndex = ref(-1)
 const downloadUrl = ref('')
-const rawLyrics = ref('')
-const rawTransLyrics = ref('')
 
 const parsedLyrics = computed(() => {
-  const lines = rawLyrics.value.split('\n')
+  const lines = store.rawLyrics.split('\n')
   const result = []
   for (const line of lines) {
     const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/)
@@ -113,6 +114,10 @@ const parsedLyrics = computed(() => {
   }
   return result.sort((a, b) => a.time - b.time)
 })
+
+function goLyrics() {
+  router.push('/lyrics')
+}
 
 const durationSec = computed(() => {
   if (!store.currentSong) return 0
@@ -157,8 +162,8 @@ function updateLyrics() {
   for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
     if (t >= parsedLyrics.value[i].time) { idx = i; break }
   }
-  if (idx !== currentLyricIndex.value) {
-    currentLyricIndex.value = idx
+  if (idx !== store.currentLyricIndex) {
+    store.currentLyricIndex = idx
     if (idx >= 0) {
       nextTick(() => {
         lyricActiveEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -180,11 +185,11 @@ watch(() => store.currentSong, async (song) => {
   if (!audio) return
   if (vipSkipTimer) { clearTimeout(vipSkipTimer); vipSkipTimer = null }
   vipToast.value = false
-  showLyrics.value = false
-  rawLyrics.value = ''
-  rawTransLyrics.value = ''
+  store.showLyricsPanel = false
+  store.rawLyrics = ''
+  store.rawTransLyrics = ''
+  store.currentLyricIndex = -1
   downloadUrl.value = ''
-  currentLyricIndex.value = -1
   if (song) {
     if (song.vip) {
       store.isPlaying = false
@@ -209,8 +214,8 @@ watch(() => store.currentSong, async (song) => {
       downloadUrl.value = url
       const lrc = await getLyrics(song)
       if (lrc) {
-        rawLyrics.value = lrc.lyrics || ''
-        rawTransLyrics.value = lrc.transLyrics || ''
+        store.rawLyrics = lrc.lyrics || ''
+        store.rawTransLyrics = lrc.transLyrics || ''
       }
     } else {
       simulatePlayback()
@@ -235,7 +240,7 @@ function simulatePlayback() {
   clearInterval(intervalId)
   if (!store.currentSong || !store.isPlaying) return
   store.currentTime = 0
-  currentLyricIndex.value = -1
+  store.currentLyricIndex = -1
   intervalId = setInterval(() => {
     if (store.isPlaying) {
       store.currentTime += 1
@@ -254,8 +259,8 @@ function updateSimulatedLyrics() {
   for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
     if (t >= parsedLyrics.value[i].time) { idx = i; break }
   }
-  if (idx !== currentLyricIndex.value) {
-    currentLyricIndex.value = idx
+  if (idx !== store.currentLyricIndex) {
+    store.currentLyricIndex = idx
     if (idx >= 0) {
       nextTick(() => {
         lyricActiveEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
