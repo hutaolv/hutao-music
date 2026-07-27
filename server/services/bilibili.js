@@ -37,7 +37,7 @@ export async function getToplist() {
       album: item.album || '',
       cover: item.mv_cover || item.creation_cover || item.cover_url || '',
       duration: formatDuration(item.creation_duration),
-      durationMs: (item.creation_duration || 0) * 1000,
+      durationMs: parseDuration(item.creation_duration) * 1000,
       platform: 'B站',
       audioUrl: '',
       bvid: item.creation_bvid || item.mv_bvid || '',
@@ -76,7 +76,7 @@ export async function searchSongs(keyword, limit = 50) {
       album: v.tname || '',
       cover: v.pic || '',
       duration: formatDuration(v.duration),
-      durationMs: (v.duration || 0) * 1000,
+      durationMs: parseDuration(v.duration) * 1000,
       platform: 'B站',
       audioUrl: '',
       bvid: v.bvid,
@@ -132,9 +132,17 @@ export async function getSongUrl(bvid, cid, musicId) {
   }
 }
 
+function parseDuration(s) {
+  if (!s) return 0
+  if (typeof s === 'number') return s
+  const parts = s.split(':')
+  if (parts.length >= 2) return parseInt(parts[0]) * 60 + parseInt(parts[1])
+  return parseInt(s) || 0
+}
+
 function formatDuration(s) {
-  if (!s) return '0:00'
-  const m = Math.floor(s / 60)
-  const sec = Math.floor(s % 60)
+  const total = parseDuration(s)
+  const m = Math.floor(total / 60)
+  const sec = Math.floor(total % 60)
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
