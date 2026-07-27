@@ -10,11 +10,11 @@ const headers = {
 
 export async function getToplist() {
   try {
-    const { data } = await axios.get(`${BASE}/api/search/music/hot/`, {
+    const { data } = await axios.get(`${BASE}/api/explore/`, {
       headers,
-      params: { offset: 0, limit: 50 }
+      params: { page: 1, page_size: 50 }
     })
-    const songs = data?.data || []
+    const songs = data?.data?.list || data?.data || []
     if (!songs.length) return null
 
     return [{
