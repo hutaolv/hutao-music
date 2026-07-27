@@ -152,7 +152,8 @@ function generatePlatformSongs(platform, startIdx, count) {
       duration: randomDuration(),
       platform,
       audioUrl: '',
-      lyrics: ''
+      lyrics: '',
+      vip: (platform === '网易云音乐' || platform === 'QQ音乐') ? Math.random() < 0.2 : false
     })
   }
   return songs

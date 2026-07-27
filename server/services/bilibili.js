@@ -87,7 +87,6 @@ export async function searchSongs(keyword, limit = 50) {
     return []
   }
 }
-}
 
 export async function getSongUrl(bvid, cid, musicId) {
   try {
