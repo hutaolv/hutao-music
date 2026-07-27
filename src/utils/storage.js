@@ -73,3 +73,25 @@ export function getVolume() {
 export function saveVolume(v) {
   localStorage.setItem(KEYS.VOLUME, String(v))
 }
+
+const DL_KEYS = {
+  COLOR: 'musichub_desktop_lyrics_color',
+  POS: 'musichub_desktop_lyrics_pos'
+}
+
+export function getDesktopLyricsColor() {
+  return localStorage.getItem(DL_KEYS.COLOR) || '#818cf8'
+}
+
+export function setDesktopLyricsColor(c) {
+  localStorage.setItem(DL_KEYS.COLOR, c)
+}
+
+export function getDesktopLyricsPos() {
+  const saved = localStorage.getItem(DL_KEYS.POS)
+  return saved ? JSON.parse(saved) : { top: 80, right: 24 }
+}
+
+export function setDesktopLyricsPos(pos) {
+  localStorage.setItem(DL_KEYS.POS, JSON.stringify(pos))
+}
