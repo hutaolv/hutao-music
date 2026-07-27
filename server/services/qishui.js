@@ -10,16 +10,11 @@ const headers = {
 
 export async function getToplist() {
   try {
-    let songs = []
-    try {
-      const { data } = await axios.get(`${BASE}/api/recommend/hot/`, {
-        headers,
-        params: { offset: 0, limit: 50 }
-      })
-      songs = data?.data?.list || data?.data || []
-    } catch {
-      songs = []
-    }
+    const { data } = await axios.get(`${BASE}/api/explore/`, {
+      headers,
+      params: { page: 1, page_size: 50 }
+    })
+    const songs = data?.data?.list || data?.data || []
     if (!songs.length) return null
 
     return [{
@@ -37,7 +32,8 @@ export async function getToplist() {
         durationMs: (item.duration || 0) * 1000,
         platform: '汽水音乐',
         audioUrl: item.play_url?.url_list?.[0] || '',
-        sourceUrl: item.play_url?.url_list?.[0] || ''
+        sourceUrl: item.play_url?.url_list?.[0] || '',
+        vip: false
       }))
     }]
   } catch (e) {
@@ -66,7 +62,8 @@ export async function searchSongs(keyword, limit = 50) {
         durationMs: (item.duration || 0) * 1000,
         platform: '汽水音乐',
         audioUrl: item.play_url?.url_list?.[0] || '',
-        sourceUrl: item.play_url?.url_list?.[0] || ''
+        sourceUrl: item.play_url?.url_list?.[0] || '',
+        vip: false
       }))
     }
     return []

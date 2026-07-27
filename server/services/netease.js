@@ -15,20 +15,20 @@ const KNOWN_LISTS = [
   { id: 2884035, name: '网易原创歌曲榜' }
 ]
 
+const cookieHeaders = {
+  ...headers,
+  'Cookie': 'appver=2.0.2; os=pc; osver=10.0; MUSIC_U=; __remember_me=true'
+}
+
 async function getPlaylist(id) {
   try {
-    const { data } = await axios.get(`${BASE}/playlist/detail`, {
-      headers: { ...headers, 'Cookie': 'appver=2.0.2; os=pc' },
-      params: { id }
+    const { data } = await axios.get(`https://music.163.com/api/v3/playlist/detail`, {
+      headers: cookieHeaders,
+      params: { id, n: 50, s: 0, t: -1 }
     })
-    if (data.code !== 200 || !data?.playlist?.trackIds?.length) return null
-    const ids = data.playlist.trackIds.slice(0, 50).map(t => t.id).join(',')
-    const { data: detail } = await axios.get(`${BASE}/song/detail`, {
-      headers: { ...headers, 'Cookie': 'appver=2.0.2; os=pc' },
-      params: { ids }
-    })
-    if (detail.code !== 200 || !detail.songs?.length) return null
-    return detail.songs.map(track => ({
+    const tracks = data?.playlist?.tracks || []
+    if (!tracks.length) return null
+    return tracks.slice(0, 50).map(track => ({
       id: `netease_${track.id}`,
       platformId: String(track.id),
       title: track.name,
