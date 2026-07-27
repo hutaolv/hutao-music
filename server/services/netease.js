@@ -14,11 +14,12 @@ export async function getToplist() {
       headers: { ...headers, 'Cookie': 'appver=2.0.2' },
       params: { csrf_token: '' }
     })
-    if (data.code !== 200) return null
+    if (data.code !== 200 || !data.list?.length) return null
 
     const topList = data.list.slice(0, 4)
     const result = []
     for (const list of topList) {
+      if (!list.tracks?.length) continue
       const songs = list.tracks.slice(0, 50).map((track, i) => ({
         id: `netease_${track.id}`,
         platformId: String(track.id),
