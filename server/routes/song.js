@@ -3,6 +3,7 @@ import axios from 'axios'
 import * as netease from '../services/netease.js'
 import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
+import * as migu from '../services/migu.js'
 
 const router = Router()
 
@@ -36,7 +37,7 @@ function getDemoUrl(id) {
 }
 
 router.get('/url', async (req, res) => {
-  const { platform, id, bvid, cid, mid, mediaMid, musicId } = req.query
+  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId } = req.query
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
@@ -57,6 +58,9 @@ router.get('/url', async (req, res) => {
       case '汽水音乐':
         url = req.query.sourceUrl || null
         break
+      case '咪咕音乐':
+        url = await migu.getSongUrl(contentId || id, copyrightId)
+        break
     }
     if (!url) url = getDemoUrl(id)
     res.json({ code: 200, data: { url } })
@@ -66,7 +70,7 @@ router.get('/url', async (req, res) => {
 })
 
 router.get('/lyrics', async (req, res) => {
-  const { platform, id, mid, lyricUrl } = req.query
+  const { platform, id, mid, lyricUrl, contentId } = req.query
   if (!platform || !id) return res.json({ code: 400, message: 'platform and id required' })
 
   try {
@@ -96,6 +100,9 @@ router.get('/lyrics', async (req, res) => {
             lyrics = { lyrics: lrc, transLyrics: '' }
           }
         }
+        break
+      case '咪咕音乐':
+        lyrics = await migu.getLyrics(contentId || id)
         break
     }
     res.json({ code: 200, data: lyrics || { lyrics: '', transLyrics: '' } })

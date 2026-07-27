@@ -4,6 +4,7 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as qishui from '../services/qishui.js'
+import * as migu from '../services/migu.js'
 
 const router = Router()
 
@@ -12,7 +13,8 @@ const services = {
   'QQ音乐': qqmusic,
   'B站': bilibili,
   '抖音': douyin,
-  '汽水音乐': qishui
+  '汽水音乐': qishui,
+  '咪咕音乐': migu
 }
 
 router.get('/', async (req, res) => {
