@@ -3,7 +3,12 @@
     <div class="player-inner">
       <div class="player-left">
         <div v-if="store.currentSong" class="song-info">
-          <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" @click="goLyrics" />
+          <div class="cover-wrap" @click="goLyrics">
+            <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" />
+            <div class="cover-expand">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            </div>
+          </div>
           <div class="text">
             <div class="title">{{ store.currentSong.title }}</div>
             <div class="artist">{{ store.currentSong.artist }}</div>
@@ -389,7 +394,14 @@ onUnmounted(() => {
 .player-left { width: 280px; flex-shrink: 0; }
 
 .song-info { display: flex; align-items: center; gap: 12px; }
-.song-info .cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+.cover-wrap { position: relative; width: 48px; height: 48px; flex-shrink: 0; cursor: pointer; border-radius: 8px; overflow: hidden; }
+.cover-wrap:hover .cover-expand { opacity: 1; }
+.song-info .cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; display: block; }
+.cover-expand {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.45); opacity: 0; transition: opacity 0.2s;
+  border-radius: 8px; color: white;
+}
 .song-info .text .title { font-size: 14px; font-weight: 600; color: var(--text-primary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .song-info .text .artist { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 .song-info.empty .text .title { color: var(--text-muted); }
