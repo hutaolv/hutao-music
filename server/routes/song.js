@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import axios from 'axios'
 import * as netease from '../services/netease.js'
 import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
@@ -65,7 +66,7 @@ router.get('/url', async (req, res) => {
 })
 
 router.get('/lyrics', async (req, res) => {
-  const { platform, id, mid } = req.query
+  const { platform, id, mid, lyricUrl } = req.query
   if (!platform || !id) return res.json({ code: 400, message: 'platform and id required' })
 
   try {
@@ -78,7 +79,23 @@ router.get('/lyrics', async (req, res) => {
         lyrics = await qqmusic.getLyrics(mid || id)
         break
       case 'B站':
-        lyrics = await bilibili.getLyrics(req.query.id, req.query.lyricUrl)
+        lyrics = await bilibili.getLyrics(id, lyricUrl)
+        break
+      case '抖音':
+      case '汽水音乐':
+        if (lyricUrl) {
+          const { data } = await axios.get(lyricUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 })
+          if (Array.isArray(data)) {
+            const lrc = data.map(line => {
+              const t = parseFloat(line.timeId)
+              const m = Math.floor(t / 60)
+              const s = Math.floor(t % 60)
+              const ms = Math.round((t - Math.floor(t)) * 100)
+              return `[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}]${line.text}`
+            }).join('\n')
+            lyrics = { lyrics: lrc, transLyrics: '' }
+          }
+        }
         break
     }
     res.json({ code: 200, data: lyrics || { lyrics: '', transLyrics: '' } })

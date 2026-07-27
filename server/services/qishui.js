@@ -1,97 +1,90 @@
 import axios from 'axios'
 
-const BASE = 'https://music.douyin.com'
+const CHART_API = 'https://api3-normal-c-lf.amemv.com/aweme/v1/chart/music/list/'
+
+const charts = [
+
+  { id: '7456941237036320787', name: '汽水热歌榜' },
+ // { id: '6853972723954146568', name: '汽水热歌榜' },
+  { id: '6854399861215730952', name: '汽水飙升榜' },
+  { id: '6854399861215747336', name: '汽水原创榜' }
+]
 
 const headers = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': 'https://music.douyin.com/',
-  'Origin': 'https://music.douyin.com'
+  'Referer': 'https://www.douyin.com/'
 }
 
-const endpoints = [
-  { url: `${BASE}/api/explore/`, params: { page: 1, page_size: 50 } },
-  { url: `${BASE}/api/recommend/hot/`, params: { offset: 0, limit: 50 } },
-  { url: `${BASE}/api/recommend/`, params: { page: 1, page_size: 50 } },
-  { url: `${BASE}/api/search/music/`, params: { keyword: '热歌', offset: 0, limit: 50 } }
-]
-
 function mapSong(item) {
+  const m = item.music_info || item
   return {
-    id: `qishui_${item.id}`,
-    platformId: String(item.id),
-    title: item.title || '未知歌曲',
-    artist: item.author || '未知',
+    id: `qishui_${m.id_str}`,
+    platformId: m.id_str,
+    title: m.title || '未知歌曲',
+    artist: m.author || '未知',
     artistId: '',
-    album: item.album || '',
-    cover: item.cover_medium?.url || item.cover_thumb?.url || item.cover || '',
-    duration: formatDuration(item.duration),
-    durationMs: (item.duration || 0) * 1000,
+    album: m.album || '',
+    cover: m.cover_large?.url_list?.[0] || m.cover_thumb?.url_list?.[0] || '',
+    duration: formatDuration(m.duration),
+    durationMs: (m.duration || 0) * 1000,
     platform: '汽水音乐',
-    audioUrl: item.play_url?.url_list?.[0] || '',
-    sourceUrl: item.play_url?.url_list?.[0] || '',
+    audioUrl: m.play_url?.url_list?.[0] || '',
+    sourceUrl: m.play_url?.url_list?.[0] || '',
+    lyricUrl: m.lyric_url || '',
     vip: false
   }
 }
 
 export async function getToplist() {
-  const hotKeywords = ['热歌', '流行', '新歌', '抖音热歌', '热门']
-  for (const ep of endpoints) {
+  const result = []
+  for (const chart of charts) {
     try {
-      const res = await axios.get(ep.url, { headers, params: ep.params, timeout: 8000 })
-      const songs = res.data?.data?.list || res.data?.data || res.data?.musics || []
-      if (songs.length) {
-        console.log(`Qishui toplist OK: ${ep.url} => ${songs.length} songs`)
-        return [{
-          name: '汽水音乐热榜',
-          cover: songs[0]?.cover_medium?.url || songs[0]?.cover_thumb?.url || '',
-          songs: songs.map(mapSong)
-        }]
-      }
-      console.log(`Qishui endpoint ${ep.url}: status=${res.status}, keys=${Object.keys(res.data || {}).join(',')}`)
-    } catch (e) {
-      console.error(`Qishui endpoint ${ep.url}: ${e.message}`)
-    }
-  }
-  // fallback: use search API with trending keywords
-  try {
-    const allSongs = []
-    for (const kw of hotKeywords) {
-      const { data } = await axios.get(`${BASE}/api/search/music/v2/`, {
-        headers, params: { keyword: kw, offset: 0, limit: 20 }, timeout: 5000
+      const { data } = await axios.get(CHART_API, {
+        headers,
+        params: { chart_id: chart.id, count: 100, cursor: 0, aid: 1128 },
+        timeout: 10000
       })
-      const songs = data?.data || data?.musics || []
-      for (const s of songs) {
-        if (!allSongs.find(x => x.id === s.id)) allSongs.push(s)
+      if (data?.status_code === 0 && data?.music_list?.length) {
+        result.push({
+          name: chart.name,
+          cover: data.music_list[0]?.music_info?.cover_large?.url_list?.[0] || '',
+          songs: data.music_list.map(mapSong)
+        })
       }
-      if (allSongs.length >= 30) break
+    } catch (e) {
+      console.error(`Qishui chart ${chart.name} error:`, e.message)
     }
-    if (allSongs.length) {
-      console.log(`Qishui toplist fallback: ${allSongs.length} songs from search`)
-      return [{
-        name: '汽水音乐热榜',
-        cover: allSongs[0]?.cover_medium?.url || allSongs[0]?.cover_thumb?.url || '',
-        songs: allSongs.map(mapSong)
-      }]
-    }
-  } catch (e) {
-    console.error('Qishui search fallback error:', e.message)
   }
-  console.error('Qishui toplist: all endpoints + search fallback failed')
-  return null
+  return result.length ? result : null
 }
 
 export async function searchSongs(keyword, limit = 50) {
   try {
-    const { data } = await axios.get(`${BASE}/api/search/music/v2/`, {
-      headers,
-      params: { keyword, offset: 0, limit }
+    const { data } = await axios.get('https://music.douyin.com/api/search/music/v2/', {
+      headers: { ...headers, 'Referer': 'https://music.douyin.com/', 'Origin': 'https://music.douyin.com' },
+      params: { keyword, offset: 0, limit },
+      timeout: 8000
     })
     const songs = data?.data || data?.musics || []
-    return songs.slice(0, limit).map(mapSong)
+    if (songs.length) return songs.slice(0, limit).map(s => ({
+      id: `qishui_${s.id}`,
+      platformId: String(s.id),
+      title: s.title || '未知歌曲',
+      artist: s.author || '未知',
+      artistId: '',
+      album: s.album || '',
+      cover: s.cover_medium?.url || s.cover_thumb?.url || s.cover || '',
+      duration: formatDuration(s.duration),
+      durationMs: (s.duration || 0) * 1000,
+      platform: '汽水音乐',
+      audioUrl: s.play_url?.url_list?.[0] || '',
+      sourceUrl: s.play_url?.url_list?.[0] || '',
+      vip: false
+    }))
   } catch (e) {
     console.error('Qishui search error:', e.message)
-    return []
   }
+  return []
 }
 
 function formatDuration(s) {
