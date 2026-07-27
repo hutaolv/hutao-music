@@ -2,7 +2,13 @@ import axios from 'axios'
 
 const headers = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': 'https://www.bilibili.com/'
+  'Referer': 'https://www.bilibili.com/',
+  'Origin': 'https://www.bilibili.com'
+}
+
+const cookieHeaders = {
+  ...headers,
+  'Cookie': 'buvid3=local; b_nut=1700000000; _uuid=local'
 }
 
 export async function getToplist() {
@@ -53,18 +59,22 @@ export async function getToplist() {
 export async function searchSongs(keyword, limit = 50) {
   try {
     const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
-      headers,
-      params: { search_type: 'music', keyword, page: 1 }
+      headers: cookieHeaders,
+      params: { search_type: 'video', keyword, page: 1, order: 'click' }
     })
     const results = data?.data?.result || []
-    return results.slice(0, limit).map(v => ({
-      id: `bilibili_${v.bvid || v.music_id || v.id}`,
-      platformId: v.bvid || v.music_id || '',
-      title: (v.title || v.music_title || '').replace(/<[^>]*>/g, ''),
-      artist: v.author || v.singer || v.uname || '未知',
-      artistId: v.mid || v.up_mid ? `bilibili_artist_${v.mid || v.up_mid}` : '',
-      album: '',
-      cover: v.pic || v.cover || v.music_cover || '',
+    const musicResults = results.filter(v =>
+      v.tag === '音乐' || v.tname === '音乐' || v.tname?.includes('音乐')
+    )
+    const finalList = musicResults.length > 5 ? musicResults : results.slice(0, limit)
+    return finalList.slice(0, limit).map(v => ({
+      id: `bilibili_${v.bvid}`,
+      platformId: v.bvid,
+      title: v.title.replace(/<[^>]*>/g, ''),
+      artist: v.author || '未知',
+      artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
+      album: v.tname || '',
+      cover: v.pic || '',
       duration: formatDuration(v.duration),
       durationMs: (v.duration || 0) * 1000,
       platform: 'B站',
@@ -76,6 +86,7 @@ export async function searchSongs(keyword, limit = 50) {
     console.error('Bilibili search error:', e.message)
     return []
   }
+}
 }
 
 export async function getSongUrl(bvid, cid, musicId) {
