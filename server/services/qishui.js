@@ -43,25 +43,28 @@ export async function getToplist() {
 
 export async function searchSongs(keyword, limit = 50) {
   try {
-    const { data } = await axios.get(`${BASE}/api/search/music/`, {
+    const { data } = await axios.get(`${BASE}/api/search/music/v2/`, {
       headers,
       params: { keyword, offset: 0, limit }
     })
-    const songs = data?.data || []
-    return songs.map(item => ({
-      id: `qishui_${item.id}`,
-      platformId: String(item.id),
-      title: item.title || '未知歌曲',
-      artist: item.author || '未知',
-      artistId: '',
-      album: item.album || '',
-      cover: item.cover_medium?.url || item.cover_thumb?.url || '',
-      duration: formatDuration(item.duration),
-      durationMs: (item.duration || 0) * 1000,
-      platform: '汽水音乐',
-      audioUrl: item.play_url?.url_list?.[0] || '',
-      sourceUrl: item.play_url?.url_list?.[0] || ''
-    }))
+    const songs = data?.data || data?.musics || []
+    if (songs.length) {
+      return songs.slice(0, limit).map(item => ({
+        id: `qishui_${item.id}`,
+        platformId: String(item.id),
+        title: item.title || '未知歌曲',
+        artist: item.author || '未知',
+        artistId: '',
+        album: item.album || '',
+        cover: item.cover_medium?.url || item.cover_thumb?.url || item.cover || '',
+        duration: formatDuration(item.duration),
+        durationMs: (item.duration || 0) * 1000,
+        platform: '汽水音乐',
+        audioUrl: item.play_url?.url_list?.[0] || '',
+        sourceUrl: item.play_url?.url_list?.[0] || ''
+      }))
+    }
+    return []
   } catch (e) {
     console.error('Qishui search error:', e.message)
     return []
