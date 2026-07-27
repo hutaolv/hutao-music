@@ -12,6 +12,11 @@ export const usePlayerStore = defineStore('player', () => {
   const duration = ref(0)
   const playMode = ref('sequence')
   const showPlaylist = ref(false)
+  const rawLyrics = ref('')
+  const rawTransLyrics = ref('')
+  const currentLyricIndex = ref(-1)
+  const desktopLyrics = ref(false)
+  const showLyricsPanel = ref(false)
 
   const playModes = ['sequence', 'loop', 'random']
 
@@ -110,7 +115,8 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
-    playMode, showPlaylist, playModes, nextMode,
+    playMode,     showPlaylist, playModes, nextMode,
+    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
     clearPlaylist, setVolume, togglePlayMode, togglePlaylist
   }
