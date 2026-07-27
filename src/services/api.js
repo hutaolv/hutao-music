@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3001/api'
+const API_BASE = '/api'
 
 const DEMO_SONGS = [
   'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
@@ -85,6 +85,7 @@ export async function getSongUrl(song) {
   })
   if (song.bvid) params.set('bvid', song.bvid)
   if (song.cid) params.set('cid', song.cid)
+  if (song.auid) params.set('auid', song.auid)
   if (song.platformSongMid) params.set('mid', song.platformSongMid)
   if (song.platformMediaMid) params.set('mediaMid', song.platformMediaMid)
   if (song.sourceUrl) params.set('sourceUrl', song.sourceUrl)
@@ -105,6 +106,7 @@ export async function getSongUrl(song) {
 export async function getLyrics(song) {
   const params = new URLSearchParams({ platform: song.platform, id: song.platformId || song.id })
   if (song.platformSongMid) params.set('mid', song.platformSongMid)
+  if (song.lyricUrl) params.set('lyricUrl', song.lyricUrl)
   try {
     const res = await fetch(`${API_BASE}/song/lyrics?${params}`)
     const json = await res.json()

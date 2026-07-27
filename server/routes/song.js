@@ -50,7 +50,7 @@ router.get('/url', async (req, res) => {
         url = await qqmusic.getSongUrl(mid || id, mediaMid)
         break
       case 'B站':
-        url = await bilibili.getSongUrl(bvid, cid, musicId)
+        url = await bilibili.getSongUrl(req.query.auid || id)
         break
       case '抖音':
       case '汽水音乐':
@@ -76,6 +76,9 @@ router.get('/lyrics', async (req, res) => {
         break
       case 'QQ音乐':
         lyrics = await qqmusic.getLyrics(mid || id)
+        break
+      case 'B站':
+        lyrics = await bilibili.getLyrics(req.query.id, req.query.lyricUrl)
         break
     }
     res.json({ code: 200, data: lyrics || { lyrics: '', transLyrics: '' } })
