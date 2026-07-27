@@ -64,6 +64,26 @@ router.get('/url', async (req, res) => {
   }
 })
 
+router.get('/lyrics', async (req, res) => {
+  const { platform, id, mid } = req.query
+  if (!platform || !id) return res.json({ code: 400, message: 'platform and id required' })
+
+  try {
+    let lyrics = null
+    switch (platform) {
+      case '网易云音乐':
+        lyrics = await netease.getLyrics(id)
+        break
+      case 'QQ音乐':
+        lyrics = await qqmusic.getLyrics(mid || id)
+        break
+    }
+    res.json({ code: 200, data: lyrics || { lyrics: '', transLyrics: '' } })
+  } catch (e) {
+    res.json({ code: 200, data: { lyrics: '', transLyrics: '' } })
+  }
+})
+
 router.get('/artist', async (req, res) => {
   const { platform, artistId } = req.query
   if (!platform || !artistId) {

@@ -102,6 +102,19 @@ export async function getSongUrl(song) {
   return getDemoUrl(songId)
 }
 
+export async function getLyrics(song) {
+  const params = new URLSearchParams({ platform: song.platform, id: song.platformId || song.id })
+  if (song.platformSongMid) params.set('mid', song.platformSongMid)
+  try {
+    const res = await fetch(`${API_BASE}/song/lyrics?${params}`)
+    const json = await res.json()
+    if (json.code === 200 && json.data) return json.data
+    return { lyrics: '', transLyrics: '' }
+  } catch {
+    return { lyrics: '', transLyrics: '' }
+  }
+}
+
 export async function getArtistSongs(platform, artistId) {
   try {
     const res = await fetch(`${API_BASE}/song/artist?platform=${encodeURIComponent(platform)}&artistId=${encodeURIComponent(artistId)}`)
