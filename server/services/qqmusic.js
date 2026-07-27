@@ -27,19 +27,27 @@ export async function getToplist() {
 
     if (!data?.toplist?.data?.group) return null
 
-    const groups = data.toplist.data.group
+    const allToplists = []
+    for (const group of data.toplist.data.group) {
+      for (const t of group.toplist || []) {
+        allToplists.push(t)
+      }
+    }
+    const hotIdx = allToplists.findIndex(t => t.topId === 26)
+    if (hotIdx > 0) {
+      const hot = allToplists.splice(hotIdx, 1)[0]
+      allToplists.unshift(hot)
+    }
     const result = []
-    for (const group of groups) {
-      for (const toplist of group.toplist || []) {
-        if (result.length >= 3) break
-        const detail = await getToplistDetail(toplist.topId)
-        if (detail) {
-          result.push({
-            name: toplist.title,
-            cover: toplist.headPicUrl || toplist.frontPicUrl,
-            songs: detail
-          })
-        }
+    for (const toplist of allToplists) {
+      if (result.length >= 3) break
+      const detail = await getToplistDetail(toplist.topId)
+      if (detail) {
+        result.push({
+          name: toplist.title,
+          cover: toplist.headPicUrl || toplist.frontPicUrl,
+          songs: detail
+        })
       }
     }
     return result.length ? result : null
@@ -241,11 +249,15 @@ export async function getSongUrl(mid, mediaMid) {
 
 export async function getLyrics(mid) {
   try {
-    const { data } = await axios.get('https://api.qq.com/api/v2/lyric', {
-      headers,
-      params: { songmid: mid }
+    const { data } = await axios.get('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_yqq.fcg', {
+      headers: {
+        ...headers,
+        'Referer': `https://y.qq.com/n/yqq/song/${mid}.html`
+      },
+      params: { songmid: mid, nobase64: 1 }
     })
-    if (data?.code === 0 && data?.lyric) return { lyrics: data.lyric, transLyrics: '' }
+    if (data?.retcode === 0 && data?.lyric) return { lyrics: data.lyric, transLyrics: data.trans || '' }
+    if (data?.code === 0 && data?.lyric) return { lyrics: data.lyric, transLyrics: data.trans || '' }
     return null
   } catch (e) {
     console.error('QQ lyrics error:', e.message)
