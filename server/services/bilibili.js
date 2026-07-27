@@ -14,7 +14,7 @@ const cookieHeaders = {
 export async function getToplist() {
   try {
     const { data } = await axios.get('https://api.bilibili.com/x/copyright-music-publicity/toplist/all_period', {
-      headers,
+      headers: cookieHeaders,
       params: { list_type: 1 }
     })
     if (data.code !== 0 || !data.data?.list?.length) return null
@@ -23,7 +23,7 @@ export async function getToplist() {
     const listId = latestPeriod.id
 
     const { data: detail } = await axios.get('https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list', {
-      headers,
+      headers: cookieHeaders,
       params: { list_id: listId }
     })
     if (detail.code !== 0 || !detail.data?.list?.length) return null
@@ -40,6 +40,7 @@ export async function getToplist() {
       durationMs: parseDuration(item.creation_duration) * 1000,
       platform: 'B站',
       audioUrl: '',
+      vip: false,
       bvid: item.creation_bvid || item.mv_bvid || '',
       aid: item.creation_aid || item.mv_aid || 0,
       musicId: item.music_id
