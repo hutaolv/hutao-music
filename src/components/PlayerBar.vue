@@ -47,7 +47,7 @@
 
       <div class="player-right">
         <button class="ctrl-btn" :class="{ active: showLyrics }" @click="showLyrics = !showLyrics" title="歌词">&#x1F3B5;</button>
-        <a v-if="downloadUrl" :href="downloadUrl" download class="ctrl-btn download-btn" title="下载">&#x2B07;</a>
+        <button v-if="downloadUrl" class="ctrl-btn download-btn" @click="downloadSong" title="下载">&#x2B07;</button>
         <button class="ctrl-btn" @click="toggleMute">&#x1F50A;</button>
         <div class="volume-bar" ref="volumeRef" @click="seekVolume">
           <div class="volume-track">
@@ -58,10 +58,14 @@
     </div>
 
     <transition name="slide-up">
-      <div v-if="showLyrics && currentLyrics" class="lyrics-panel">
+      <div v-if="showLyrics && parsedLyrics.length" class="lyrics-panel" ref="lyricsRef">
         <div class="lyrics-content">
-          <pre>{{ currentLyrics }}</pre>
-          <pre v-if="currentTransLyrics" class="trans">{{ currentTransLyrics }}</pre>
+          <div v-for="(line, i) in parsedLyrics" :key="i"
+            class="lyric-line"
+            :class="{ active: currentLyricIndex === i }"
+            :ref="el => { if (i === currentLyricIndex) lyricActiveEl = el }">
+            {{ line.text }}
+          </div>
         </div>
       </div>
     </transition>
@@ -73,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
@@ -82,12 +86,29 @@ import Playlist from './Playlist.vue'
 const store = usePlayerStore()
 const progressRef = ref(null)
 const volumeRef = ref(null)
-const audioEl = ref(null)
+const lyricsRef = ref(null)
+const lyricActiveEl = ref(null)
 const isFav = ref(false)
 const showLyrics = ref(false)
-const currentLyrics = ref('')
-const currentTransLyrics = ref('')
+const currentLyricIndex = ref(-1)
 const downloadUrl = ref('')
+const rawLyrics = ref('')
+const rawTransLyrics = ref('')
+
+const parsedLyrics = computed(() => {
+  const lines = rawLyrics.value.split('\n')
+  const result = []
+  for (const line of lines) {
+    const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/)
+    if (match) {
+      const m = parseInt(match[1])
+      const s = parseInt(match[2])
+      const ms = parseInt(match[3].padEnd(3, '0'))
+      result.push({ time: m * 60 + s + ms / 1000, text: match[4].trim() })
+    }
+  }
+  return result.sort((a, b) => a.time - b.time)
+})
 
 const durationSec = computed(() => {
   if (!store.currentSong) return 0
@@ -115,13 +136,29 @@ let intervalId = null
 function initAudio() {
   audio = new Audio()
   audio.volume = store.volume
-  audio.addEventListener('timeupdate', () => {
-    store.currentTime = audio.currentTime
-  })
+  audio.addEventListener('timeupdate', updateLyrics)
   audio.addEventListener('ended', onEnded)
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
   })
+}
+
+function updateLyrics() {
+  store.currentTime = audio.currentTime
+  if (!parsedLyrics.value.length) return
+  const t = audio.currentTime
+  let idx = -1
+  for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
+    if (t >= parsedLyrics.value[i].time) { idx = i; break }
+  }
+  if (idx !== currentLyricIndex.value) {
+    currentLyricIndex.value = idx
+    if (idx >= 0) {
+      nextTick(() => {
+        lyricActiveEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+  }
 }
 
 function onEnded() {
@@ -136,9 +173,10 @@ function onEnded() {
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
   showLyrics.value = false
-  currentLyrics.value = ''
-  currentTransLyrics.value = ''
+  rawLyrics.value = ''
+  rawTransLyrics.value = ''
   downloadUrl.value = ''
+  currentLyricIndex.value = -1
   if (song) {
     isFav.value = getFavorites().some(s => s.id === song.id)
     let url = song.audioUrl || song.sourceUrl || ''
@@ -150,22 +188,16 @@ watch(() => store.currentSong, async (song) => {
       audio.play().catch(() => {})
       store.isPlaying = true
       downloadUrl.value = url
-      fetchLyrics(song)
+      const lrc = await getLyrics(song)
+      if (lrc) {
+        rawLyrics.value = lrc.lyrics || ''
+        rawTransLyrics.value = lrc.transLyrics || ''
+      }
     } else {
       simulatePlayback()
     }
   }
 }, { immediate: true })
-
-async function fetchLyrics(song) {
-  try {
-    const result = await getLyrics(song)
-    if (result?.lyrics) {
-      currentLyrics.value = result.lyrics
-      currentTransLyrics.value = result.transLyrics || ''
-    }
-  } catch {}
-}
 
 watch(() => store.isPlaying, (playing) => {
   if (!audio) return
@@ -184,14 +216,58 @@ function simulatePlayback() {
   clearInterval(intervalId)
   if (!store.currentSong || !store.isPlaying) return
   store.currentTime = 0
+  currentLyricIndex.value = -1
   intervalId = setInterval(() => {
     if (store.isPlaying) {
       store.currentTime += 1
+      updateSimulatedLyrics()
       if (store.currentTime >= durationSec.value) {
         onEnded()
       }
     }
   }, 1000)
+}
+
+function updateSimulatedLyrics() {
+  if (!parsedLyrics.value.length) return
+  const t = store.currentTime
+  let idx = -1
+  for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
+    if (t >= parsedLyrics.value[i].time) { idx = i; break }
+  }
+  if (idx !== currentLyricIndex.value) {
+    currentLyricIndex.value = idx
+    if (idx >= 0) {
+      nextTick(() => {
+        lyricActiveEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+  }
+}
+
+async function downloadSong() {
+  if (!downloadUrl.value || !store.currentSong) return
+  try {
+    const res = await fetch(downloadUrl.value)
+    const blob = await res.blob()
+    const ext = blob.type.includes('mpeg') ? '.mp3' : blob.type.includes('aac') ? '.aac' : '.mp3'
+    const filename = `${store.currentSong.title} - ${store.currentSong.artist}${ext}`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(a.href)
+  } catch (e) {
+    console.warn('Download failed:', e.message)
+    const a = document.createElement('a')
+    a.href = downloadUrl.value
+    a.download = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
 }
 
 function seekProgress(e) {
@@ -287,7 +363,7 @@ onUnmounted(() => {
 .player-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .controls { display: flex; align-items: center; gap: 16px; }
 
-.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .ctrl-btn.active { color: var(--accent-light); }
 
@@ -306,7 +382,6 @@ onUnmounted(() => {
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
-.download-btn { text-decoration: none; }
 .download-btn:hover { color: #10b981; }
 
 .volume-bar { width: 100px; height: 20px; display: flex; align-items: center; cursor: pointer; }
@@ -321,7 +396,7 @@ onUnmounted(() => {
   width: 90%;
   max-width: 600px;
   max-height: 300px;
-  overflow-y: auto;
+  overflow: hidden;
   background: rgba(12, 12, 20, 0.96);
   border: 1px solid var(--border-color);
   border-bottom: none;
@@ -329,20 +404,30 @@ onUnmounted(() => {
   padding: 20px;
 }
 
-.lyrics-content pre {
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font-family: inherit;
-  margin: 0;
+.lyrics-content {
+  height: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
 }
 
-.lyrics-content .trans { color: var(--text-muted); font-size: 13px; margin-top: 12px; }
+.lyric-line {
+  font-size: 14px;
+  line-height: 2;
+  color: var(--text-muted);
+  text-align: center;
+  transition: color 0.3s, font-size 0.3s;
+  padding: 4px 0;
+}
 
-.lyrics-panel::-webkit-scrollbar { width: 4px; }
-.lyrics-panel::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+.lyric-line.active {
+  color: var(--accent-light);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.lyrics-content::-webkit-scrollbar { width: 4px; }
+.lyrics-content::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
 
 .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s, opacity 0.3s; }
 .slide-up-enter-from, .slide-up-leave-to { transform: translateY(20px); opacity: 0; }
