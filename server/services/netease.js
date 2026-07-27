@@ -24,11 +24,16 @@ async function getPlaylist(id) {
   try {
     const { data } = await axios.get(`https://music.163.com/api/v3/playlist/detail`, {
       headers: cookieHeaders,
-      params: { id, n: 50, s: 0, t: -1 }
+      params: { id, n: 1000, s: 0, t: -1 }
     })
-    const tracks = data?.playlist?.tracks || []
-    if (!tracks.length) return null
-    return tracks.slice(0, 50).map(track => ({
+    if (!data?.playlist?.trackIds?.length) return null
+    const ids = data.playlist.trackIds.slice(0, 50).map(t => t.id).join(',')
+    const { data: detail } = await axios.get(`https://music.163.com/api/song/detail`, {
+      headers: cookieHeaders,
+      params: { ids }
+    })
+    if (!detail?.songs?.length) return null
+    return detail.songs.map(track => ({
       id: `netease_${track.id}`,
       platformId: String(track.id),
       title: track.name,
@@ -150,7 +155,7 @@ export async function getArtistSongs(artistId) {
 export async function getSongUrl(id) {
   try {
     const { data } = await axios.get(`https://music.163.com/api/song/enhance/player/url`, {
-      headers: { ...headers, 'Cookie': 'appver=2.0.2' },
+      headers: cookieHeaders,
       params: { ids: `[${id}]`, br: 128000 }
     })
     if (data.code === 200 && data.data?.[0]?.url) {
