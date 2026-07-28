@@ -1,10 +1,14 @@
 import express from 'express'
 import cors from 'cors'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
+import { existsSync } from 'fs'
 import { Readable } from 'stream'
 import chartsRouter from './routes/charts.js'
 import searchRouter from './routes/search.js'
 import songRouter from './routes/song.js'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
 
@@ -66,6 +70,16 @@ app.get('/api/proxy/audio', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })
 })
+
+const distDir = resolve(__dirname, '../dist')
+if (existsSync(distDir)) {
+  app.use(express.static(distDir))
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(resolve(distDir, 'index.html'))
+    }
+  })
+}
 
 app.listen(PORT, () => {
   console.log(`MusicHub API Server running on http://localhost:${PORT}`)
