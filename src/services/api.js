@@ -41,9 +41,11 @@ export async function fetchCharts(platform) {
   }
 }
 
-export async function searchAll(keyword) {
+export async function searchAll(keyword, platform) {
+  let url = `${API_BASE}/search?keyword=${encodeURIComponent(keyword)}`
+  if (platform) url += `&platform=${encodeURIComponent(platform)}`
   try {
-    const res = await fetch(`${API_BASE}/search?keyword=${encodeURIComponent(keyword)}`)
+    const res = await fetch(url)
     const json = await res.json()
     if (json.code === 200) return json.data
     return { songs: [], artists: [] }

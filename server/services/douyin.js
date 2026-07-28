@@ -65,8 +65,7 @@ export async function searchSongs(keyword, limit = 50) {
     })
     const songs = data?.music_list || []
     if (songs.length) return songs.slice(0, limit).map(mapSong)
-  } catch (e) {
-    console.error('Douyin search error:', e.message)
+  } catch {
   }
   return []
 }
