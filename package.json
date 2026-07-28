@@ -5,15 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node server/index.js",
-    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "build:server": "cd server && npm install",
-    "start": "node server/index.js"
+    "preview": "vite preview"
   },
   "devDependencies": {
-    "concurrently": "^10.0.4",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   },
