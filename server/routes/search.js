@@ -3,13 +3,20 @@ import * as netease from '../services/netease.js'
 import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
-import * as qishui from '../services/qishui.js'
 import * as migu from '../services/migu.js'
 
 const router = Router()
 
+const serviceMap = {
+  '网易云音乐': { search: netease.searchSongs, artist: netease.searchArtists },
+  'QQ音乐': { search: qqmusic.searchSongs, artist: qqmusic.searchArtists },
+  'B站': { search: bilibili.search },
+  '抖音': { search: douyin.searchSongs },
+  '咪咕音乐': { search: migu.searchSongs }
+}
+
 router.get('/', async (req, res) => {
-  const { keyword, type } = req.query
+  const { keyword, type, platform } = req.query
   if (!keyword) {
     return res.json({ code: 400, message: 'keyword required' })
   }
@@ -18,33 +25,35 @@ router.get('/', async (req, res) => {
     const results = {}
 
     if (type === 'artist' || !type) {
-      const [neteaseArtists, qqArtists] = await Promise.allSettled([
-        netease.searchArtists(keyword),
-        qqmusic.searchArtists(keyword)
-      ])
-      results.artists = [
-        ...(neteaseArtists.status === 'fulfilled' ? neteaseArtists.value : []),
-        ...(qqArtists.status === 'fulfilled' ? qqArtists.value : [])
-      ]
+      if (platform && serviceMap[platform]?.artist) {
+        const artists = await serviceMap[platform].artist(keyword).catch(() => [])
+        results.artists = artists
+      } else {
+        const [neteaseArtists, qqArtists] = await Promise.allSettled([
+          netease.searchArtists(keyword),
+          qqmusic.searchArtists(keyword)
+        ])
+        results.artists = [
+          ...(neteaseArtists.status === 'fulfilled' ? neteaseArtists.value : []),
+          ...(qqArtists.status === 'fulfilled' ? qqArtists.value : [])
+        ]
+      }
     }
 
     if (type === 'song' || !type) {
-      const [n, q, b, d, qs, mg] = await Promise.allSettled([
-        netease.searchSongs(keyword),
-        qqmusic.searchSongs(keyword),
-        bilibili.searchSongs(keyword),
-        douyin.searchSongs(keyword),
-        qishui.searchSongs(keyword),
-        migu.searchSongs(keyword)
-      ])
-      results.songs = [
-        ...(n.status === 'fulfilled' ? n.value : []),
-        ...(q.status === 'fulfilled' ? q.value : []),
-        ...(b.status === 'fulfilled' ? b.value : []),
-        ...(d.status === 'fulfilled' ? d.value : []),
-        ...(qs.status === 'fulfilled' ? qs.value : []),
-        ...(mg.status === 'fulfilled' ? mg.value : [])
-      ]
+      if (platform && serviceMap[platform]) {
+        const songs = await serviceMap[platform].search(keyword).catch(() => [])
+        results.songs = songs
+      } else {
+        const allResults = await Promise.allSettled([
+          netease.searchSongs(keyword),
+          qqmusic.searchSongs(keyword),
+          bilibili.search(keyword),
+          douyin.searchSongs(keyword),
+          migu.searchSongs(keyword)
+        ])
+        results.songs = allResults.flatMap(r => r.status === 'fulfilled' ? r.value : [])
+      }
     }
 
     res.json({ code: 200, data: results })

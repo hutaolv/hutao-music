@@ -7,6 +7,15 @@
       <button class="search-submit" @click="doSearch">&#x1F50D;</button>
     </div>
 
+    <div class="platform-filters">
+      <span class="filter-label">平台：</span>
+      <span v-for="p in allPlatforms" :key="p"
+        class="platform-filter"
+        :class="{ active: selectedPlatform === p }"
+        :style="{ '--pf-color': platformColors[p] || '#6366f1' }"
+        @click="selectPlatform(p)">{{ p }}</span>
+    </div>
+
     <div class="search-content">
       <div v-if="!keyword && searchHistory.length" class="section">
         <h3 class="section-title" style="font-size:18px;">搜索历史</h3>
@@ -21,9 +30,9 @@
       </div>
 
       <div v-if="keyword" class="section">
-        <h3 class="section-title" style="font-size:18px;">歌曲结果 ({{ songResults.length }})</h3>
-        <div v-if="songResults.length" class="result-list">
-          <SongCard v-for="song in songResults" :key="song.id" :song="song" @play="store.playSong" />
+        <h3 class="section-title" style="font-size:18px;">歌曲结果 ({{ filteredSongs.length }})</h3>
+        <div v-if="filteredSongs.length" class="result-list">
+          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" @play="store.playSong" />
         </div>
         <p v-else class="no-result">未找到相关歌曲</p>
       </div>
@@ -46,11 +55,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { searchAll as apiSearchAll } from '../services/api'
 import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils/storage'
+import { platforms, platformColors } from '../data/platforms'
 import SongCard from '../components/SongCard.vue'
 
 const router = useRouter()
@@ -58,10 +68,22 @@ const route = useRoute()
 const store = usePlayerStore()
 
 const keyword = ref('')
-const songResults = ref([])
+const allSongs = ref([])
 const artistResults = ref([])
 const searchHistory = ref([])
+const selectedPlatform = ref('网易云音乐')
+const allPlatforms = platforms
 let debounceTimer = null
+
+const filteredSongs = computed(() => {
+  return allSongs.value.filter(s => s.platform === selectedPlatform.value)
+})
+
+function selectPlatform(p) {
+  if (selectedPlatform.value === p) return
+  selectedPlatform.value = p
+  if (keyword.value.trim()) doSearch()
+}
 
 function onInput() {
   clearTimeout(debounceTimer)
@@ -73,7 +95,7 @@ function onInput() {
 async function doSearch() {
   const kw = keyword.value.trim()
   if (!kw) {
-    songResults.value = []
+    allSongs.value = []
     artistResults.value = []
     return
   }
@@ -81,11 +103,11 @@ async function doSearch() {
   searchHistory.value = getSearchHistory()
 
   try {
-    const apiData = await apiSearchAll(kw)
-    songResults.value = apiData?.songs || []
+    const apiData = await apiSearchAll(kw, selectedPlatform.value)
+    allSongs.value = apiData?.songs || []
     artistResults.value = apiData?.artists || []
   } catch {
-    songResults.value = []
+    allSongs.value = []
     artistResults.value = []
   }
   router.replace({ query: { q: kw } })
@@ -115,7 +137,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   max-width: 600px;
-  margin-bottom: 32px;
+  margin-bottom: 16px;
   background: var(--bg-card);
   border-radius: 24px;
   border: 1px solid var(--border-color);
@@ -148,15 +170,50 @@ onMounted(() => {
 
 .search-submit:hover { background: var(--bg-hover); color: var(--accent-light); }
 
+.platform-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.filter-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.platform-filter {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.platform-filter:hover { border-color: var(--pf-color); color: var(--pf-color); }
+
+.platform-filter.active {
+  background: color-mix(in srgb, var(--pf-color) 20%, transparent);
+  border-color: var(--pf-color);
+  color: var(--pf-color);
+  font-weight: 600;
+}
+
 .section { margin-bottom: 32px; }
 
-.history-tags, .hot-tags {
+.history-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.history-tag, .hot-tag {
+.history-tag {
   padding: 8px 16px;
   border-radius: 16px;
   font-size: 13px;
@@ -167,12 +224,10 @@ onMounted(() => {
   border: 1px solid var(--border-color);
 }
 
-.history-tag:hover, .hot-tag:hover {
+.history-tag:hover {
   color: var(--accent-light);
   border-color: var(--accent);
 }
-
-.hot-tag { border-color: transparent; background: rgba(99, 102, 241, 0.1); color: var(--accent-light); }
 
 .clear-history {
   padding: 8px 16px;
