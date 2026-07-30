@@ -20,24 +20,34 @@
       <p v-else class="no-result">正在加载榜单数据...</p>
     </section>
 
-    <div class="fav-recent-row">
-      <section class="section section-half" v-if="favoriteSongs.length">
-        <h2 class="section-title">&#x2665; 我的喜欢</h2>
-        <div class="recent-list">
+    <!-- 我的喜欢 / 最近播放 标签切换 -->
+    <div class="fav-recent-section">
+      <div class="fav-recent-tabs">
+        <h2
+          class="section-title tab-title"
+          :class="{ active: activeSection === 'favorites' }"
+          @click="activeSection = 'favorites'"
+        >&#x2665; 我的喜欢</h2>
+        <h2
+          class="section-title tab-title"
+          :class="{ active: activeSection === 'recent' }"
+          @click="activeSection = 'recent'"
+        >最近播放</h2>
+      </div>
+
+      <div v-if="activeSection === 'favorites'">
+        <div v-if="favoriteSongs.length" class="recent-list">
           <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
-      </section>
-      <section class="section section-half" v-else>
-        <h2 class="section-title">&#x2665; 我的喜欢</h2>
-        <p class="no-result">还没有收藏歌曲</p>
-      </section>
+        <p v-else class="no-result">还没有收藏歌曲</p>
+      </div>
 
-      <section class="section section-half" v-if="recentPlays.length">
-        <h2 class="section-title">最近播放</h2>
-        <div class="recent-list">
+      <div v-else>
+        <div v-if="recentPlays.length" class="recent-list">
           <SongCard v-for="song in recentPlays" :key="song.id" :song="song" @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
-      </section>
+        <p v-else class="no-result">还没有播放记录</p>
+      </div>
     </div>
   </div>
 </template>
@@ -54,6 +64,7 @@ import SongCard from '../components/SongCard.vue'
 const router = useRouter()
 const store = usePlayerStore()
 
+const activeSection = ref('favorites')
 const recentPlays = ref([])
 const favoriteSongs = ref([])
 const liveCharts = ref({})
@@ -179,16 +190,51 @@ function refreshFavorites() {
   overflow: hidden;
 }
 
-.fav-recent-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+.fav-recent-section {
+  margin-bottom: 40px;
 }
 
-.section-half { margin-bottom: 0; }
+.fav-recent-tabs {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0;
+}
+
+.tab-title {
+  margin-bottom: 0;
+  padding-bottom: 12px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.2s;
+  position: relative;
+  font-size: 20px;
+  user-select: none;
+}
+
+.tab-title:hover {
+  color: var(--text-secondary);
+}
+
+.tab-title.active {
+  color: var(--accent-light);
+}
+
+.tab-title.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-light);
+  border-radius: 2px;
+}
 
 @media (max-width: 768px) {
-  .fav-recent-row { grid-template-columns: 1fr; }
+  .fav-recent-tabs { gap: 16px; }
+  .tab-title { font-size: 18px; }
 }
 
 @media (max-width: 1024px) {
