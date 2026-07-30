@@ -37,26 +37,19 @@ function mapSong(item) {
 }
 
 export async function getToplist() {
-  const result = []
-  for (const rank of RANK_IDS) {
-    try {
-      const { data } = await axios.get(`${SEARCH_BASE}/bmw/rank/rank-info/v1.0`, {
-        headers,
-        params: { pageNo: 1, rankId: rank.id, pageSize: 50 },
-        timeout: 10000
-      })
+  // 改为并行请求3个排行榜，代替原来串行
+  const results = await Promise.allSettled(RANK_IDS.map(rank =>
+    axios.get(`${SEARCH_BASE}/bmw/rank/rank-info/v1.0`, {
+      headers, params: { pageNo: 1, rankId: rank.id, pageSize: 50 }, timeout: 10000
+    }).then(({ data }) => {
       if (data?.code === '000000' && data?.data?.contents?.length) {
         const songs = data.data.contents.map(mapSong)
-        result.push({
-          name: rank.name,
-          cover: data.data.contents[0]?.img || songs[0]?.cover || '',
-          songs
-        })
+        return { name: rank.name, cover: data.data.contents[0]?.img || songs[0]?.cover || '', songs }
       }
-    } catch (e) {
-      console.error(`MiGu rank ${rank.name} error:`, e.message)
-    }
-  }
+      return null
+    }).catch(e => { console.error(`MiGu rank ${rank.name} error:`, e.message); return null })
+  ))
+  const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
   return result.length ? result : null
 }
 

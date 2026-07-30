@@ -77,15 +77,12 @@ async function fetchAudioMenu(sid, name) {
 }
 
 export async function getToplist() {
-  const result = []
-  for (const menu of menus) {
-    try {
-      const songs = await fetchAudioMenu(menu.sid, menu.name)
-      if (songs) result.push({ name: menu.name, cover: songs[0]?.cover || '', songs })
-    } catch (e) {
-      console.error(`Bilibili audio menu ${menu.name}(${menu.sid}): ${e.message}`)
-    }
-  }
+  // 改为并行请求3个音频菜单，代替原来串行
+  const results = await Promise.allSettled(menus.map(m =>
+    fetchAudioMenu(m.sid, m.name).then(songs => songs ? { name: m.name, cover: songs[0]?.cover || '', songs } : null)
+  ))
+  const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
+
   if (!result.length) {
     console.log('Bilibili audio menus all failed, trying video ranking fallback...')
     try {

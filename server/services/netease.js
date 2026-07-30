@@ -27,12 +27,13 @@ async function getPlaylist(id) {
       { url: `${BASE}/v3/playlist/detail`, params: { id, n: 50, s: 0, t: -1 } },
       { url: `https://music.163.com/api/v3/playlist/detail`, params: { id, n: 50, s: 0, t: -1 } }
     ]
+    // 并行请求3个备用端点，取第一个成功的，代替串行重试
+    const results = await Promise.allSettled(
+      endpoints.map(ep => axios.get(ep.url, { headers: cookieHeaders, params: ep.params, timeout: 8000 }))
+    )
     let data = null
-    for (const ep of endpoints) {
-      try {
-        const res = await axios.get(ep.url, { headers: cookieHeaders, params: ep.params })
-        if (res.data?.code === 200) { data = res.data; break }
-      } catch {}
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.data?.code === 200) { data = r.value.data; break }
     }
     if (!data) {
       console.error(`NetEase playlist ${id}: all endpoints failed`)
@@ -66,19 +67,11 @@ async function getPlaylist(id) {
 
 export async function getToplist() {
   try {
-    const result = []
-    for (const list of KNOWN_LISTS) {
-      const songs = await getPlaylist(list.id)
-      if (songs?.length) {
-        result.push({
-          name: list.name,
-          cover: songs[0]?.cover || '',
-          songs
-        })
-      } else {
-        console.error(`NetEase list ${list.id} (${list.name}) returned no songs`)
-      }
-    }
+    // 改为并行请求4个榜单，代替原来串行
+    const results = await Promise.allSettled(KNOWN_LISTS.map(list =>
+      getPlaylist(list.id).then(songs => songs?.length ? { name: list.name, cover: songs[0]?.cover || '', songs } : null)
+    ))
+    const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
     return result.length ? result : null
   } catch (e) {
     console.error('NetEase toplist error:', e.message)
