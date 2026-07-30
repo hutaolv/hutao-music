@@ -82,5 +82,5 @@ if (existsSync(distDir)) {
 }
 
 app.listen(PORT, () => {
-  console.log(`MusicHub API Server running on http://localhost:${PORT}`)
+  console.log(`胡桃音悦 API Server running on http://localhost:${PORT}`)
 })
