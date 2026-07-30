@@ -38,16 +38,14 @@ export async function getToplist() {
       const hot = allToplists.splice(hotIdx, 1)[0]
       allToplists.unshift(hot)
     }
+    const targets = allToplists.slice(0, 3)
+    // 改为并行请求3个榜单详情，代替原来串行
+    const details = await Promise.allSettled(targets.map(t => getToplistDetail(t.topId)))
     const result = []
-    for (const toplist of allToplists) {
-      if (result.length >= 3) break
-      const detail = await getToplistDetail(toplist.topId)
-      if (detail) {
-        result.push({
-          name: toplist.title,
-          cover: toplist.headPicUrl || toplist.frontPicUrl,
-          songs: detail
-        })
+    for (let i = 0; i < targets.length; i++) {
+      const r = details[i]
+      if (r.status === 'fulfilled' && r.value) {
+        result.push({ name: targets[i].title, cover: targets[i].headPicUrl || targets[i].frontPicUrl, songs: r.value })
       }
     }
     return result.length ? result : null

@@ -17,15 +17,30 @@ const services = {
   '咪咕音乐': migu
 }
 
+// 内存缓存：排行榜数据5分钟内不重复请求
+const cache = new Map()
+const CACHE_TTL = 300_000
+
+function getCached(key) {
+  const entry = cache.get(key)
+  if (entry && Date.now() - entry.time < CACHE_TTL) return entry.data
+  return null
+}
+function setCache(key, data) { cache.set(key, { data, time: Date.now() }) }
+
 router.get('/', async (req, res) => {
   const platform = req.query.platform
   if (!platform || !services[platform]) {
     return res.json({ code: 400, message: 'Invalid platform', platforms: Object.keys(services) })
   }
 
+  const cached = getCached(platform)
+  if (cached) return res.json({ code: 200, data: cached })
+
   try {
     const result = await services[platform].getToplist()
     if (result) {
+      setCache(platform, result)
       res.json({ code: 200, data: result })
     } else {
       res.json({ code: 200, data: null, message: `${platform} toplist fetch failed, using fallback` })

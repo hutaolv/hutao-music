@@ -49,7 +49,8 @@ const top3ByPlatform = computed(() => {
   for (const platform of platforms) {
     const live = liveCharts.value[platform]
     if (live?.songs?.length) {
-      result[platform] = live.songs.slice(0, 3)
+      // 首页每个平台显示前5首
+      result[platform] = live.songs.slice(0, 5)
     }
   }
   return result
