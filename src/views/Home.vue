@@ -20,12 +20,25 @@
       <p v-else class="no-result">正在加载榜单数据...</p>
     </section>
 
-    <section class="section" v-if="recentPlays.length">
-      <h2 class="section-title">最近播放</h2>
-      <div class="recent-list">
-        <SongCard v-for="song in recentPlays" :key="song.id" :song="song" @play="store.playSong" />
-      </div>
-    </section>
+    <div class="fav-recent-row">
+      <section class="section section-half" v-if="favoriteSongs.length">
+        <h2 class="section-title">&#x2665; 我的喜欢</h2>
+        <div class="recent-list">
+          <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" @play="store.playSong" @fav-changed="refreshFavorites" />
+        </div>
+      </section>
+      <section class="section section-half" v-else>
+        <h2 class="section-title">&#x2665; 我的喜欢</h2>
+        <p class="no-result">还没有收藏歌曲</p>
+      </section>
+
+      <section class="section section-half" v-if="recentPlays.length">
+        <h2 class="section-title">最近播放</h2>
+        <div class="recent-list">
+          <SongCard v-for="song in recentPlays" :key="song.id" :song="song" @play="store.playSong" @fav-changed="refreshFavorites" />
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -35,13 +48,14 @@ import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
-import { getRecentPlays } from '../utils/storage'
+import { getRecentPlays, getFavorites } from '../utils/storage'
 import SongCard from '../components/SongCard.vue'
 
 const router = useRouter()
 const store = usePlayerStore()
 
 const recentPlays = ref([])
+const favoriteSongs = ref([])
 const liveCharts = ref({})
 
 const top3ByPlatform = computed(() => {
@@ -57,7 +71,10 @@ const top3ByPlatform = computed(() => {
 })
 
 onMounted(async () => {
-  recentPlays.value = getRecentPlays().slice(0, 10)
+  // 最近播放最多50条
+  recentPlays.value = getRecentPlays().slice(0, 50)
+  // 我的喜欢最多50条
+  favoriteSongs.value = getFavorites().slice(0, 50)
   for (const platform of platforms) {
     fetchCharts(platform).then(data => {
       if (data?.[0]?.songs?.length) {
@@ -66,6 +83,11 @@ onMounted(async () => {
     }).catch(() => {})
   }
 })
+
+function refreshFavorites() {
+  favoriteSongs.value = getFavorites().slice(0, 50)
+  recentPlays.value = getRecentPlays().slice(0, 50)
+}
 </script>
 
 <style scoped>
@@ -155,6 +177,18 @@ onMounted(async () => {
   background: var(--bg-card);
   border-radius: var(--radius);
   overflow: hidden;
+}
+
+.fav-recent-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.section-half { margin-bottom: 0; }
+
+@media (max-width: 768px) {
+  .fav-recent-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1024px) {

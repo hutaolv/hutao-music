@@ -27,14 +27,10 @@ const props = defineProps({
   rank: { type: Number }
 })
 
-defineEmits(['play'])
+defineEmits(['play', 'fav-changed'])
 
-const isFav = ref(false)
+const isFav = ref(getFavorites().some(s => s.id === props.song.id))
 const platformColor = platformColors[props.song.platform] || '#6366f1'
-
-watch(() => props.song.id, () => {
-  isFav.value = getFavorites().some(s => s.id === props.song.id)
-}, { immediate: true })
 
 function hideImg(e) { e.target.style.display = 'none' }
 
