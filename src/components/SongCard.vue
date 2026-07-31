@@ -13,6 +13,11 @@
       <div class="artist">{{ song.artist }}</div>
     </div>
     <span class="duration">{{ song.duration }}</span>
+    <!-- showActions 为 true 时显示播放/添加到播放列表按钮（搜索结果等场景），点击不触发整卡播放 -->
+    <template v-if="showActions">
+      <button class="action-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
+      <button class="action-btn" @click.stop="$emit('add', song)" title="添加到播放列表">&#x2795;</button>
+    </template>
     <button class="fav-btn" :class="{ favorited: isFav }" @click.stop="toggleFav">&#x2665;</button>
   </div>
 </template>
@@ -24,10 +29,12 @@ import { platformColors } from '../data/platforms'
 
 const props = defineProps({
   song: { type: Object, required: true },
-  rank: { type: Number }
+  rank: { type: Number },
+  // 是否显示播放/添加到播放列表按钮，默认隐藏（保留原有整卡点击播放）
+  showActions: { type: Boolean, default: false }
 })
 
-defineEmits(['play', 'fav-changed'])
+defineEmits(['play', 'add', 'fav-changed'])
 
 const isFav = ref(getFavorites().some(s => s.id === props.song.id))
 const platformColor = platformColors[props.song.platform] || '#6366f1'
@@ -130,6 +137,22 @@ function toggleFav() {
   color: var(--text-muted);
   flex-shrink: 0;
 }
+
+/* 播放 / 添加到播放列表按钮 */
+.action-btn {
+  font-size: 14px;
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.action-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 
 .fav-btn {
   font-size: 16px;

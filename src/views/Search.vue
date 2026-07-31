@@ -32,7 +32,7 @@
       <div v-if="keyword" class="section">
         <h3 class="section-title" style="font-size:18px;">歌曲结果 ({{ filteredSongs.length }})</h3>
         <div v-if="filteredSongs.length" class="result-list">
-          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" @play="store.playSong" />
+          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" @play="store.playSong" @add="store.addToPlaylist" />
         </div>
         <p v-else class="no-result">未找到相关歌曲</p>
       </div>
