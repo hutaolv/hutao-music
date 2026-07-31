@@ -198,8 +198,11 @@ export async function searchArtists(keyword, limit = 20) {
 
 // 获取歌手的热门歌曲。原 fcg_v8_singer_track_cp.fcg 接口已失效（返回 404），
 // 改用 musichall.song_list_server 模块的 GetSingerSongList 接口。
-export async function getArtistSongs(artistMid) {
+// 获取 QQ音乐歌手歌曲：GetSingerSongList 支持 begin 偏移分页，每页 20 首，
+// 接口返回 total 用于判断是否还有下一页
+export async function getArtistSongs(artistMid, artistName, page = 1) {
   try {
+    const begin = (page - 1) * 20
     const { data } = await axios.get(BASE, {
       headers,
       params: {
@@ -209,13 +212,13 @@ export async function getArtistSongs(artistMid) {
           singerTrack: {
             module: 'musichall.song_list_server',
             method: 'GetSingerSongList',
-            param: { singerMid: artistMid, begin: 0, num: 20, order: 2 }
+            param: { singerMid: artistMid, begin, num: 20, order: 2 }
           }
         })
       }
     })
-    const songs = data?.singerTrack?.data?.songList || []
-    return songs.map(item => {
+    const st = data?.singerTrack?.data || {}
+    const songs = (st.songList || []).map(item => {
       const track = item.songInfo || item
       return {
         id: `qqmusic_${track.id || track.mid}`,
@@ -234,9 +237,12 @@ export async function getArtistSongs(artistMid) {
         platformMediaMid: track.file?.media_mid || track.mid
       }
     })
+    // 已加载数量小于总数说明还有下一页（接口返回的字段名为 totalNum）
+    const total = st.totalNum || st.total || 0
+    return { songs, hasMore: begin + songs.length < total }
   } catch (e) {
     console.error('QQ artist songs error:', e.message)
-    return []
+    return { songs: [], hasMore: false }
   }
 }
 

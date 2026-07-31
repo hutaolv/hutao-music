@@ -56,11 +56,12 @@ export async function getToplist() {
   return result.length ? result : null
 }
 
-export async function searchSongs(keyword, limit = 50) {
+// 搜索抖音歌曲：cursor 为偏移量，用于分页加载
+export async function searchSongs(keyword, limit = 50, cursor = 0) {
   try {
     const { data } = await axios.get('https://www.douyin.com/aweme/v1/web/music/search/', {
       headers: { ...headers, 'Cookie': '' },
-      params: { keyword, cursor: 0, count: limit },
+      params: { keyword, cursor, count: limit },
       timeout: 8000
     })
     const songs = data?.music_list || []
@@ -95,12 +96,23 @@ export async function searchArtists(keyword, limit = 20) {
   return Array.from(map.values()).slice(0, limit)
 }
 
-// 获取抖音歌手歌曲：同样通过歌手名搜索歌曲后按歌手过滤
-export async function getArtistSongs(artistId, artistName) {
+// 获取抖音歌手歌曲：通过歌手名搜索歌曲后按歌手过滤，cursor 翻页，
+// 接口返回的 has_more 用于判断是否还有下一页
+export async function getArtistSongs(artistId, artistName, page = 1) {
   const keyword = artistName || ''
-  if (!keyword) return []
-  const songs = await searchSongs(keyword, 50)
-  return songs.filter(s => (s.artist || '').includes(keyword))
+  if (!keyword) return { songs: [], hasMore: false }
+  const cursor = (page - 1) * 20
+  try {
+    const { data } = await axios.get('https://www.douyin.com/aweme/v1/web/music/search/', {
+      headers: { ...headers, 'Cookie': '' },
+      params: { keyword, cursor, count: 20 },
+      timeout: 8000
+    })
+    const songs = (data?.music_list || []).map(mapSong).filter(s => (s.artist || '').includes(keyword))
+    return { songs, hasMore: data?.has_more === 1 }
+  } catch {
+    return { songs: [], hasMore: false }
+  }
 }
 
 function formatDuration(s) {

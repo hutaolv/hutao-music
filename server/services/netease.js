@@ -131,30 +131,58 @@ export async function searchArtists(keyword) {
   }
 }
 
-export async function getArtistSongs(artistId) {
+// 获取网易云歌手歌曲：/api/v1/artist 接口不支持 offset 分页（固定返回前 50 首），
+// 因此改用歌曲搜索接口(cloudsearch)按歌手名分页；无歌手名时退回详情接口取前 50 首
+export async function getArtistSongs(artistId, artistName, page = 1) {
   try {
-    const { data } = await axios.get(`https://music.163.com/api/artist/${artistId}`, {
-      headers: { ...headers, 'Cookie': 'appver=2.0.2' }
+    let tracks = []
+    let hasMore = false
+    const offset = (page - 1) * 20
+    if (artistName) {
+      // 用歌曲搜索代替歌手详情接口，支持 offset 翻页；返回按歌手名过滤确保准确性
+      const { data } = await axios.post(`${BASE}/cloudsearch/pc?type=1&s=${encodeURIComponent(artistName)}&offset=${offset}&limit=20`, {}, {
+        headers: { ...headers, 'Cookie': 'appver=2.0.2' },
+        timeout: 8000
+      })
+      const songs = data?.result?.songs || []
+      const songCount = data?.result?.songCount || 0
+      // 过滤掉非该歌手的歌曲（合唱等），保证列表属于当前歌手；
+      // 注意 cloudsearch 返回字段是 ar/al（详情接口才是 artists/album）
+      tracks = songs.filter(t => (t.ar || t.artists || []).some(a => a.name === artistName))
+      // 依据接口返回的总数判断是否还有下一页（offset 累计 + 本页条数 小于 总数）
+      hasMore = offset + songs.length < songCount
+    } else {
+      // 无歌手名时退回详情接口，取前 50 首，不支持分页
+      const { data } = await axios.get(`https://music.163.com/api/v1/artist/${artistId}`, {
+        headers: { ...headers, 'Cookie': 'appver=2.0.2' }
+      })
+      tracks = data.code === 200 ? (data.hotSongs || []).slice(0, 50) : []
+    }
+    const songs = tracks.map(track => {
+      // cloudsearch(ar/al) 与详情接口(artists/album) 字段不同，这里做兼容
+      const ar = track.ar || track.artists || []
+      const al = track.al || track.album || {}
+      const dur = track.dt || track.duration || 0
+      return {
+        id: `netease_${track.id}`,
+        platformId: String(track.id),
+        title: track.name,
+        artist: ar.map(a => a.name).join(' / '),
+        artistId: `netease_artist_${ar[0]?.id || ''}`,
+        album: al.name || '',
+        cover: al.picUrl || '',
+        duration: formatDuration(dur),
+        durationMs: dur,
+        platform: '网易云音乐',
+        audioUrl: '',
+        vip: track.fee === 1 || track.fee === 4,
+        platformIdNum: track.id
+      }
     })
-    if (data.code !== 200 || !data.hotSongs) return []
-    return data.hotSongs.slice(0, 10).map(track => ({
-      id: `netease_${track.id}`,
-      platformId: String(track.id),
-      title: track.name,
-      artist: (track.artists || []).map(a => a.name).join(' / '),
-      artistId: `netease_artist_${track.artists?.[0]?.id || ''}`,
-      album: track.album?.name || '',
-      cover: track.album?.picUrl || '',
-      duration: formatDuration(track.duration),
-      durationMs: track.duration || 0,
-      platform: '网易云音乐',
-      audioUrl: '',
-      vip: track.fee === 1 || track.fee === 4,
-      platformIdNum: track.id
-    }))
+    return { songs, hasMore }
   } catch (e) {
     console.error('NetEase artist songs error:', e.message)
-    return []
+    return { songs: [], hasMore: false }
   }
 }
 
