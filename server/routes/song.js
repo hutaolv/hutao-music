@@ -3,6 +3,7 @@ import axios from 'axios'
 import * as netease from '../services/netease.js'
 import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
+import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
 
 const router = Router()
@@ -111,8 +112,10 @@ router.get('/lyrics', async (req, res) => {
   }
 })
 
+// 获取歌手歌曲：B站/抖音/咪咕无歌手专属接口时用 name 辅助搜索过滤，
+// 咪咕直接用 artistId，抖音/B站需额外传歌手名
 router.get('/artist', async (req, res) => {
-  const { platform, artistId } = req.query
+  const { platform, artistId, name } = req.query
   if (!platform || !artistId) {
     return res.json({ code: 400, message: 'platform and artistId required' })
   }
@@ -125,6 +128,15 @@ router.get('/artist', async (req, res) => {
         break
       case 'QQ音乐':
         songs = await qqmusic.getArtistSongs(artistId)
+        break
+      case 'B站':
+        songs = await bilibili.getArtistSongs(artistId, name)
+        break
+      case '抖音':
+        songs = await douyin.getArtistSongs(artistId, name)
+        break
+      case '咪咕音乐':
+        songs = await migu.getArtistSongs(artistId, name)
         break
     }
     res.json({ code: 200, data: { songs } })

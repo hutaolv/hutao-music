@@ -134,7 +134,35 @@ export async function searchSongs(keyword, limit = 50) {
   }
 }
 
-export async function searchArtists(keyword) {
+// 搜索歌手。QQ 音乐的歌手专用接口（search_type=2）近期经常被风控限制返回空，
+// 所以优先从歌曲搜索结果中提取歌手（接口稳定），提取不到时才退回歌手搜索接口。
+export async function searchArtists(keyword, limit = 20) {
+  // 方案一：从歌曲搜索结果的 artistId 去重提取歌手
+  try {
+    const songs = await searchSongs(keyword, 50)
+    const map = new Map()
+    for (const s of songs) {
+      if (!s.artist || !s.artistId) continue
+      if (!map.has(s.artistId)) {
+        map.set(s.artistId, {
+          id: s.artistId,
+          platformId: s.artistId.replace('qqmusic_artist_', ''),
+          name: s.artist.split(' / ')[0],
+          avatar: s.cover,
+          region: '未知',
+          genre: '未知',
+          fans: 0,
+          songCount: 0,
+          platform: 'QQ音乐'
+        })
+      }
+    }
+    const derived = Array.from(map.values()).slice(0, limit)
+    if (derived.length) return derived
+  } catch (e) {
+    console.error('QQ derive artists error:', e.message)
+  }
+  // 方案二（兜底）：调用音乐库歌手搜索接口
   try {
     const { data } = await axios.get(BASE, {
       headers,
@@ -151,7 +179,7 @@ export async function searchArtists(keyword) {
       }
     })
     const artists = data?.search?.data?.body?.singer?.list || []
-    return artists.map(a => ({
+    return artists.slice(0, limit).map(a => ({
       id: `qqmusic_artist_${a.mid || a.id}`,
       platformId: a.mid || a.id,
       name: a.name,
@@ -168,25 +196,31 @@ export async function searchArtists(keyword) {
   }
 }
 
+// 获取歌手的热门歌曲。原 fcg_v8_singer_track_cp.fcg 接口已失效（返回 404），
+// 改用 musichall.song_list_server 模块的 GetSingerSongList 接口。
 export async function getArtistSongs(artistMid) {
   try {
-    const { data } = await axios.get('https://c.y.qq.com/v8/fcg-bin/fcg_v8_singer_track_cp.fcg', {
+    const { data } = await axios.get(BASE, {
       headers,
       params: {
-        singermid: artistMid,
-        order: 'listen',
-        begin: 0,
-        num: 10,
-        songstatus: 1
+        format: 'json',
+        data: JSON.stringify({
+          comm: { ct: 24, cv: 0 },
+          singerTrack: {
+            module: 'musichall.song_list_server',
+            method: 'GetSingerSongList',
+            param: { singerMid: artistMid, begin: 0, num: 20, order: 2 }
+          }
+        })
       }
     })
-    const songs = data?.data?.list || []
+    const songs = data?.singerTrack?.data?.songList || []
     return songs.map(item => {
-      const track = item.musicData || item
+      const track = item.songInfo || item
       return {
         id: `qqmusic_${track.id || track.mid}`,
         platformId: String(track.mid || track.id),
-        title: track.title || track.name,
+        title: track.title || track.name || track.songname || '',
         artist: (track.singer || []).map(s => s.name).join(' / '),
         artistId: `qqmusic_artist_${track.singer?.[0]?.mid || ''}`,
         album: track.album?.name || track.album?.title || '',

@@ -70,6 +70,39 @@ export async function searchSongs(keyword, limit = 50) {
   return []
 }
 
+// 搜索抖音歌手：抖音搜索接口需要 X-Bogus 签名、基本返回 404，因此依赖歌曲搜索提取歌手。
+// 歌曲搜索不可用时此函数同样会返回空
+export async function searchArtists(keyword, limit = 20) {
+  const songs = await searchSongs(keyword, 50)
+  const map = new Map()
+  for (const s of songs) {
+    if (!s.artist) continue
+    const id = `douyin_artist_${encodeURIComponent(s.artist)}`
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        platformId: s.artist,
+        name: s.artist,
+        avatar: s.cover,
+        region: '未知',
+        genre: '未知',
+        fans: 0,
+        songCount: 0,
+        platform: '抖音'
+      })
+    }
+  }
+  return Array.from(map.values()).slice(0, limit)
+}
+
+// 获取抖音歌手歌曲：同样通过歌手名搜索歌曲后按歌手过滤
+export async function getArtistSongs(artistId, artistName) {
+  const keyword = artistName || ''
+  if (!keyword) return []
+  const songs = await searchSongs(keyword, 50)
+  return songs.filter(s => (s.artist || '').includes(keyword))
+}
+
 function formatDuration(s) {
   if (!s) return '0:00'
   const m = Math.floor(s / 60)

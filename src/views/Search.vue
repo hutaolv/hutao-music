@@ -40,7 +40,8 @@
       <div v-if="keyword" class="section">
         <h3 class="section-title" style="font-size:18px;">歌手结果 ({{ artistResults.length }})</h3>
         <div v-if="artistResults.length" class="artist-result-grid">
-          <div v-for="artist in artistResults" :key="artist.id" class="artist-result-item" @click="router.push(`/artist/${artist.id}`)">
+          <!-- 跳转歌手详情时把歌手名放进 query，供 B站/抖音/咪咕等平台按名字搜索其歌曲 -->
+          <div v-for="artist in artistResults" :key="artist.id" class="artist-result-item" @click="router.push({ path: `/artist/${artist.id}`, query: { name: artist.name } })">
             <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" @error="e => e.target.style.display = 'none'" />
             <div class="artist-info">
               <div class="artist-name">{{ artist.name }}</div>

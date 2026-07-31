@@ -86,6 +86,57 @@ export async function searchSongs(keyword, limit = 50) {
   }
 }
 
+// 搜索咪咕歌手：从歌曲搜索结果中提取 singerList（含真实头像），按歌手 id 去重
+export async function searchArtists(keyword, limit = 20) {
+  try {
+    const { data } = await axios.get(`${SEARCH_BASE}/bmw/search/song/v1.0`, {
+      headers,
+      params: { pageNo: 1, text: keyword },
+      timeout: 8000
+    })
+    const items = data?.data?.items || []
+    const map = new Map()
+    for (const item of items) {
+      const s = item.song || item
+      const singers = s.singerList || []
+      for (const singer of singers) {
+        if (!singer?.name) continue
+        const id = `migu_artist_${singer.id || encodeURIComponent(singer.name)}`
+        if (!map.has(id)) {
+          map.set(id, {
+            id,
+            platformId: singer.id || singer.name,
+            name: singer.name,
+            avatar: singer.img?.startsWith('http') ? singer.img : `https://d.musicapp.migu.cn${singer.img || ''}`,
+            region: '未知',
+            genre: '未知',
+            fans: 0,
+            songCount: 0,
+            platform: '咪咕音乐'
+          })
+        }
+      }
+    }
+    return Array.from(map.values()).slice(0, limit)
+  } catch (e) {
+    console.error('MiGu artist search error:', e.message)
+    return []
+  }
+}
+
+// 获取咪咕歌手歌曲：咪咕没有直接的歌手歌曲接口，改用歌手名搜索歌曲后按歌手过滤
+export async function getArtistSongs(artistId, artistName) {
+  const keyword = artistName || ''
+  if (!keyword) return []
+  try {
+    const songs = await searchSongs(keyword, 50)
+    return songs.filter(s => s.artistId === artistId || (s.artist || '').includes(keyword))
+  } catch (e) {
+    console.error('MiGu artist songs error:', e.message)
+    return []
+  }
+}
+
 export async function getSongUrl(contentId, copyrightId) {
   try {
     const { data } = await axios.get(`${BASE}/MIGUM3.0/strategy/pc/listen/v1.0`, {
