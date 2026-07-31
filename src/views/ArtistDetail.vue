@@ -61,7 +61,8 @@ onMounted(async () => {
   } else if (id.startsWith('douyin_artist_')) {
     songs.value = await apiArtistSongs('抖音', id, name) || []
   } else if (id.startsWith('migu_artist_')) {
-    songs.value = await apiArtistSongs('咪咕音乐', id, name) || []
+    // 咪咕歌手歌曲接口需传纯数字 singerId，因此剥离 migu_artist_ 前缀
+    songs.value = await apiArtistSongs('咪咕音乐', id.replace('migu_artist_', '')) || []
   }
 })
 
