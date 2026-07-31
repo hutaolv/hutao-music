@@ -113,8 +113,7 @@ router.get('/lyrics', async (req, res) => {
 })
 
 // 获取歌手歌曲：B站/抖音/咪咕无歌手专属接口时用 name 辅助搜索过滤，
-// 咪咕直接用 artistId，抖音/B站需额外传歌手名
-// page 参数：咪咕支持分页，其它平台固定返回全部
+// 咪咕/网易云/QQ/B站/抖音均支持分页（page 参数），返回 { songs, hasMore }
 router.get('/artist', async (req, res) => {
   const { platform, artistId, name, page = 1 } = req.query
   if (!platform || !artistId) {
@@ -124,27 +123,19 @@ router.get('/artist', async (req, res) => {
   try {
     let songs = []
     let hasMore = false
-    switch (platform) {
-      case '网易云音乐':
-        songs = await netease.getArtistSongs(artistId)
-        break
-      case 'QQ音乐':
-        songs = await qqmusic.getArtistSongs(artistId)
-        break
-      case 'B站':
-        songs = await bilibili.getArtistSongs(artistId, name)
-        break
-      case '抖音':
-        songs = await douyin.getArtistSongs(artistId, name)
-        break
-      case '咪咕音乐': {
-        // 咪咕接口支持分页，返回 { songs, hasMore }
-        const r = await migu.getArtistSongs(artistId, name, Number(page))
-        songs = r.songs
-        hasMore = r.hasMore
-        break
+    // 各平台 getArtistSongs 统一接收 (artistId, name, page) 并返回 { songs, hasMore }
+    const r = await (async () => {
+      switch (platform) {
+        case '网易云音乐': return netease.getArtistSongs(artistId, name, Number(page))
+        case 'QQ音乐': return qqmusic.getArtistSongs(artistId, name, Number(page))
+        case 'B站': return bilibili.getArtistSongs(artistId, name, Number(page))
+        case '抖音': return douyin.getArtistSongs(artistId, name, Number(page))
+        case '咪咕音乐': return migu.getArtistSongs(artistId, name, Number(page))
+        default: return { songs: [], hasMore: false }
       }
-    }
+    })()
+    songs = r.songs || []
+    hasMore = !!r.hasMore
     res.json({ code: 200, data: { songs, hasMore } })
   } catch (e) {
     res.status(500).json({ code: 500, message: e.message })

@@ -172,17 +172,20 @@ export async function searchArtists(keyword, limit = 20) {
 
 // 获取指定 UP 主（uid）在音频馆上传的作品。
 // 通过 audio/music-service/web/song/upper 拉取音频列表，再用 song/info 并行补充时长与歌词
-export async function getArtistSongs(artistId, artistName) {
+// 获取 B站歌手歌曲：音频区接口 song/upper 支持 pn(页)/ps(每页) 分页，
+// 返回的 pagecount 用于判断是否还有下一页
+export async function getArtistSongs(artistId, artistName, page = 1) {
   const uid = artistId || ''
-  if (!uid) return []
+  if (!uid) return { songs: [], hasMore: false }
   try {
     const res = await axios.get('https://api.bilibili.com/audio/music-service/web/song/upper', {
       headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
-      params: { uid, pn: 1, ps: 20 },
+      params: { uid, pn: page, ps: 20 },
       timeout: 8000
     })
-    const list = res.data?.data?.data || []
-    if (!list.length) return []
+    const d = res.data?.data || {}
+    const list = d.data || []
+    if (!list.length) return { songs: [], hasMore: false }
     // 并行补充时长信息
     const enriched = await Promise.allSettled(list.map(v =>
       axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
@@ -191,7 +194,7 @@ export async function getArtistSongs(artistId, artistName) {
         timeout: 8000
       }).then(r => r.data?.data)
     ))
-    return list.map((v, i) => {
+    const songs = list.map((v, i) => {
       const info = enriched[i]?.status === 'fulfilled' ? enriched[i].value : null
       const duration = info?.duration || v.duration || 0
       return {
@@ -213,9 +216,11 @@ export async function getArtistSongs(artistId, artistName) {
         lyricUrl: info?.lyric || v.lyric || ''
       }
     })
+    // pagecount 为总页数，当前页小于总页数则还有下一页
+    return { songs, hasMore: page < (d.pagecount || 1) }
   } catch (e) {
     console.error('Bilibili artist songs error:', e.message)
-    return []
+    return { songs: [], hasMore: false }
   }
 }
 
