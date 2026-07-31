@@ -119,9 +119,12 @@ export async function getLyrics(song) {
   }
 }
 
-export async function getArtistSongs(platform, artistId) {
+// 获取歌手歌曲。artistName 可选，供 B站/抖音/咪咕等需按歌手名辅助搜索的平台使用
+export async function getArtistSongs(platform, artistId, artistName) {
+  let url = `${API_BASE}/song/artist?platform=${encodeURIComponent(platform)}&artistId=${encodeURIComponent(artistId)}`
+  if (artistName) url += `&name=${encodeURIComponent(artistName)}`
   try {
-    const res = await fetch(`${API_BASE}/song/artist?platform=${encodeURIComponent(platform)}&artistId=${encodeURIComponent(artistId)}`)
+    const res = await fetch(url)
     const json = await res.json()
     if (json.code === 200) return json.data.songs || []
     return []

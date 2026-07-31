@@ -1,18 +1,42 @@
 import axios from 'axios'
 
-const headers = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': 'https://www.bilibili.com/',
-  'Origin': 'https://www.bilibili.com'
+// 轮换使用的浏览器 UA 列表，降低被识别为同一爬虫的概率
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
+]
+
+// 生成指定长度的随机十六进制字符串（用于构造设备指纹）
+function randomHex(len) {
+  let s = ''
+  for (let i = 0; i < len; i++) s += '0123456789ABCDEF'[Math.floor(Math.random() * 16)]
+  return s
 }
 
-const audioHeaders = {
-  ...headers,
-  'Referer': 'https://www.bilibili.com/audio/am10627',
-  'Accept': 'application/json, text/plain, */*',
-  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Cookie': 'buvid3=100A8F7B9C4D4E2F9B8A7C6D5E4F3A2Binfoc; b_nut=1700000000; _uuid=1A2B3C4D5E6F7890ABCDEF1234567890'
+// 每次调用生成一组全新的设备指纹 Cookie（buvid3/buvid4/_uuid 等）+ 随机 UA，
+// 让每个请求都像是来自不同访客，避免 B 站按固定指纹/IP 高频触发 412 风控
+function buildBiliHeaders(referer) {
+  const now = Math.floor(Date.now() / 1000)
+  return {
+    'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
+    'Referer': referer,
+    'Origin': 'https://www.bilibili.com',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cookie': [
+      `buvid3=${randomHex(32)}infoc`,
+      `buvid4=${randomHex(32)}infoc`,
+      `b_nut=${now}`,
+      `_uuid=${randomHex(32)}`,
+      `b_lsid=${randomHex(8)}`,
+      `b_magic=${randomHex(32)}`
+    ].join('; ')
+  }
 }
 
 const menus = [
@@ -46,7 +70,7 @@ function formatDurationStr(str) {
 async function fetchAudioMenu(sid, name) {
   const url = `https://api.bilibili.com/audio/music-service-c/web/song/of-menu?sid=${sid}&pn=1&ps=50`
   const res = await fetch(url, {
-    headers: audioHeaders,
+    headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
     signal: AbortSignal.timeout(8000)
   })
   const json = await res.json()
@@ -87,7 +111,7 @@ export async function getToplist() {
     console.log('Bilibili audio menus all failed, trying video ranking fallback...')
     try {
       const { data } = await axios.get('https://api.bilibili.com/x/web-interface/ranking/v2', {
-        headers,
+        headers: buildBiliHeaders('https://www.bilibili.com/'),
         params: { type: 3 },
         timeout: 8000
       })
@@ -119,11 +143,87 @@ export async function getToplist() {
   return result.length ? result : null
 }
 
+// 搜索 B 站 UP 主作为"歌手"（bili_user 类型），头像经 /api/proxy/image 代理加载
+export async function searchArtists(keyword, limit = 20) {
+  try {
+    const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
+      headers: buildBiliHeaders(`https://www.bilibili.com/search?keyword=${encodeURIComponent(keyword)}`),
+      params: { search_type: 'bili_user', keyword },
+      timeout: 8000
+    })
+    const items = data?.data?.result || []
+    if (!items.length) return []
+    return items.slice(0, limit).map(u => ({
+      id: `bilibili_artist_${u.mid}`,
+      platformId: String(u.mid),
+      name: u.uname || '',
+      avatar: u.upic ? `/api/proxy/image?url=${encodeURIComponent('https:' + u.upic)}` : '',
+      region: '未知',
+      genre: '未知',
+      fans: u.fans || 0,
+      songCount: u.videos || 0,
+      platform: 'B站'
+    }))
+  } catch (e) {
+    console.error('Bilibili artist search error:', e.message)
+    return []
+  }
+}
+
+// 获取指定 UP 主（uid）在音频馆上传的作品。
+// 通过 audio/music-service/web/song/upper 拉取音频列表，再用 song/info 并行补充时长与歌词
+export async function getArtistSongs(artistId, artistName) {
+  const uid = artistId || ''
+  if (!uid) return []
+  try {
+    const res = await axios.get('https://api.bilibili.com/audio/music-service/web/song/upper', {
+      headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+      params: { uid, pn: 1, ps: 20 },
+      timeout: 8000
+    })
+    const list = res.data?.data?.data || []
+    if (!list.length) return []
+    // 并行补充时长信息
+    const enriched = await Promise.allSettled(list.map(v =>
+      axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
+        headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+        params: { sid: v.id },
+        timeout: 8000
+      }).then(r => r.data?.data)
+    ))
+    return list.map((v, i) => {
+      const info = enriched[i]?.status === 'fulfilled' ? enriched[i].value : null
+      const duration = info?.duration || v.duration || 0
+      return {
+        id: `bilibili_au_${v.id}`,
+        platformId: String(v.id),
+        title: v.title || '',
+        artist: info?.author || v.uname || '未知',
+        artistId: `bilibili_artist_${v.uid || uid}`,
+        album: '',
+        cover: v.cover ? `/api/proxy/image?url=${encodeURIComponent(v.cover)}` : '',
+        duration: formatDuration(duration),
+        durationMs: (duration || 0) * 1000,
+        platform: 'B站',
+        audioUrl: '',
+        vip: false,
+        bvid: v.bvid || '',
+        aid: v.aid || 0,
+        auid: v.id,
+        lyricUrl: info?.lyric || v.lyric || ''
+      }
+    })
+  } catch (e) {
+    console.error('Bilibili artist songs error:', e.message)
+    return []
+  }
+}
+
 export async function getSongUrl(auid) {
   if (!auid) return null
   try {
     const res = await axios.get('https://api.bilibili.com/audio/music-service-c/web/url', {
-      headers: audioHeaders,
+      headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
       params: { sid: auid },
       timeout: 8000
     })
@@ -138,7 +238,7 @@ export async function getSongUrl(auid) {
 export async function getLyrics(id, lyricUrl) {
   if (lyricUrl) {
     try {
-      const res = await axios.get(lyricUrl, { headers, timeout: 8000 })
+      const res = await axios.get(lyricUrl, { headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
       return { lyrics: res.data || '', transLyrics: '' }
     } catch (e) {
       console.error('Bilibili lyrics fetch error:', e.message)
@@ -147,13 +247,13 @@ export async function getLyrics(id, lyricUrl) {
   if (id) {
     try {
       const res = await axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
-        headers: audioHeaders,
+        headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
         params: { sid: id },
         timeout: 8000
       })
       const lrcUrl = res.data?.data?.lyric
       if (lrcUrl) {
-        const lrc = await axios.get(lrcUrl, { headers, timeout: 8000 })
+        const lrc = await axios.get(lrcUrl, { headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
         return { lyrics: lrc.data || '', transLyrics: '' }
       }
     } catch (e) {
@@ -166,7 +266,7 @@ export async function getLyrics(id, lyricUrl) {
 export async function search(query) {
   try {
     const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
-      headers,
+      headers: buildBiliHeaders(`https://www.bilibili.com/search?keyword=${encodeURIComponent(query)}`),
       params: { search_type: 'video', keyword: query, order: 'click', duration: 0, tids: 3 }
     })
     const items = data?.data?.result || []

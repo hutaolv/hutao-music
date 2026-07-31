@@ -3,7 +3,7 @@
     <div class="nav-inner">
       <router-link to="/" class="logo">
         <span class="logo-icon">&#x266B;</span>
-        <span class="logo-text">音悦聚合</span>
+        <span class="logo-text">胡桃音悦</span>
       </router-link>
       <div class="nav-links">
         <router-link v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" active-class="active">

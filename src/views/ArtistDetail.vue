@@ -49,12 +49,19 @@ const songs = ref([])
 
 onMounted(async () => {
   const id = route.params.id
+  // 歌手名从路由 query 传入，供 B站/抖音/咪咕等需按名字搜索的平台使用
+  const name = route.query.name || ''
+  // 根据歌手 id 前缀分发到对应平台（B站等平台需剥离前缀后传真实 uid）
   if (id.startsWith('netease_artist_')) {
-    const realId = id.replace('netease_artist_', '')
-    songs.value = await apiArtistSongs('网易云音乐', realId) || []
+    songs.value = await apiArtistSongs('网易云音乐', id.replace('netease_artist_', '')) || []
   } else if (id.startsWith('qqmusic_artist_')) {
-    const realId = id.replace('qqmusic_artist_', '')
-    songs.value = await apiArtistSongs('QQ音乐', realId) || []
+    songs.value = await apiArtistSongs('QQ音乐', id.replace('qqmusic_artist_', '')) || []
+  } else if (id.startsWith('bilibili_artist_')) {
+    songs.value = await apiArtistSongs('B站', id.replace('bilibili_artist_', ''), name) || []
+  } else if (id.startsWith('douyin_artist_')) {
+    songs.value = await apiArtistSongs('抖音', id, name) || []
+  } else if (id.startsWith('migu_artist_')) {
+    songs.value = await apiArtistSongs('咪咕音乐', id, name) || []
   }
 })
 

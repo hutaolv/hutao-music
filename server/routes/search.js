@@ -7,12 +7,13 @@ import * as migu from '../services/migu.js'
 
 const router = Router()
 
+// 各平台搜索服务映射：search = 歌曲搜索，artist = 歌手搜索（部分平台没有，走兜底）
 const serviceMap = {
   '网易云音乐': { search: netease.searchSongs, artist: netease.searchArtists },
   'QQ音乐': { search: qqmusic.searchSongs, artist: qqmusic.searchArtists },
-  'B站': { search: bilibili.search },
-  '抖音': { search: douyin.searchSongs },
-  '咪咕音乐': { search: migu.searchSongs }
+  'B站': { search: bilibili.search, artist: bilibili.searchArtists },
+  '抖音': { search: douyin.searchSongs, artist: douyin.searchArtists },
+  '咪咕音乐': { search: migu.searchSongs, artist: migu.searchArtists }
 }
 
 router.get('/', async (req, res) => {
@@ -25,18 +26,18 @@ router.get('/', async (req, res) => {
     const results = {}
 
     if (type === 'artist' || !type) {
-      if (platform && serviceMap[platform]?.artist) {
-        const artists = await serviceMap[platform].artist(keyword).catch(() => [])
+      if (platform && serviceMap[platform]) {
+        // 指定平台：只搜索该平台的歌手
+        const artists = await (serviceMap[platform].artist?.(keyword) || Promise.resolve([])).catch(() => [])
         results.artists = artists
       } else {
-        const [neteaseArtists, qqArtists] = await Promise.allSettled([
-          netease.searchArtists(keyword),
-          qqmusic.searchArtists(keyword)
-        ])
-        results.artists = [
-          ...(neteaseArtists.status === 'fulfilled' ? neteaseArtists.value : []),
-          ...(qqArtists.status === 'fulfilled' ? qqArtists.value : [])
-        ]
+        // 未指定平台：搜索所有支持歌手搜索的平台
+        const allArtists = await Promise.allSettled(
+          Object.entries(serviceMap)
+            .filter(([, v]) => v.artist)
+            .map(([, v]) => v.artist(keyword))
+        )
+        results.artists = allArtists.flatMap(r => r.status === 'fulfilled' ? r.value : [])
       }
     }
 
