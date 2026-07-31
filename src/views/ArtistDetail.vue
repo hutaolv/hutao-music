@@ -17,7 +17,11 @@
           <span class="song-rank">{{ idx + 1 }}</span>
           <img :src="song.cover" :alt="song.title" class="song-cover" @error="e => e.target.style.display = 'none'" />
           <div class="song-info">
-            <div class="song-title">{{ song.title }}</div>
+            <!-- 标题右侧显示 VIP 标识（付费歌曲），与搜索/榜单卡片样式一致 -->
+            <div class="song-title">
+              {{ song.title }}
+              <span v-if="song.vip" class="vip-badge">VIP</span>
+            </div>
             <div class="song-album">{{ song.album }}</div>
           </div>
           <span class="song-platform" :style="{ color: platformColors[song.platform] }">{{ song.platform }}</span>
@@ -179,6 +183,21 @@ function playAll() {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* VIP 付费歌曲徽标 */
+.vip-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  font-weight: 700;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
 }
 
 .song-album {
