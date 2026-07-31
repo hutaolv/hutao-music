@@ -96,16 +96,16 @@ export async function searchArtists(keyword, limit = 20) {
   return Array.from(map.values()).slice(0, limit)
 }
 
-// 获取抖音歌手歌曲：通过歌手名搜索歌曲后按歌手过滤，cursor 翻页，
+// 获取抖音歌手歌曲：通过歌手名搜索歌曲后按歌手过滤，cursor 翻页（每页 50 条），
 // 接口返回的 has_more 用于判断是否还有下一页
 export async function getArtistSongs(artistId, artistName, page = 1) {
   const keyword = artistName || ''
   if (!keyword) return { songs: [], hasMore: false }
-  const cursor = (page - 1) * 20
+  const cursor = (page - 1) * 50
   try {
     const { data } = await axios.get('https://www.douyin.com/aweme/v1/web/music/search/', {
       headers: { ...headers, 'Cookie': '' },
-      params: { keyword, cursor, count: 20 },
+      params: { keyword, cursor, count: 50 },
       timeout: 8000
     })
     const songs = (data?.music_list || []).map(mapSong).filter(s => (s.artist || '').includes(keyword))
