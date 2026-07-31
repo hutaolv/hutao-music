@@ -114,14 +114,16 @@ router.get('/lyrics', async (req, res) => {
 
 // 获取歌手歌曲：B站/抖音/咪咕无歌手专属接口时用 name 辅助搜索过滤，
 // 咪咕直接用 artistId，抖音/B站需额外传歌手名
+// page 参数：咪咕支持分页，其它平台固定返回全部
 router.get('/artist', async (req, res) => {
-  const { platform, artistId, name } = req.query
+  const { platform, artistId, name, page = 1 } = req.query
   if (!platform || !artistId) {
     return res.json({ code: 400, message: 'platform and artistId required' })
   }
 
   try {
     let songs = []
+    let hasMore = false
     switch (platform) {
       case '网易云音乐':
         songs = await netease.getArtistSongs(artistId)
@@ -135,11 +137,15 @@ router.get('/artist', async (req, res) => {
       case '抖音':
         songs = await douyin.getArtistSongs(artistId, name)
         break
-      case '咪咕音乐':
-        songs = await migu.getArtistSongs(artistId, name)
+      case '咪咕音乐': {
+        // 咪咕接口支持分页，返回 { songs, hasMore }
+        const r = await migu.getArtistSongs(artistId, name, Number(page))
+        songs = r.songs
+        hasMore = r.hasMore
         break
+      }
     }
-    res.json({ code: 200, data: { songs } })
+    res.json({ code: 200, data: { songs, hasMore } })
   } catch (e) {
     res.status(500).json({ code: 500, message: e.message })
   }

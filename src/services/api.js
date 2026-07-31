@@ -119,17 +119,19 @@ export async function getLyrics(song) {
   }
 }
 
-// 获取歌手歌曲。artistName 可选，供 B站/抖音/咪咕等需按歌手名辅助搜索的平台使用
-export async function getArtistSongs(platform, artistId, artistName) {
+// 获取歌手歌曲。artistName 可选，供 B站/抖音/咪咕等需按歌手名辅助搜索的平台使用；
+// page 用于咪咕分页加载。返回 { songs, hasMore }
+export async function getArtistSongs(platform, artistId, artistName, page = 1) {
   let url = `${API_BASE}/song/artist?platform=${encodeURIComponent(platform)}&artistId=${encodeURIComponent(artistId)}`
   if (artistName) url += `&name=${encodeURIComponent(artistName)}`
+  if (page && page > 1) url += `&page=${page}`
   try {
     const res = await fetch(url)
     const json = await res.json()
-    if (json.code === 200) return json.data.songs || []
-    return []
+    if (json.code === 200) return json.data
+    return { songs: [], hasMore: false }
   } catch (e) {
     console.warn('Get artist songs failed:', e.message)
-    return []
+    return { songs: [], hasMore: false }
   }
 }

@@ -45,7 +45,15 @@
             <img :src="artist.avatar" :alt="artist.name" class="artist-avatar" @error="e => e.target.style.display = 'none'" />
             <div class="artist-info">
               <div class="artist-name">{{ artist.name }}</div>
-              <div class="artist-meta">{{ artist.region }} &middot; {{ artist.genre }}</div>
+              <!-- 有粉丝/单曲数据时展示数量（只显示有值的），否则退回地区/流派 -->
+              <div class="artist-meta">
+                <template v-if="artist.fans > 0 || artist.songCount > 0">
+                  <span v-if="artist.fans > 0">粉丝 {{ formatNum(artist.fans) }}</span>
+                  <span v-if="artist.fans > 0 && artist.songCount > 0">&middot;</span>
+                  <span v-if="artist.songCount > 0">单曲 {{ formatNum(artist.songCount) }}</span>
+                </template>
+                <template v-else>{{ artist.region }} &middot; {{ artist.genre }}</template>
+              </div>
             </div>
           </div>
         </div>
@@ -79,6 +87,14 @@ let debounceTimer = null
 const filteredSongs = computed(() => {
   return allSongs.value.filter(s => s.platform === selectedPlatform.value)
 })
+
+// 数字格式化：1.2万 / 3.5亿，用于展示粉丝数和单曲数
+function formatNum(n) {
+  const num = Number(n) || 0
+  if (num >= 100000000) return (num / 100000000).toFixed(1) + '亿'
+  if (num >= 10000) return (num / 10000).toFixed(1) + '万'
+  return String(num)
+}
 
 function selectPlatform(p) {
   if (selectedPlatform.value === p) return
