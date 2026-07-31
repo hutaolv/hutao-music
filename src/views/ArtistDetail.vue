@@ -11,7 +11,7 @@
     </div>
 
     <div class="section">
-      <h2 class="section-title">热门歌曲 Top 10</h2>
+      <h2 class="section-title">热门歌曲</h2>
       <div class="song-list">
         <div v-for="(song, idx) in songs" :key="song.id" class="song-row" @dblclick="store.playSong(song)">
           <span class="song-rank">{{ idx + 1 }}</span>
@@ -27,6 +27,8 @@
         </div>
       </div>
       <p v-if="!songs.length" class="no-result">暂无歌曲数据</p>
+      <button v-if="hasMore && !loading" class="load-more-btn" @click="loadMore">加载更多</button>
+      <p v-else-if="loading" class="no-result">加载中...</p>
     </div>
 
     <button class="back-btn" @click="router.back()">&larr; 返回</button>
@@ -46,25 +48,43 @@ const store = usePlayerStore()
 
 const artist = ref(null)
 const songs = ref([])
+// 咪咕分页加载状态：当前页码、是否还有下一页、是否加载中
+const page = ref(1)
+const hasMore = ref(false)
+const loading = ref(false)
 
-onMounted(async () => {
+// 解析歌手 id 前缀，返回 { platform, artistId }；咪咕等平台需剥离前缀传真实 id
+function parseArtistId(id) {
+  if (id.startsWith('netease_artist_')) return { platform: '网易云音乐', artistId: id.replace('netease_artist_', '') }
+  if (id.startsWith('qqmusic_artist_')) return { platform: 'QQ音乐', artistId: id.replace('qqmusic_artist_', '') }
+  if (id.startsWith('bilibili_artist_')) return { platform: 'B站', artistId: id.replace('bilibili_artist_', '') }
+  if (id.startsWith('douyin_artist_')) return { platform: '抖音', artistId: id }
+  if (id.startsWith('migu_artist_')) return { platform: '咪咕音乐', artistId: id.replace('migu_artist_', '') }
+  return { platform: '', artistId: id }
+}
+
+// 加载歌手歌曲；append=true 时追加到列表（加载更多），否则覆盖
+async function loadSongs(append = false) {
+  if (loading.value) return
+  loading.value = true
   const id = route.params.id
   // 歌手名从路由 query 传入，供 B站/抖音/咪咕等需按名字搜索的平台使用
   const name = route.query.name || ''
-  // 根据歌手 id 前缀分发到对应平台（B站等平台需剥离前缀后传真实 uid）
-  if (id.startsWith('netease_artist_')) {
-    songs.value = await apiArtistSongs('网易云音乐', id.replace('netease_artist_', '')) || []
-  } else if (id.startsWith('qqmusic_artist_')) {
-    songs.value = await apiArtistSongs('QQ音乐', id.replace('qqmusic_artist_', '')) || []
-  } else if (id.startsWith('bilibili_artist_')) {
-    songs.value = await apiArtistSongs('B站', id.replace('bilibili_artist_', ''), name) || []
-  } else if (id.startsWith('douyin_artist_')) {
-    songs.value = await apiArtistSongs('抖音', id, name) || []
-  } else if (id.startsWith('migu_artist_')) {
-    // 咪咕歌手歌曲接口需传纯数字 singerId，因此剥离 migu_artist_ 前缀
-    songs.value = await apiArtistSongs('咪咕音乐', id.replace('migu_artist_', '')) || []
-  }
-})
+  const { platform, artistId } = parseArtistId(id)
+  const data = await apiArtistSongs(platform, artistId, name, page.value)
+  if (append) songs.value.push(...data.songs)
+  else songs.value = data.songs
+  hasMore.value = data.hasMore
+  loading.value = false
+}
+
+// 点击"加载更多"：页码 +1 并追加下一页歌曲
+function loadMore() {
+  page.value += 1
+  loadSongs(true)
+}
+
+onMounted(() => loadSongs())
 
 function playAll() {
   if (songs.value.length) {
@@ -210,6 +230,20 @@ function playAll() {
 }
 
 .back-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+/* 咪咕等平台歌曲分页加载按钮 */
+.load-more-btn {
+  display: block;
+  margin: 20px auto;
+  padding: 8px 28px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.load-more-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
 
 @media (max-width: 640px) {
   .artist-header { flex-direction: column; text-align: center; }
