@@ -198,11 +198,11 @@ export async function searchArtists(keyword, limit = 20) {
 
 // 获取歌手的热门歌曲。原 fcg_v8_singer_track_cp.fcg 接口已失效（返回 404），
 // 改用 musichall.song_list_server 模块的 GetSingerSongList 接口。
-// 获取 QQ音乐歌手歌曲：GetSingerSongList 支持 begin 偏移分页，每页 20 首，
-// 接口返回 total 用于判断是否还有下一页
+// 获取 QQ音乐歌手歌曲：GetSingerSongList 支持 begin 偏移分页，每页 50 首，
+// 接口返回 totalNum 用于判断是否还有下一页
 export async function getArtistSongs(artistMid, artistName, page = 1) {
   try {
-    const begin = (page - 1) * 20
+    const begin = (page - 1) * 50
     const { data } = await axios.get(BASE, {
       headers,
       params: {
@@ -212,7 +212,7 @@ export async function getArtistSongs(artistMid, artistName, page = 1) {
           singerTrack: {
             module: 'musichall.song_list_server',
             method: 'GetSingerSongList',
-            param: { singerMid: artistMid, begin, num: 20, order: 2 }
+            param: { singerMid: artistMid, begin, num: 50, order: 2 }
           }
         })
       }

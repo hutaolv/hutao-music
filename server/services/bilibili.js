@@ -172,7 +172,7 @@ export async function searchArtists(keyword, limit = 20) {
 
 // 获取指定 UP 主（uid）在音频馆上传的作品。
 // 通过 audio/music-service/web/song/upper 拉取音频列表，再用 song/info 并行补充时长与歌词
-// 获取 B站歌手歌曲：音频区接口 song/upper 支持 pn(页)/ps(每页) 分页，
+// 获取 B站歌手歌曲：音频区接口 song/upper 支持 pn(页)/ps(每页) 分页（每页 50 条），
 // 返回的 pagecount 用于判断是否还有下一页
 export async function getArtistSongs(artistId, artistName, page = 1) {
   const uid = artistId || ''
@@ -180,7 +180,7 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
   try {
     const res = await axios.get('https://api.bilibili.com/audio/music-service/web/song/upper', {
       headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
-      params: { uid, pn: page, ps: 20 },
+      params: { uid, pn: page, ps: 50 },
       timeout: 8000
     })
     const d = res.data?.data || {}

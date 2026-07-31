@@ -132,15 +132,15 @@ export async function searchArtists(keyword) {
 }
 
 // 获取网易云歌手歌曲：/api/v1/artist 接口不支持 offset 分页（固定返回前 50 首），
-// 因此改用歌曲搜索接口(cloudsearch)按歌手名分页；无歌手名时退回详情接口取前 50 首
+// 因此改用歌曲搜索接口(cloudsearch)按歌手名分页（每页 50 首）；无歌手名时退回详情接口取前 50 首
 export async function getArtistSongs(artistId, artistName, page = 1) {
   try {
     let tracks = []
     let hasMore = false
-    const offset = (page - 1) * 20
+    const offset = (page - 1) * 50
     if (artistName) {
       // 用歌曲搜索代替歌手详情接口，支持 offset 翻页；返回按歌手名过滤确保准确性
-      const { data } = await axios.post(`${BASE}/cloudsearch/pc?type=1&s=${encodeURIComponent(artistName)}&offset=${offset}&limit=20`, {}, {
+      const { data } = await axios.post(`${BASE}/cloudsearch/pc?type=1&s=${encodeURIComponent(artistName)}&offset=${offset}&limit=50`, {}, {
         headers: { ...headers, 'Cookie': 'appver=2.0.2' },
         timeout: 8000
       })
