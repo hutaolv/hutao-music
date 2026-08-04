@@ -368,7 +368,13 @@ function updateSimulatedLyrics() {
 }
 
 async function downloadSong() {
-  if (!downloadUrl.value || !store.currentSong) return
+  if (!store.currentSong) return
+  // 咪咕音乐无法在播放条直接拿到完整音频，跳转到播放音频页面后由那里提供下载
+  if (store.currentSong.platform === '咪咕音乐') {
+    router.push('/lyrics')
+    return
+  }
+  if (!downloadUrl.value) return
   try {
     const res = await fetch(downloadUrl.value)
     const blob = await res.blob()
