@@ -186,11 +186,14 @@ export async function getArtistSongs(singerId, artistName, pageNo = 1) {
   }
 }
 
-export async function getSongUrl(contentId, copyrightId) {
+// 咪咕音质档位映射：PQ=标准 HQ=高音质 SQ=无损（HQ/SQ 一般需要会员，获取失败时由路由回退标准）
+const TONE_MAP = { standard: 'PQ', high: 'HQ', lossless: 'SQ' }
+
+export async function getSongUrl(contentId, copyrightId, quality = 'standard') {
   try {
     const { data } = await axios.get(`${BASE}/MIGUM3.0/strategy/pc/listen/v1.0`, {
       headers,
-      params: { contentId, copyrightId, resourceType: '2', toneFlag: 'PQ' },
+      params: { contentId, copyrightId, resourceType: '2', toneFlag: TONE_MAP[quality] || 'PQ' },
       timeout: 10000
     })
     if (data?.code === '000000' && data?.data?.url) {
@@ -201,6 +204,32 @@ export async function getSongUrl(contentId, copyrightId) {
     console.error('MiGu song URL error:', e.message)
     return null
   }
+}
+
+// 探测歌曲可用音质：接口返回 dialogInfo（如"会员专属音质，请先登录"）视为该音质不可用
+export async function detectQualities(contentId, copyrightId) {
+  const result = []
+  try {
+    const probes = [
+      { q: 'lossless', tone: 'SQ' },
+      { q: 'high', tone: 'HQ' },
+      { q: 'standard', tone: 'PQ' }
+    ]
+    for (const p of probes) {
+      const { data } = await axios.get(`${BASE}/MIGUM3.0/strategy/pc/listen/v1.0`, {
+        headers,
+        params: { contentId, copyrightId, resourceType: '2', toneFlag: p.tone },
+        timeout: 10000
+      })
+      const d = data?.data
+      if (data?.code === '000000' && d && !d.dialogInfo) {
+        result.push(p.q)
+      }
+    }
+  } catch (e) {
+    console.error('MiGu detect qualities error:', e.message)
+  }
+  return result.length ? result : ['standard']
 }
 
 export async function getLyrics(contentId) {

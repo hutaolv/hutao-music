@@ -186,11 +186,14 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
   }
 }
 
-export async function getSongUrl(id) {
+// 网易云音质档位映射：br 参数 128000=标准 320000=高音质 999000=无损（该曲无无损时接口自动回落）
+const BR_MAP = { standard: 128000, high: 320000, lossless: 999000 }
+
+export async function getSongUrl(id, quality = 'standard') {
   try {
     const { data } = await axios.get(`https://music.163.com/api/song/enhance/player/url`, {
       headers: cookieHeaders,
-      params: { ids: `[${id}]`, br: 128000 }
+      params: { ids: `[${id}]`, br: BR_MAP[quality] || 128000 }
     })
     if (data.code === 200 && data.data?.[0]?.url) {
       return data.data[0].url
@@ -200,6 +203,33 @@ export async function getSongUrl(id) {
     console.error('NetEase song URL error:', e.message)
     return null
   }
+}
+
+// 探测歌曲实际可用的音质档位：无损需接口返回 level 为 lossless/hires，
+// 否则 999000 只是回落到高音质，不视为有真无损
+export async function detectQualities(id) {
+  const result = []
+  try {
+    const probes = [
+      { q: 'lossless', br: 999000, needLevel: ['lossless', 'hires', 'jyeffect', 'jymaster'] },
+      { q: 'high', br: 320000 },
+      { q: 'standard', br: 128000 }
+    ]
+    for (const p of probes) {
+      const { data } = await axios.get(`https://music.163.com/api/song/enhance/player/url`, {
+        headers: cookieHeaders,
+        params: { ids: `[${id}]`, br: p.br },
+        timeout: 8000
+      })
+      const u = data?.data?.[0]
+      if (u?.url && (!p.needLevel || p.needLevel.includes(u.level))) {
+        result.push(p.q)
+      }
+    }
+  } catch (e) {
+    console.error('NetEase detect qualities error:', e.message)
+  }
+  return result.length ? result : ['standard']
 }
 
 export async function getLyrics(id) {

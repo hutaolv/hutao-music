@@ -51,6 +51,18 @@
       </div>
 
       <div class="player-right">
+        <div class="quality-wrap" ref="qualityWrap">
+          <button class="ctrl-btn quality-btn" :class="{ boosted: quality !== 'standard' }" @click.stop="toggleQualityMenu" title="音质">{{ qualityLabel }} <span class="quality-caret">&#x25BE;</span></button>
+          <transition name="fade">
+            <div v-if="showQualityMenu" class="quality-menu">
+              <div class="quality-menu-title">音质选择</div>
+              <div v-for="o in menuOptions" :key="o.value" class="quality-option" :class="{ active: o.value === quality }" @click="setQuality(o.value)">
+                <span class="quality-check">{{ o.value === quality ? '&#x2713;' : '' }}</span>
+                {{ o.label }}
+              </div>
+            </div>
+          </transition>
+        </div>
         <button class="ctrl-btn" :class="{ active: store.showLyricsPanel }" @click="store.showLyricsPanel = !store.showLyricsPanel" title="歌词面板">&#x1F3B5;</button>
         <button class="ctrl-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
@@ -105,6 +117,57 @@ const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
 const isFav = ref(false)
 const downloadUrl = ref('')
+
+// 音质档位：standard=标准 high=高音质 lossless=无损（本地持久化，切换时重新获取播放地址）
+const qualityOptions = [
+  { value: 'standard', label: '标准' },
+  { value: 'high', label: '高音质' },
+  { value: 'lossless', label: '无损' }
+]
+const quality = ref(localStorage.getItem('playQuality') || 'standard')
+const showQualityMenu = ref(false)
+const qualityWrap = ref(null)
+// 当前歌曲实际可用的音质档位（播放时探测得到），没有的音质不显示在菜单里
+const availableQualities = ref(['standard'])
+
+const qualityLabel = computed(() => {
+  const o = qualityOptions.find(o => o.value === quality.value)
+  return o ? o.label : '标准'
+})
+
+// 菜单只展示当前歌曲实际可用的音质
+const menuOptions = computed(() => {
+  return qualityOptions.filter(o => availableQualities.value.includes(o.value))
+})
+
+function toggleQualityMenu() {
+  showQualityMenu.value = !showQualityMenu.value
+}
+
+// 点击音质菜单外部时关闭菜单
+function onDocClick(e) {
+  if (qualityWrap.value && !qualityWrap.value.contains(e.target)) showQualityMenu.value = false
+}
+
+// 切换音质：保存偏好，若正在播放则重新获取当前歌曲的对应音质地址并保持进度
+async function setQuality(q) {
+  showQualityMenu.value = false
+  if (q === quality.value) return
+  quality.value = q
+  localStorage.setItem('playQuality', q)
+  const song = store.currentSong
+  if (song && !song.vip && audio && audio.src) {
+    const t = audio.currentTime
+    const wasPlaying = store.isPlaying
+    const url = await getSongUrl(song, q)
+    if (url) {
+      audio.src = url
+      audio.currentTime = t
+      downloadUrl.value = url
+      if (wasPlaying) audio.play().catch(() => {})
+    }
+  }
+}
 
 const parsedLyrics = computed(() => {
   const lines = store.rawLyrics.split('\n')
@@ -219,7 +282,20 @@ watch(() => store.currentSong, async (song) => {
     isFav.value = getFavorites().some(s => s.id === song.id)
     let url = song.audioUrl || song.sourceUrl || ''
     if (!url) {
-      url = await getSongUrl(song)
+      // 探测该歌曲可用音质，并确保使用实际可用的音质（用户偏好不可用时回退到可用最高档）
+      const res = await getSongUrl(song, quality.value, true)
+      availableQualities.value = res.availableQualities || ['standard']
+      if (!availableQualities.value.includes(quality.value)) {
+        const prefer = ['lossless', 'high', 'standard'].find(q => availableQualities.value.includes(q))
+        if (prefer && prefer !== quality.value) {
+          quality.value = prefer
+          url = await getSongUrl(song, prefer)
+        } else {
+          url = res.url
+        }
+      } else {
+        url = res.url
+      }
     }
     if (url) {
       audio.src = url
@@ -360,11 +436,13 @@ function onImgError(e) {
 
 onMounted(() => {
   initAudio()
+  document.addEventListener('click', onDocClick)
 })
 
 onUnmounted(() => {
   clearInterval(intervalId)
   if (vipSkipTimer) clearTimeout(vipSkipTimer)
+  document.removeEventListener('click', onDocClick)
   if (audio) {
     audio.pause()
     audio = null
@@ -423,6 +501,83 @@ onUnmounted(() => {
 
 .play-btn { width: 40px; height: 40px; background: var(--accent); color: white; font-size: 16px; }
 .play-btn:hover { background: var(--accent-light); color: white; }
+
+/* 音质选择：按钮 + 上浮菜单（强调视觉） */
+.quality-wrap { position: relative; }
+.quality-btn {
+  font-size: 12px;
+  width: auto;
+  min-width: 52px;
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.quality-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+/* 非标准音质时按钮高亮，提示当前正在用高音质/无损 */
+.quality-btn.boosted { border-color: var(--accent); color: var(--accent-light); }
+.quality-caret { font-size: 9px; opacity: 0.75; }
+
+.quality-menu {
+  position: absolute;
+  bottom: 44px;
+  right: -8px;
+  background: #181830;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 124px;
+  z-index: 100;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+}
+/* 指向按钮的小箭头 */
+.quality-menu::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 20px;
+  width: 10px;
+  height: 10px;
+  background: #181830;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  transform: rotate(45deg);
+}
+.quality-menu-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 10px 6px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+}
+.quality-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.quality-check {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+.quality-option:hover { background: rgba(99, 102, 241, 0.15); color: var(--text-primary); }
+.quality-option.active { background: var(--accent); color: #fff; font-weight: 600; }
 
 .progress-area { width: 100%; max-width: 520px; display: flex; align-items: center; gap: 12px; }
 .time { font-size: 11px; color: var(--text-muted); min-width: 35px; text-align: center; font-variant-numeric: tabular-nums; }

@@ -38,19 +38,27 @@ function getDemoUrl(id) {
 }
 
 router.get('/url', async (req, res) => {
-  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId } = req.query
+  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect } = req.query
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
 
   try {
     let url = null
+    // quality: standard/high/lossless；高音质/无损获取失败时回退标准音质
+    const q = ['standard', 'high', 'lossless'].includes(quality) ? quality : 'standard'
+    // detect=1 时探测该歌曲实际可用的音质档位，供前端动态显示音质菜单
+    let availableQualities = null
     switch (platform) {
       case '网易云音乐':
-        url = await netease.getSongUrl(id)
+        if (detect === '1') availableQualities = await netease.detectQualities(id)
+        url = await netease.getSongUrl(id, q)
+        if (!url && q !== 'standard') url = await netease.getSongUrl(id, 'standard')
         break
       case 'QQ音乐':
-        url = await qqmusic.getSongUrl(mid || id, mediaMid)
+        if (detect === '1') availableQualities = await qqmusic.detectQualities(mid || id, mediaMid)
+        url = await qqmusic.getSongUrl(mid || id, mediaMid, q)
+        if (!url && q !== 'standard') url = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
         break
       case 'B站':
         url = await bilibili.getSongUrl(req.query.auid || id)
@@ -60,13 +68,15 @@ router.get('/url', async (req, res) => {
         url = req.query.sourceUrl || null
         break
       case '咪咕音乐':
-        url = await migu.getSongUrl(contentId || id, copyrightId)
+        if (detect === '1') availableQualities = await migu.detectQualities(contentId || id, copyrightId)
+        url = await migu.getSongUrl(contentId || id, copyrightId, q)
+        if (!url && q !== 'standard') url = await migu.getSongUrl(contentId || id, copyrightId, 'standard')
         break
     }
     if (!url) url = getDemoUrl(id)
-    res.json({ code: 200, data: { url } })
+    res.json({ code: 200, data: { url, availableQualities } })
   } catch (e) {
-    res.json({ code: 200, data: { url: getDemoUrl(req.query.id) } })
+    res.json({ code: 200, data: { url: getDemoUrl(req.query.id), availableQualities: null } })
   }
 })
 
