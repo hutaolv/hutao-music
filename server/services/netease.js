@@ -81,26 +81,32 @@ export async function getToplist() {
 
 export async function searchSongs(keyword, limit = 50) {
   try {
-    const { data } = await axios.get(`${BASE}/search/get/web`, {
+    // 用 cloudsearch 接口：返回歌曲带 al.picUrl 封面（search/get/web 的 album 只有 name 没有图）
+    const { data } = await axios.post(`${BASE}/cloudsearch/pc?type=1&s=${encodeURIComponent(keyword)}&offset=0&limit=${limit}`, {}, {
       headers: { ...headers, 'Cookie': 'appver=2.0.2' },
-      params: { s: keyword, type: 1, offset: 0, total: 'true', limit }
+      timeout: 8000
     })
     if (data.code !== 200 || !data.result?.songs) return []
-    return data.result.songs.slice(0, limit).map(track => ({
-      id: `netease_${track.id}`,
-      platformId: String(track.id),
-      title: track.name,
-      artist: (track.artists || []).map(a => a.name).join(' / '),
-      artistId: track.artists?.[0]?.id ? `netease_artist_${track.artists[0].id}` : '',
-      album: track.album?.name || '',
-      cover: track.album?.picUrl || '',
-      duration: formatDuration(track.duration),
-      durationMs: track.duration || 0,
-      platform: '网易云音乐',
-      audioUrl: '',
-      vip: track.fee === 1 || track.fee === 4,
-      platformIdNum: track.id
-    }))
+    return data.result.songs.slice(0, limit).map(track => {
+      // cloudsearch 返回 al/ar（小写），老接口才用 album/artists，这里做兼容
+      const al = track.al || track.album || {}
+      const ar = track.ar || track.artists || []
+      return {
+        id: `netease_${track.id}`,
+        platformId: String(track.id),
+        title: track.name,
+        artist: ar.map(a => a.name).join(' / '),
+        artistId: ar[0]?.id ? `netease_artist_${ar[0].id}` : '',
+        album: al.name || '',
+        cover: al.picUrl || '',
+        duration: formatDuration(track.duration || track.dt),
+        durationMs: track.duration || track.dt || 0,
+        platform: '网易云音乐',
+        audioUrl: '',
+        vip: track.fee === 1 || track.fee === 4,
+        platformIdNum: track.id
+      }
+    })
   } catch (e) {
     console.error('NetEase search error:', e.message)
     return []
