@@ -242,7 +242,8 @@ export async function getLyrics(id) {
   try {
     const { data } = await axios.get(`https://music.163.com/api/song/lyric`, {
       headers: cookieHeaders,
-      params: { id, lv: 1, kv: 1, tv: -1 }
+      // os=pc + lv=-1 才能取到歌词；lv=1 对部分歌曲（如翻唱/有声内容）会返回空
+      params: { id, os: 'pc', lv: -1, kv: -1, tv: -1 }
     })
     if (data.code !== 200) return null
     return {
