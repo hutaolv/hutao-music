@@ -8,6 +8,17 @@
         <div class="song-meta">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
+          <!-- 下载按钮：咪咕等无法在播放条直接下载时，在此处下载并显示进度 -->
+          <div class="download-wrap">
+            <button class="download-btn" @click="handleDownload" :disabled="downloading">
+              <span v-if="downloading">{{ Math.round(progress * 100) }}% 下载中</span>
+              <span v-else-if="downloaded">已下载 &#x2713;</span>
+              <span v-else>&#x2B07; 下载歌曲</span>
+            </button>
+            <div v-if="downloading" class="download-progress">
+              <div class="download-progress-bar" :style="{ width: progress * 100 + '%' }"></div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="lyrics-scroll" ref="lyricsRef">
@@ -37,11 +48,28 @@
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
+import { downloadSongWithProgress } from '../utils/download'
 
 const store = usePlayerStore()
 const router = useRouter()
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
+// 下载状态：是否下载中、进度(0~1)、是否完成
+const downloading = ref(false)
+const progress = ref(0)
+const downloaded = ref(false)
+
+// 点击下载：流式下载并实时刷新进度，完成后短暂显示"已下载"
+async function handleDownload() {
+  if (downloading.value) return
+  downloading.value = true
+  progress.value = 0
+  downloaded.value = false
+  await downloadSongWithProgress(store.currentSong, (p) => { progress.value = p })
+  downloading.value = false
+  downloaded.value = true
+  setTimeout(() => { downloaded.value = false }, 2500)
+}
 
 const parsedLyrics = computed(() => {
   const lines = store.rawLyrics.split('\n')
@@ -143,6 +171,38 @@ function onImgError(e) {
   font-size: 16px;
   color: var(--text-secondary);
   margin-top: 6px;
+}
+
+/* 下载按钮：大号显眼的渐变按钮 + 进度条 */
+.download-wrap { margin-top: 16px; }
+.download-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  border-radius: 24px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.download-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); }
+.download-btn:disabled { opacity: 0.7; cursor: default; transform: none; }
+.download-progress {
+  margin-top: 8px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.download-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  border-radius: 3px;
+  transition: width 0.15s linear;
 }
 .lyrics-scroll {
   width: 100%;
