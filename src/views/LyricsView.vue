@@ -8,23 +8,6 @@
         <div class="song-meta">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
-          <!-- 下载按钮：咪咕等无法在播放条直接下载时，在此处下载并显示进度 -->
-          <div class="download-wrap">
-            <button class="download-btn" :class="{ loading: downloading, done: downloaded }" @click="handleDownload" :disabled="downloading">
-              <svg v-if="!downloading" class="dl-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              <span v-if="downloading" class="spinner"></span>
-              <span v-if="downloading">下载中 {{ Math.round(progress * 100) }}%</span>
-              <span v-else-if="downloaded">已下载</span>
-              <span v-else>下载歌曲</span>
-            </button>
-            <div v-if="downloading" class="download-progress">
-              <div class="download-progress-bar" :style="{ width: progress * 100 + '%' }"></div>
-            </div>
-          </div>
         </div>
       </div>
       <div class="lyrics-scroll" ref="lyricsRef">
@@ -54,28 +37,11 @@
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { downloadSongWithProgress } from '../utils/download'
 
 const store = usePlayerStore()
 const router = useRouter()
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
-// 下载状态：是否下载中、进度(0~1)、是否完成
-const downloading = ref(false)
-const progress = ref(0)
-const downloaded = ref(false)
-
-// 点击下载：流式下载并实时刷新进度，完成后短暂显示"已下载"
-async function handleDownload() {
-  if (downloading.value) return
-  downloading.value = true
-  progress.value = 0
-  downloaded.value = false
-  await downloadSongWithProgress(store.currentSong, (p) => { progress.value = p })
-  downloading.value = false
-  downloaded.value = true
-  setTimeout(() => { downloaded.value = false }, 2500)
-}
 
 const parsedLyrics = computed(() => {
   const lines = store.rawLyrics.split('\n')
@@ -179,54 +145,6 @@ function onImgError(e) {
   margin-top: 6px;
 }
 
-/* 下载按钮：大号显眼的渐变按钮 + 下载图标 + 进度条 */
-.download-wrap { margin-top: 16px; }
-.download-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 28px;
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6 50%, #a855f7);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 28px;
-  box-shadow: 0 4px 18px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: all 0.25s;
-  cursor: pointer;
-}
-.download-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 26px rgba(139, 92, 246, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
-.download-btn:active { transform: translateY(0); }
-.download-btn:disabled { opacity: 0.85; cursor: default; transform: none; }
-/* 下载完成时变绿色提示 */
-.download-btn.done { background: linear-gradient(135deg, #10b981, #34d399); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 4px 18px rgba(16, 185, 129, 0.45); }
-.dl-icon { flex-shrink: 0; }
-/* 下载中旋转的加载圈 */
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: dl-spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes dl-spin { to { transform: rotate(360deg); } }
-.download-progress {
-  margin-top: 10px;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.download-progress-bar {
-  height: 100%;
-  background: linear-gradient(90deg, #6366f1, #a855f7);
-  border-radius: 3px;
-  transition: width 0.15s linear;
-}
 .lyrics-scroll {
   width: 100%;
   max-height: 55vh;
