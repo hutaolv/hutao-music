@@ -79,12 +79,16 @@ export async function searchArtists(keyword) {
   }
 }
 
-export async function getSongUrl(song) {
+// 获取播放地址。quality: standard/high/lossless（音质档位，由播放器选择并持久化）。
+// detect=true 时后端同时探测该歌曲可用音质，返回 { url, availableQualities }
+export async function getSongUrl(song, quality = 'standard', detect = false) {
   const songId = song.platformId || song.id
   const params = new URLSearchParams({
     platform: song.platform,
     id: songId
   })
+  if (quality && quality !== 'standard') params.set('quality', quality)
+  if (detect) params.set('detect', '1')
   if (song.bvid) params.set('bvid', song.bvid)
   if (song.cid) params.set('cid', song.cid)
   if (song.auid) params.set('auid', song.auid)
@@ -97,11 +101,14 @@ export async function getSongUrl(song) {
     const res = await fetch(`${API_BASE}/song/url?${params}`)
     const json = await res.json()
     if (json.code === 200 && json.data?.url) {
+      // 探测时返回对象（含可用音质列表），否则返回 url 字符串，兼容两种调用方式
+      if (detect) return { url: json.data.url, availableQualities: json.data.availableQualities || ['standard'] }
       return json.data.url
     }
   } catch (e) {
     console.warn('Get song URL failed:', e.message)
   }
+  if (detect) return { url: getDemoUrl(songId), availableQualities: ['standard'] }
   return getDemoUrl(songId)
 }
 

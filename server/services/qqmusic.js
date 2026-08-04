@@ -246,9 +246,15 @@ export async function getArtistSongs(artistMid, artistName, page = 1) {
   }
 }
 
-export async function getSongUrl(mid, mediaMid) {
+// QQ 音质文件名前缀映射：M500=标准 M800=高音质 F000=无损（高音质/无损一般需会员，失败时由路由回退）
+const QUALITY_FILENAME = { standard: ['M500', 'mp3'], high: ['M800', 'mp3'], lossless: ['F000', 'flac'] }
+
+export async function getSongUrl(mid, mediaMid, quality = 'standard') {
   const guid = String(Math.floor(Math.random() * 10000000000))
   const useMid = mediaMid || mid
+  // 根据所选音质构造文件名（如 M800xxxx.mp3），CgiGetVkey 会返回对应音质的 purl
+  const [tag, ext] = QUALITY_FILENAME[quality] || QUALITY_FILENAME.standard
+  const fileName = `${tag}${useMid}.${ext}`
   try {
     const { data } = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
       headers: {
@@ -265,6 +271,7 @@ export async function getSongUrl(mid, mediaMid) {
             param: {
               guid,
               songmid: [useMid],
+              filename: [fileName],
               songtype: [0],
               uin: '0',
               loginflag: 1,
@@ -283,6 +290,45 @@ export async function getSongUrl(mid, mediaMid) {
     console.error('QQ song URL error:', e.message)
     return null
   }
+}
+
+// 探测歌曲可用音质：按各音质文件名请求，能拿到 purl 才算该音质可用
+export async function detectQualities(mid, mediaMid) {
+  const useMid = mediaMid || mid
+  const result = []
+  try {
+    const probes = [
+      { q: 'lossless', tag: 'F000', ext: 'flac' },
+      { q: 'high', tag: 'M800', ext: 'mp3' },
+      { q: 'standard', tag: 'M500', ext: 'mp3' }
+    ]
+    for (const p of probes) {
+      const fileName = `${p.tag}${useMid}.${p.ext}`
+      const { data } = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.1 Safari/537.36',
+          'Referer': 'https://y.qq.com/'
+        },
+        params: {
+          format: 'json',
+          data: JSON.stringify({
+            comm: { ct: 24, cv: 0 },
+            url: {
+              module: 'vkey.GetVkeyServer',
+              method: 'CgiGetVkey',
+              param: { guid: String(Math.floor(Math.random() * 10000000000)), songmid: [useMid], filename: [fileName], songtype: [0], uin: '0', loginflag: 1, platform: '20' }
+            }
+          })
+        },
+        timeout: 8000
+      })
+      const info = data?.url?.data?.midurlinfo?.[0]
+      if (info?.purl) result.push(p.q)
+    }
+  } catch (e) {
+    console.error('QQ detect qualities error:', e.message)
+  }
+  return result.length ? result : ['standard']
 }
 
 export async function getLyrics(mid) {
