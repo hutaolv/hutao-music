@@ -3,7 +3,7 @@
     <section class="section">
       <h2 class="section-title">热门榜单速览</h2>
       <div v-if="Object.keys(top3ByPlatform).length" class="chart-preview-grid">
-        <div v-for="(songs, platform) in top3ByPlatform" :key="platform" class="chart-preview-card" @click="router.push('/charts')">
+        <div v-for="(songs, platform) in top3ByPlatform" :key="platform" class="chart-preview-card" @click="router.push({ path: '/charts', query: { platform } })">
           <div class="chart-header" :style="{ borderColor: platformColors[platform] }">
             <span class="chart-platform" :style="{ color: platformColors[platform] }">{{ platform }}</span>
             <span class="chart-more">查看全部 &rarr;</span>

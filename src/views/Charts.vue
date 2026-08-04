@@ -49,13 +49,17 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 
+const route = useRoute()
 const store = usePlayerStore()
-const activePlatform = ref(platforms[0])
+
+// 支持从首页"查看全部"带平台参数进入，如 /charts?platform=网易云音乐
+const activePlatform = ref(route.query.platform && platforms.includes(route.query.platform) ? route.query.platform : platforms[0])
 const activeSubList = ref(0)
 
 const liveData = ref({})
@@ -92,6 +96,13 @@ async function loadPlatform(platform) {
 
 watch(activePlatform, (p) => {
   if (!liveData.value[p]) loadPlatform(p)
+})
+
+// 路由平台参数变化时（如再次从首页进入）同步切换当前平台
+watch(() => route.query.platform, (p) => {
+  if (p && platforms.includes(p) && p !== activePlatform.value) {
+    switchPlatform(p)
+  }
 })
 
 onMounted(() => {
