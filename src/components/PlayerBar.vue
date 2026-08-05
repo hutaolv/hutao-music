@@ -11,7 +11,7 @@
           </div>
           <div class="text">
             <div class="title">{{ store.currentSong.title }}</div>
-            <div class="artist">{{ store.currentSong.artist }}</div>
+            <div class="artist" :title="store.currentSong.artist">{{ store.currentSong.artist }}</div>
           </div>
           <button class="fav-btn" :class="{ favorited: isFav }" @click="toggleFav">&#x2665;</button>
         </div>
@@ -477,7 +477,7 @@ onUnmounted(() => {
   border-radius: 8px; color: white;
 }
 .song-info .text .title { font-size: 14px; font-weight: 600; color: var(--text-primary); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.song-info .text .artist { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.song-info .text .artist { font-size: 12px; color: var(--text-secondary); margin-top: 2px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .song-info.empty .text .title { color: var(--text-muted); }
 
 .fav-btn { font-size: 18px; color: var(--text-muted); transition: color 0.2s, transform 0.2s; margin-left: auto; }
