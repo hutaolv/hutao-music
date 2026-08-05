@@ -23,7 +23,10 @@ app.get('/api/proxy/image', async (req, res) => {
   const { url } = req.query
   if (!url) return res.status(400).json({ code: 400, message: 'url required' })
   try {
-    const imageRes = await fetch(decodeURIComponent(url), {
+    // B站等来源的封面常是协议相对地址（//i0.hdslb.com/...），fetch 无法解析，需补全协议
+    let target = decodeURIComponent(url)
+    if (target.startsWith('//')) target = 'https:' + target
+    const imageRes = await fetch(target, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.bilibili.com/'
@@ -49,7 +52,10 @@ app.get('/api/proxy/audio', async (req, res) => {
       'Referer': 'https://www.bilibili.com/'
     }
     if (req.headers.range) fetchHeaders['Range'] = req.headers.range
-    const response = await fetch(decodeURIComponent(url), { headers: fetchHeaders })
+    // 与图片代理一样补全协议相对地址，避免解析失败
+    let target = decodeURIComponent(url)
+    if (target.startsWith('//')) target = 'https:' + target
+    const response = await fetch(target, { headers: fetchHeaders })
     if (!response.ok && response.status !== 206) return res.status(502).json({ code: 502, message: 'proxy failed' })
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Cache-Control', 'public, max-age=3600')

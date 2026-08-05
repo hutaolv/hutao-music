@@ -296,6 +296,39 @@ export async function getLyrics(id, lyricUrl) {
     } catch (e) {
       console.error('Bilibili lyrics info error:', e.message)
     }
+    // 搜索到的视频歌曲没有音频馆 sid：按 bvid 取 cid 后把视频弹幕转成 LRC 歌词（尽力而为）
+    try {
+      const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
+        headers: buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
+        params: { bvid: id },
+        timeout: 8000
+      })
+      const cid = view.data?.data?.cid
+      if (cid) {
+        const dm = await axios.get('https://api.bilibili.com/x/v1/dm/list.so', {
+          headers: buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
+          params: { oid: cid },
+          timeout: 8000,
+          responseType: 'text'
+        })
+        const xml = typeof dm.data === 'string' ? dm.data : Buffer.from(dm.data).toString('utf8')
+        const lines = []
+        const re = /<d p="([^"]*)">([\s\S]*?)<\/d>/g
+        let m
+        while ((m = re.exec(xml))) {
+          const t = parseFloat(m[1].split(',')[0])
+          const text = m[2].replace(/&[^;]+;/g, '').trim()
+          if (!text) continue
+          const mm = Math.floor(t / 60)
+          const ss = Math.floor(t % 60)
+          const ms = Math.round((t - Math.floor(t)) * 100)
+          lines.push(`[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(ms).padStart(2, '0')}]${text}`)
+        }
+        if (lines.length) return { lyrics: lines.join('\n'), transLyrics: '' }
+      }
+    } catch (e) {
+      console.error('Bilibili danmaku lyrics error:', e.message)
+    }
   }
   return null
 }
