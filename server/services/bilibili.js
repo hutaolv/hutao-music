@@ -272,6 +272,31 @@ export async function getSongUrl(auid) {
   return null
 }
 
+// 获取 B站视频歌曲的真实音频：搜索到的音乐视频没有音频馆 sid，
+// 按 bvid 拿 cid 后请求 playurl 的 dash 音频流，经代理播放（带 Referer 防盗链）
+export async function getVideoUrl(bvid) {
+  if (!bvid) return null
+  try {
+    const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
+      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      params: { bvid },
+      timeout: 8000
+    })
+    const cid = view.data?.data?.cid
+    if (!cid) return null
+    const pl = await axios.get('https://api.bilibili.com/x/player/playurl', {
+      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      params: { bvid, cid, fnval: 16, fourk: 1 },
+      timeout: 8000
+    })
+    const baseUrl = pl.data?.data?.dash?.audio?.[0]?.baseUrl
+    if (baseUrl) return `/api/proxy/audio?url=${encodeURIComponent(baseUrl)}`
+  } catch (e) {
+    console.error('Bilibili getVideoUrl error:', e.message)
+  }
+  return null
+}
+
 export async function getLyrics(id, lyricUrl) {
   if (lyricUrl) {
     try {

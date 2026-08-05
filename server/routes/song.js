@@ -8,35 +8,6 @@ import * as migu from '../services/migu.js'
 
 const router = Router()
 
-const DEMO_SONGS = [
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3'
-]
-
-function getDemoUrl(id) {
-  let hash = 0
-  const str = String(id)
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  return DEMO_SONGS[Math.abs(hash) % DEMO_SONGS.length]
-}
-
 router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect } = req.query
   if (!platform || !id) {
@@ -61,7 +32,9 @@ router.get('/url', async (req, res) => {
         if (!url && q !== 'standard') url = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
         break
       case 'B站':
-        url = await bilibili.getSongUrl(req.query.auid || id)
+        // 音频馆歌曲走 auid；搜索到的音乐视频按 bvid 取真实的视频音频流
+        if (req.query.auid) url = await bilibili.getSongUrl(req.query.auid)
+        if (!url && req.query.bvid) url = await bilibili.getVideoUrl(req.query.bvid)
         break
       case '抖音':
       case '汽水音乐':
@@ -73,10 +46,10 @@ router.get('/url', async (req, res) => {
         if (!url && q !== 'standard') url = await migu.getSongUrl(contentId || id, copyrightId, 'standard')
         break
     }
-    if (!url) url = getDemoUrl(id)
+    // 拿不到真实音频时不返回 demo，前端据此提示"无法获取"并跳过，url 保持为 null
     res.json({ code: 200, data: { url, availableQualities } })
   } catch (e) {
-    res.json({ code: 200, data: { url: getDemoUrl(req.query.id), availableQualities: null } })
+    res.json({ code: 200, data: { url: null, availableQualities: null } })
   }
 })
 

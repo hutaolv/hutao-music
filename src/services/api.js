@@ -1,34 +1,5 @@
 const API_BASE = '/api'
 
-const DEMO_SONGS = [
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3',
-  'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3'
-]
-
-function getDemoUrl(id) {
-  let hash = 0
-  const str = String(id)
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  return DEMO_SONGS[Math.abs(hash) % DEMO_SONGS.length]
-}
-
 export async function fetchCharts(platform) {
   try {
     const res = await fetch(`${API_BASE}/charts?platform=${encodeURIComponent(platform)}`)
@@ -108,8 +79,9 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
   } catch (e) {
     console.warn('Get song URL failed:', e.message)
   }
-  if (detect) return { url: getDemoUrl(songId), availableQualities: ['standard'] }
-  return getDemoUrl(songId)
+  // 拿不到真实音频时返回空，由播放器提示"无法获取"并跳下一首，不再回退 demo
+  if (detect) return { url: null, availableQualities: ['standard'] }
+  return null
 }
 
 export async function getLyrics(song) {
