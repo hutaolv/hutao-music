@@ -67,7 +67,7 @@
         <button class="ctrl-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
         </button>
-        <button v-if="downloadUrl" class="ctrl-btn download-btn" @click="downloadSong" title="下载歌曲">
+        <button v-if="downloadUrl" class="ctrl-btn" @click="downloadSong" title="下载歌曲">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
@@ -582,22 +582,6 @@ onUnmounted(() => {
 .progress-bar:hover .progress-fill { height: 6px; }
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
-
-/* 下载按钮：绿色渐变圆形 + SVG 下载图标，突出明显 */
-.download-btn {
-  color: #fff;
-  background: linear-gradient(135deg, #34d399, #059669);
-  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.45);
-  transition: all 0.2s;
-}
-.download-btn svg { flex-shrink: 0; }
-.download-btn:hover {
-  color: #fff;
-  background: linear-gradient(135deg, #10b981, #059669);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.65);
-  transform: translateY(-2px);
-}
-.download-btn:active { transform: translateY(0); }
 
 .volume-bar { width: 100px; height: 20px; display: flex; align-items: center; cursor: pointer; }
 .volume-track { width: 100%; height: 4px; background: var(--border-color); border-radius: 2px; }
