@@ -104,6 +104,9 @@
     <transition name="fade">
       <div v-if="vipToast" class="vip-toast">付费音乐，暂时无法播放，2秒后自动跳过</div>
     </transition>
+    <transition name="fade">
+      <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，5秒后自动跳过</div>
+    </transition>
   </div>
 </template>
 
@@ -223,9 +226,21 @@ const playModeText = computed(() => {
 })
 
 const vipToast = ref(false)
+const playFailedToast = ref(false)
 let vipSkipTimer = null
+let playFailedTimer = null
 let audio = null
-let intervalId = null
+
+// 拿不到真实音频时：提示"无法获取"，5 秒后自动跳下一首
+function showPlayFailed() {
+  if (playFailedTimer) clearTimeout(playFailedTimer)
+  store.isPlaying = false
+  playFailedToast.value = true
+  playFailedTimer = setTimeout(() => {
+    playFailedToast.value = false
+    if (store.currentSong) store.playNext()
+  }, 5000)
+}
 
 function initAudio() {
   audio = new Audio()
@@ -267,7 +282,9 @@ function onEnded() {
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
   if (vipSkipTimer) { clearTimeout(vipSkipTimer); vipSkipTimer = null }
+  if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
   vipToast.value = false
+  playFailedToast.value = false
   store.showLyricsPanel = false
   store.rawLyrics = ''
   store.rawTransLyrics = ''
@@ -314,7 +331,8 @@ watch(() => store.currentSong, async (song) => {
         store.rawTransLyrics = lrc.transLyrics || ''
       }
     } else {
-      simulatePlayback()
+      // 拿不到真实音频：提示并 5 秒后自动跳下一首
+      showPlayFailed()
     }
   }
 }, { immediate: true })
@@ -339,39 +357,6 @@ watch(() => store.seekTime, (t) => {
     store.seekTime = -1
   }
 })
-
-function simulatePlayback() {
-  clearInterval(intervalId)
-  if (!store.currentSong || !store.isPlaying) return
-  store.currentTime = 0
-  store.currentLyricIndex = -1
-  intervalId = setInterval(() => {
-    if (store.isPlaying) {
-      store.currentTime += 1
-      updateSimulatedLyrics()
-      if (store.currentTime >= durationSec.value) {
-        onEnded()
-      }
-    }
-  }, 1000)
-}
-
-function updateSimulatedLyrics() {
-  if (!parsedLyrics.value.length) return
-  const t = store.currentTime
-  let idx = -1
-  for (let i = parsedLyrics.value.length - 1; i >= 0; i--) {
-    if (t >= parsedLyrics.value[i].time) { idx = i; break }
-  }
-  if (idx !== store.currentLyricIndex) {
-    store.currentLyricIndex = idx
-    if (idx >= 0) {
-      nextTick(() => {
-        lyricActiveEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      })
-    }
-  }
-}
 
 async function downloadSong() {
   if (!store.currentSong) return
@@ -447,7 +432,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  clearInterval(intervalId)
+  if (playFailedTimer) clearTimeout(playFailedTimer)
   if (vipSkipTimer) clearTimeout(vipSkipTimer)
   document.removeEventListener('click', onDocClick)
   if (audio) {
@@ -681,6 +666,9 @@ onUnmounted(() => {
   z-index: 300;
   pointer-events: none;
 }
+
+/* 拿不到真实音频时的提示样式 */
+.failed-toast { background: rgba(249, 115, 22, 0.92); }
 
 @media (max-width: 768px) {
   .player-left { width: 180px; }
