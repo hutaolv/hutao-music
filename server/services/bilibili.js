@@ -146,24 +146,46 @@ export async function getToplist() {
 // 搜索 B 站 UP 主作为"歌手"（bili_user 类型），头像经 /api/proxy/image 代理加载
 export async function searchArtists(keyword, limit = 20) {
   try {
-    const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
-      headers: buildBiliHeaders(`https://www.bilibili.com/search?keyword=${encodeURIComponent(keyword)}`),
-      params: { search_type: 'bili_user', keyword },
-      timeout: 8000
-    })
-    const items = data?.data?.result || []
-    if (!items.length) return []
-    return items.slice(0, limit).map(u => ({
-      id: `bilibili_artist_${u.mid}`,
-      platformId: String(u.mid),
-      name: u.uname || '',
-      avatar: u.upic ? `/api/proxy/image?url=${encodeURIComponent('https:' + u.upic)}` : '',
-      region: '未知',
-      genre: '未知',
-      fans: u.fans || 0,
-      songCount: u.videos || 0,
-      platform: 'B站'
+    // 用音乐区视频搜索按作者聚合出"歌手"：保证每个歌手都有可播放的音乐作品，
+    // 避免 bili_user 搜出的有声书/影视 UP 主（无音乐作品）混入歌手列表
+    const songs = await search(keyword)
+    if (!songs.length) return []
+    const map = new Map()
+    for (const s of songs) {
+      if (!s.artist || s.artist === '未知') continue
+      const artistId = s.artistId || `bilibili_artist_${s.artist}`
+      if (!map.has(artistId)) {
+        map.set(artistId, {
+          id: artistId,
+          platformId: String(artistId.replace('bilibili_artist_', '')),
+          name: s.artist,
+          avatar: s.cover,
+          region: '音乐区',
+          genre: '翻唱/原创',
+          fans: 0,
+          songCount: 0,
+          platform: 'B站'
+        })
+      }
+    }
+    const artists = [...map.values()].slice(0, limit)
+    // 并发查询每个作者的音频馆真实作品数（totalSize）作为"单曲"数量，
+    // 与歌手详情页 getArtistSongs 展示的数量保持一致；音频馆为空时置 0（前端退回地区/流派）
+    await Promise.allSettled(artists.map(async (a) => {
+      const uid = a.platformId
+      if (!uid) { a.songCount = 0; return }
+      try {
+        const res = await axios.get('https://api.bilibili.com/audio/music-service/web/song/upper', {
+          headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+          params: { uid, pn: 1, ps: 50 },
+          timeout: 8000
+        })
+        a.songCount = res.data?.data?.totalSize || 0
+      } catch {
+        a.songCount = 0
+      }
     }))
+    return artists
   } catch (e) {
     console.error('Bilibili artist search error:', e.message)
     return []
@@ -185,7 +207,17 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
     })
     const d = res.data?.data || {}
     const list = d.data || []
-    if (!list.length) return { songs: [], hasMore: false }
+    // 音频馆无作品时，回退到按 UP 主名搜索音乐区视频（tids=3 + typeid 白名单），
+    // 按作者名过滤，保证歌手详情页有内容可看
+    if (!list.length) {
+      if (artistName && page <= 1) {
+        const videoSongs = await search(artistName)
+        const filtered = videoSongs.filter(s => s.artist === artistName || s.artist.includes(artistName))
+        console.log(`Bilibili artist fallback: ${filtered.length} video songs for ${artistName}`)
+        return { songs: filtered, hasMore: false }
+      }
+      return { songs: [], hasMore: false }
+    }
     // 并行补充时长信息
     const enriched = await Promise.allSettled(list.map(v =>
       axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
@@ -277,23 +309,28 @@ export async function search(query) {
     const items = data?.data?.result || []
     if (!items.length) return []
     console.log(`Bilibili search OK: ${items.length} results`)
-    const songs = items.filter(v => v.tag?.includes('音乐') || v.tname === '音乐' || v.title?.includes('音乐')).map(v => ({
-      id: `bilibili_${v.bvid}`,
-      platformId: v.bvid,
-      title: v.title.replace(/<[^>]*>/g, ''),
-      artist: v.author || '未知',
-      artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
-      album: v.tname || '',
-      cover: v.pic ? `/api/proxy/image?url=${encodeURIComponent(v.pic)}` : '',
-      duration: formatDurationStr(v.duration),
-      durationMs: parseDuration(v.duration) * 1000,
-      platform: 'B站',
-      audioUrl: '',
-      vip: false,
-      bvid: v.bvid,
-      aid: v.aid,
-      lyricUrl: ''
-    }))
+    // B站音乐分区 typeid 白名单（3=音乐主区，28音乐综合/29现场/30VOCALOID/31翻唱/59演奏/62MV/193教学/224原创/244说唱），
+    // 过滤掉混入的影视(243)、资讯(130)等非音乐视频；接口返回的 typeid 是字符串，白名单用字符串比较
+    const MUSIC_TIDS = new Set(['3', '28', '29', '30', '31', '59', '62', '193', '224', '244'])
+    const songs = items
+      .filter(v => MUSIC_TIDS.has(v.typeid))
+      .map(v => ({
+        id: `bilibili_${v.bvid}`,
+        platformId: v.bvid,
+        title: v.title.replace(/<[^>]*>/g, ''),
+        artist: v.author || '未知',
+        artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
+        album: v.tname || '',
+        cover: v.pic ? `/api/proxy/image?url=${encodeURIComponent(v.pic)}` : '',
+        duration: formatDurationStr(v.duration),
+        durationMs: parseDuration(v.duration) * 1000,
+        platform: 'B站',
+        audioUrl: '',
+        vip: false,
+        bvid: v.bvid,
+        aid: v.aid,
+        lyricUrl: ''
+      }))
     return songs.length ? songs : []
   } catch (e) {
     console.error('Bilibili search error:', e.message)
