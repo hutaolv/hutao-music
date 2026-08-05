@@ -112,22 +112,28 @@ export async function searchSongs(keyword, limit = 50) {
       }
     })
     const songs = data?.data?.song?.list || []
-    return songs.map(track => ({
-      id: `qqmusic_${track.id || track.mid}`,
-      platformId: String(track.mid || track.id),
-      title: track.title || track.name || track.songname || '',
-      artist: (track.singer || []).map(s => s.name).join(' / '),
-      artistId: track.singer?.[0]?.mid ? `qqmusic_artist_${track.singer[0].mid}` : '',
-      album: track.album?.name || track.albumname || '',
-      cover: track.album?.mid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.album.mid}.jpg` : (track.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.albummid}.jpg` : ''),
-      duration: formatDuration(track.interval),
-      durationMs: (track.interval || 0) * 1000,
-      platform: 'QQ音乐',
-      audioUrl: '',
-      vip: track.pay?.pay_play === 1 || track.pay?.pay_status === 1,
-      platformSongMid: track.mid || track.id,
-      platformMediaMid: track.file?.media_mid || track.mid
-    }))
+    return songs.map(track => {
+      // client_search_cp 返回字段是 songmid/songid/media_mid/pay.payplay（与 musicu 接口的 mid 不同），这里统一解析
+      const songMid = track.songmid || track.mid
+      const songId = track.songid || track.id
+      return {
+        id: `qqmusic_${songId || songMid}`,
+        platformId: String(songMid),
+        title: track.title || track.name || track.songname || '',
+        artist: (track.singer || []).map(s => s.name).join(' / '),
+        artistId: track.singer?.[0]?.mid ? `qqmusic_artist_${track.singer[0].mid}` : '',
+        album: track.album?.name || track.albumname || '',
+        cover: track.album?.mid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.album.mid}.jpg` : (track.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.albummid}.jpg` : ''),
+        duration: formatDuration(track.interval),
+        durationMs: (track.interval || 0) * 1000,
+        platform: 'QQ音乐',
+        audioUrl: '',
+        // 付费标记：client_search_cp 用 payplay/pay_status，命中即为需付费歌曲
+        vip: track.pay?.payplay === 1 || track.pay?.pay_status === 1 || track.pay?.paydownload === 1,
+        platformSongMid: songMid,
+        platformMediaMid: track.media_mid || track.file?.media_mid || songMid
+      }
+    })
   } catch (e) {
     console.error('QQ search error:', e.message)
     return []
@@ -281,9 +287,13 @@ export async function getSongUrl(mid, mediaMid, quality = 'standard') {
         })
       }
     })
-    const urlInfo = data?.url?.data?.midurlinfo?.[0]
+    // 取 CDN 服务器地址 sip 拼接 purl（比硬编码 dl.stream 更可靠），把 http 升级为 https 并补齐斜杠
+    const urlData = data?.url?.data
+    const urlInfo = urlData?.midurlinfo?.[0]
     if (urlInfo?.purl) {
-      return `https://dl.stream.qqmusic.qq.com/${urlInfo.purl}`
+      const sip = (urlData?.sip?.[0] || 'https://dl.stream.qqmusic.qq.com/').replace(/^http:\/\//, 'https://').replace(/\/$/, '')
+      // purl 一般不带前导斜杠，按需补齐，避免拼出双斜杠或缺失斜杠
+      return `${sip}${urlInfo.purl.startsWith('/') ? '' : '/'}${urlInfo.purl}`
     }
     return null
   } catch (e) {
