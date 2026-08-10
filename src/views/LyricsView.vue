@@ -2,10 +2,19 @@
   <div class="lyrics-view" v-if="store.currentSong">
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
-    <div class="lyrics-container">
-      <div class="song-info">
-        <img :src="store.currentSong.cover" alt="" class="album-art" @error="onImgError" />
+    <div class="lyrics-container" :class="playerStyle">
+      <!-- 旋转样式：左侧大圆盘封面 -->
+      <div v-if="playerStyle === 'disc'" class="side-panel">
+        <img :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
         <div class="song-meta">
+          <div class="song-title">{{ store.currentSong.title }}</div>
+          <div class="song-artist">{{ store.currentSong.artist }}</div>
+        </div>
+      </div>
+      <!-- 经典样式：顶部横排小封面，不旋转 -->
+      <div v-else class="song-info">
+        <img :src="store.currentSong.cover" alt="" class="song-info-art" @error="onImgError" />
+        <div class="song-meta-h">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
         </div>
@@ -27,6 +36,11 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
+    <!-- 播放器样式切换：旋转 / 经典无旋转 -->
+    <div class="style-switch">
+      <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
+      <button :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
+    </div>
   </div>
   <div v-else class="lyrics-view empty">
     <div class="empty-text">请先播放一首歌曲</div>
@@ -42,6 +56,14 @@ const store = usePlayerStore()
 const router = useRouter()
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
+// 播放器样式：disc=旋转圆盘（默认），plain=经典无旋转，选择持久化到本地
+const playerStyle = ref(localStorage.getItem('lyricsPlayerStyle') || 'disc')
+
+// 切换并保存歌词界面播放器样式
+function setStyle(style) {
+  playerStyle.value = style
+  localStorage.setItem('lyricsPlayerStyle', style)
+}
 
 const parsedLyrics = computed(() => {
   const lines = store.rawLyrics.split('\n')
@@ -114,40 +136,89 @@ function onImgError(e) {
 .lyrics-container {
   position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: center;
   width: 100%;
-  max-width: 700px;
   max-height: 80vh;
   padding: 40px 32px;
 }
+
+/* 旋转样式：横向布局，左图盘右歌词 */
+.lyrics-container.disc {
+  flex-direction: row;
+  align-items: center;
+  gap: 56px;
+  max-width: 1000px;
+}
+
+/* 经典样式：纵向布局，歌词占满宽度 */
+.lyrics-container.plain {
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
+  max-width: 700px;
+}
+/* 左侧面板：大圆盘封面（播放旋转）+ 歌曲信息 */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+  width: 360px;
+}
+.album-art {
+  width: 320px;
+  height: 320px;
+  /* 圆形专辑封面，播放时匀速旋转（QQ 音乐风格） */
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+  border: 4px solid rgba(255,255,255,0.12);
+}
+
+/* 播放时封面旋转动画 */
+.album-art.spinning {
+  animation: album-spin 30s linear infinite;
+}
+
+@keyframes album-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.song-meta {
+  text-align: center;
+}
+/* 经典样式：顶部横排歌曲信息（小方形封面，不旋转） */
 .song-info {
   display: flex;
   align-items: center;
   gap: 20px;
-  margin-bottom: 40px;
 }
-.album-art {
+.song-info-art {
   width: 100px;
   height: 100px;
   border-radius: 16px;
   object-fit: cover;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
+.song-meta-h { text-align: left; }
+.song-meta-h .song-title,
 .song-meta .song-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--text-primary);
 }
+.song-meta-h .song-artist,
 .song-meta .song-artist {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-secondary);
   margin-top: 6px;
 }
-
 .lyrics-scroll {
+  flex: 1;
+  min-width: 0;
   width: 100%;
-  max-height: 55vh;
+  max-height: 68vh;
   overflow-y: auto;
   scroll-behavior: smooth;
   padding: 20px 0;
@@ -204,6 +275,43 @@ function onImgError(e) {
   transition: all 0.2s;
 }
 .close-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* 播放器样式切换：旋转 / 经典 */
+.style-switch {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  z-index: 2;
+}
+
+.style-switch button {
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.style-switch button.active { color: #fff; background: var(--accent-light); }
 .lyrics-scroll::-webkit-scrollbar { width: 4px; }
 .lyrics-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+/* 窄屏改为上下布局，圆盘缩小 */
+@media (max-width: 768px) {
+  .lyrics-container {
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px 16px;
+  }
+  .side-panel { width: 100%; }
+  .album-art { width: 160px; height: 160px; }
+  .song-info-art { width: 80px; height: 80px; }
+  .lyrics-scroll { max-height: 40vh; }
+}
 </style>
