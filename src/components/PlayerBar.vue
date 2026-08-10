@@ -1,5 +1,5 @@
 <template>
-  <div class="player-bar" :class="{ 'has-song': store.currentSong }">
+  <div v-if="store.currentSong" class="player-bar">
     <div class="player-inner">
       <div class="player-left">
         <div v-if="store.currentSong" class="song-info">
