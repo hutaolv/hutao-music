@@ -38,7 +38,7 @@ const props = defineProps({
   showPlay: { type: Boolean, default: false }
 })
 
-defineEmits(['play', 'add', 'fav-changed'])
+const emit = defineEmits(['play', 'add', 'fav-changed'])
 
 const isFav = ref(getFavorites().some(s => s.id === props.song.id))
 const platformColor = platformColors[props.song.platform] || '#6366f1'
@@ -52,6 +52,8 @@ function toggleFav() {
     addFavorite(props.song)
   }
   isFav.value = !isFav.value
+  // 通知父组件（如"我的喜欢"列表）刷新收藏数据
+  emit('fav-changed')
 }
 </script>
 

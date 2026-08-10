@@ -124,7 +124,11 @@ onMounted(() => {
   loadPlatform(activePlatform.value)
 })
 
+// 收藏状态版本号：点击收藏后 +1 触发 isFav 重算，保证按钮状态实时刷新
+const favVersion = ref(0)
+
 function isFav(songId) {
+  favVersion.value // 建立响应式依赖
   return getFavorites().some(s => s.id === songId)
 }
 
@@ -134,6 +138,7 @@ function toggleFav(song) {
   } else {
     addFavorite(song)
   }
+  favVersion.value++
 }
 </script>
 
