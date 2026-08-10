@@ -3,9 +3,11 @@
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
     <div class="lyrics-container" :class="playerStyle">
-      <!-- 旋转样式：左侧大圆盘封面 -->
-      <div v-if="playerStyle === 'disc'" class="side-panel">
-        <img :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
+      <!-- 旋转/黑胶样式：左侧大图盘 -->
+      <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
+        <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
+        <!-- 黑胶样式或封面缺失时显示复古黑胶唱片 -->
+        <div v-else class="album-art vinyl-disc" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
         <div class="song-meta">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
@@ -13,7 +15,8 @@
       </div>
       <!-- 经典样式：顶部横排小封面，不旋转 -->
       <div v-else class="song-info">
-        <img :src="store.currentSong.cover" alt="" class="song-info-art" @error="onImgError" />
+        <img v-if="store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="song-info-art" @error="onImgError" />
+        <div v-else class="song-info-art vinyl-disc small" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
         <div class="song-meta-h">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
@@ -36,9 +39,10 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
-    <!-- 播放器样式切换：旋转 / 经典无旋转 -->
+    <!-- 播放器样式切换：旋转 / 黑胶 / 经典无旋转 -->
     <div class="style-switch">
       <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
+      <button :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
       <button :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
     </div>
   </div>
@@ -56,14 +60,42 @@ const store = usePlayerStore()
 const router = useRouter()
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
-// 播放器样式：disc=旋转圆盘（默认），plain=经典无旋转，选择持久化到本地
+// 播放器样式：disc=旋转圆盘（默认），vinyl=复古黑胶唱片，plain=经典无旋转，选择持久化到本地
 const playerStyle = ref(localStorage.getItem('lyricsPlayerStyle') || 'disc')
+// 封面图加载失败标记，用于回退显示黑胶唱片
+const coverBroken = ref(false)
 
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {
   playerStyle.value = style
   localStorage.setItem('lyricsPlayerStyle', style)
 }
+
+// 封面加载失败或换歌后重置失败标记
+function onImgError() {
+  coverBroken.value = true
+}
+
+watch(() => store.currentSong?.id, () => {
+  coverBroken.value = false
+})
+
+// 复古黑胶唱片：黑色胶盘 + 同心纹路 + 琥珀中心贴纸
+// 加入高光弧、偏心凹槽、中心横排文字等非对称元素，旋转才能肉眼可见
+const vinylSvg = `<svg viewBox="0 0 200 200" width="100%" height="100%">
+  <circle cx="100" cy="100" r="100" fill="#101014"/>
+  <circle cx="100" cy="100" r="96" fill="none" stroke="#1c1c22" stroke-width="0.8"/>
+  <circle cx="100" cy="100" r="90" fill="none" stroke="#1c1c22" stroke-width="0.6"/>
+  <circle cx="100" cy="100" r="84" fill="none" stroke="#1c1c22" stroke-width="0.6"/>
+  <circle cx="100" cy="100" r="78" fill="none" stroke="#1c1c22" stroke-width="0.6"/>
+  <circle cx="100" cy="100" r="72" fill="none" stroke="#1c1c22" stroke-width="0.6"/>
+  <path d="M20 118 A92 92 0 0 1 92 24" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M122 148 A72 72 0 0 1 148 122" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="100" cy="100" r="40" fill="#f59e0b"/>
+  <circle cx="100" cy="100" r="34" fill="none" stroke="#d97706" stroke-width="1.2"/>
+  <text x="100" y="107" font-size="10" font-weight="700" fill="#7c2d12" text-anchor="middle" font-family="Arial, sans-serif">HUTAO&nbsp;&nbsp;&nbsp;MUSIC</text>
+  <circle cx="100" cy="100" r="5" fill="#000"/>
+</svg>`
 
 const parsedLyrics = computed(() => {
   const lines = store.rawLyrics.split('\n')
@@ -96,10 +128,6 @@ function seekTo(time) {
 
 function goBack() {
   router.back()
-}
-
-function onImgError(e) {
-  e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect fill="%23333" width="200" height="200"/><text fill="%23666" font-size="14" text-anchor="middle" x="100" y="105">暂无图片</text></svg>'
 }
 </script>
 
@@ -141,8 +169,9 @@ function onImgError(e) {
   padding: 40px 32px;
 }
 
-/* 旋转样式：横向布局，左图盘右歌词 */
-.lyrics-container.disc {
+/* 旋转/黑胶样式：横向布局，左图盘右歌词 */
+.lyrics-container.disc,
+.lyrics-container.vinyl {
   flex-direction: row;
   align-items: center;
   gap: 56px;
@@ -176,8 +205,22 @@ function onImgError(e) {
 }
 
 /* 播放时封面旋转动画 */
-.album-art.spinning {
+.album-art.spinning,
+.vinyl-disc.spinning {
   animation: album-spin 30s linear infinite;
+}
+
+/* 复古黑胶唱片容器：圆形裁切，旋转时随专辑盘动画 */
+.vinyl-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+}
+.vinyl-disc.small {
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 
 @keyframes album-spin {
