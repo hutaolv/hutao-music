@@ -12,9 +12,11 @@ export async function fetchCharts(platform) {
   }
 }
 
-export async function searchAll(keyword, platform) {
+export async function searchAll(keyword, platform, scope, page) {
   let url = `${API_BASE}/search?keyword=${encodeURIComponent(keyword)}`
   if (platform) url += `&platform=${encodeURIComponent(platform)}`
+  if (scope) url += `&scope=${encodeURIComponent(scope)}`
+  if (page && page > 1) url += `&page=${page}`
   try {
     const res = await fetch(url)
     const json = await res.json()

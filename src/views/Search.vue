@@ -16,6 +16,12 @@
         @click="selectPlatform(p)">{{ p }}</span>
     </div>
 
+    <div v-if="selectedPlatform === 'B站'" class="scope-filters">
+      <span class="filter-label">范围：</span>
+      <span class="platform-filter" :class="{ active: selectedScope === 'music' }" @click="selectScope('music')">音乐分区</span>
+      <span class="platform-filter" :class="{ active: selectedScope === 'all' }" @click="selectScope('all')">全站</span>
+    </div>
+
     <div class="search-content">
       <div v-if="!keyword && searchHistory.length" class="section">
         <h3 class="section-title" style="font-size:18px;">搜索历史</h3>
@@ -35,6 +41,9 @@
           <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" @play="store.playSong" @add="store.addToPlaylist" />
         </div>
         <p v-else class="no-result">未找到相关歌曲</p>
+        <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? '加载中...' : '加载更多' }}
+        </button>
       </div>
 
       <div v-if="keyword" class="section">
@@ -81,6 +90,10 @@ const allSongs = ref([])
 const artistResults = ref([])
 const searchHistory = ref([])
 const selectedPlatform = ref('网易云音乐')
+const selectedScope = ref('music') // B站搜索范围：music=音乐分区，all=全站+增强过滤
+const page = ref(1) // 当前搜索页码（B站分页）
+const hasMore = ref(false) // 是否还有下一页
+const loadingMore = ref(false)
 const allPlatforms = platforms
 let debounceTimer = null
 
@@ -102,6 +115,12 @@ function selectPlatform(p) {
   if (keyword.value.trim()) doSearch()
 }
 
+function selectScope(scope) {
+  if (selectedScope.value === scope) return
+  selectedScope.value = scope
+  if (keyword.value.trim()) doSearch()
+}
+
 function onInput() {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
@@ -120,14 +139,38 @@ async function doSearch() {
   searchHistory.value = getSearchHistory()
 
   try {
-    const apiData = await apiSearchAll(kw, selectedPlatform.value)
+    const scope = selectedPlatform.value === 'B站' ? selectedScope.value : undefined
+    const apiData = await apiSearchAll(kw, selectedPlatform.value, scope, 1)
     allSongs.value = apiData?.songs || []
     artistResults.value = apiData?.artists || []
+    page.value = 1
+    hasMore.value = !!apiData?.hasMore
   } catch {
     allSongs.value = []
     artistResults.value = []
+    hasMore.value = false
   }
   router.replace({ query: { q: kw } })
+}
+
+// B站"加载更多"：翻一页追加到结果列表
+async function loadMore() {
+  const kw = keyword.value.trim()
+  if (!kw || loadingMore.value || !hasMore.value) return
+  loadingMore.value = true
+  try {
+    const scope = selectedPlatform.value === 'B站' ? selectedScope.value : undefined
+    const apiData = await apiSearchAll(kw, selectedPlatform.value, scope, page.value + 1)
+    const songs = apiData?.songs || []
+    if (songs.length) {
+      page.value += 1
+      allSongs.value = allSongs.value.concat(songs)
+    }
+    hasMore.value = !!apiData?.hasMore
+  } catch {
+    hasMore.value = false
+  }
+  loadingMore.value = false
 }
 
 function clickHistory(kw) {
@@ -192,6 +235,14 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.scope-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0 24px;
   flex-wrap: wrap;
 }
 
@@ -266,6 +317,23 @@ onMounted(() => {
   color: var(--text-muted);
   font-size: 14px;
 }
+
+.load-more {
+  display: block;
+  margin: 16px auto 0;
+  padding: 8px 28px;
+  border-radius: 18px;
+  font-size: 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-light); }
+
+.load-more:disabled { opacity: 0.5; cursor: default; }
 
 .artist-result-grid {
   display: grid;

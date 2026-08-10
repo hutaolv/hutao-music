@@ -358,20 +358,33 @@ export async function getLyrics(id, lyricUrl) {
   return null
 }
 
-export async function search(query) {
+// B站音乐分区 typeid 白名单（3=音乐主区，28音乐综合/29现场/30VOCALOID/31翻唱/59演奏/62MV/193教学/224原创/244说唱），
+// 过滤掉混入的影视(243)、资讯(130)等非音乐视频；接口返回的 typeid 是字符串，白名单用字符串比较
+const MUSIC_TIDS = new Set(['3', '28', '29', '30', '31', '59', '62', '193', '224', '244'])
+
+// 全站搜索（scope=all）时保留的音乐特征词：视频可能发布在非音乐分区，但内容属于音乐
+// 注：目前 scope=all 不过滤，以下逻辑仅在需要时启用
+
+// B站搜索单页大小（接口支持最大 50）
+const BILI_PAGE_SIZE = 50
+
+export async function search(query, scope = 'music', page = 1) {
   try {
+    // scope=music 限定音乐分区（tids=3），结果按音乐分区白名单过滤；
+    // scope=all 去掉分区限定做全站视频搜索，结果不过滤，直接全部返回
+    // page 支持翻页，配合前端"加载更多"（每页 50 条）
+    const params = { search_type: 'video', keyword: query, order: 'click', duration: 0, page, page_size: BILI_PAGE_SIZE }
+    if (scope === 'music') params.tids = 3
     const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
       headers: buildBiliHeaders(`https://www.bilibili.com/search?keyword=${encodeURIComponent(query)}`),
-      params: { search_type: 'video', keyword: query, order: 'click', duration: 0, tids: 3 }
+      params
     })
     const items = data?.data?.result || []
-    if (!items.length) return []
-    console.log(`Bilibili search OK: ${items.length} results`)
-    // B站音乐分区 typeid 白名单（3=音乐主区，28音乐综合/29现场/30VOCALOID/31翻唱/59演奏/62MV/193教学/224原创/244说唱），
-    // 过滤掉混入的影视(243)、资讯(130)等非音乐视频；接口返回的 typeid 是字符串，白名单用字符串比较
-    const MUSIC_TIDS = new Set(['3', '28', '29', '30', '31', '59', '62', '193', '224', '244'])
-    const songs = items
-      .filter(v => MUSIC_TIDS.has(v.typeid))
+    if (!items.length) return { songs: [], hasMore: false }
+    console.log(`Bilibili search OK: ${items.length} results (scope=${scope}, page=${page})`)
+    // 分区搜索只保留音乐分区白名单；全站搜索不过滤，全部返回
+    const kept = scope === 'all' ? items : items.filter(v => MUSIC_TIDS.has(v.typeid))
+    const songs = kept
       .map(v => ({
         id: `bilibili_${v.bvid}`,
         platformId: v.bvid,
@@ -389,9 +402,11 @@ export async function search(query) {
         aid: v.aid,
         lyricUrl: ''
       }))
-    return songs.length ? songs : []
+    // 用接口返回的总结果数判断是否还有下一页
+    const total = Number(data.data?.numResults) || items.length
+    return { songs, hasMore: page * BILI_PAGE_SIZE < total }
   } catch (e) {
     console.error('Bilibili search error:', e.message)
-    return []
+    return { songs: [], hasMore: false }
   }
 }

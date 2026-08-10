@@ -17,7 +17,7 @@ const serviceMap = {
 }
 
 router.get('/', async (req, res) => {
-  const { keyword, type, platform } = req.query
+  const { keyword, type, platform, scope } = req.query
   if (!keyword) {
     return res.json({ code: 400, message: 'keyword required' })
   }
@@ -43,8 +43,14 @@ router.get('/', async (req, res) => {
 
     if (type === 'song' || !type) {
       if (platform && serviceMap[platform]) {
-        const songs = await serviceMap[platform].search(keyword).catch(() => [])
-        results.songs = songs
+        if (platform === 'B站') {
+          // B站支持分页（每页50）+ 全站/分区 scope，返回 hasMore 供前端"加载更多"
+          const result = await bilibili.search(keyword, scope, Number(req.query.page) || 1)
+          results.songs = result.songs
+          results.hasMore = result.hasMore
+        } else {
+          results.songs = await serviceMap[platform].search(keyword, scope).catch(() => [])
+        }
       } else {
         const allResults = await Promise.allSettled([
           netease.searchSongs(keyword),
