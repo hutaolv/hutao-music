@@ -2,7 +2,10 @@
   <div class="playlist-panel">
     <div class="playlist-header">
       <h3>播放列表 ({{ store.playlist.length }})</h3>
-      <button class="clear-btn" @click="store.clearPlaylist">清空</button>
+      <div class="header-actions">
+        <button class="clear-btn" @click="store.clearPlaylist">清空</button>
+        <button class="close-btn" @click="store.closePlaylist" title="关闭">&times;</button>
+      </div>
     </div>
     <div class="playlist-list" v-if="store.playlist.length">
       <div v-for="(song, idx) in store.playlist" :key="song.id" class="playlist-item" :class="{ active: idx === store.currentIndex }" @click="store.playSong(song)">
@@ -69,6 +72,32 @@ function hideImg(e) {
 .clear-btn:hover {
   color: #ef4444;
   border-color: #ef4444;
+}
+
+/* 头部右侧操作区：清空 + 关闭 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 关闭播放列表面板按钮 */
+.close-btn {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .playlist-list {

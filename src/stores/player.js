@@ -114,6 +114,11 @@ export const usePlayerStore = defineStore('player', () => {
     showPlaylist.value = !showPlaylist.value
   }
 
+  // 关闭播放列表面板（供面板内关闭按钮使用）
+  function closePlaylist() {
+    showPlaylist.value = false
+  }
+
   // 播放全部：清空原播放列表并替换为传入列表，从第一首开始播放
   function playAll(songs) {
     if (!songs?.length) return
@@ -130,6 +135,6 @@ export const usePlayerStore = defineStore('player', () => {
     playMode,     showPlaylist, playModes, nextMode,
     rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
-    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, playAll
+    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll
   }
 })
