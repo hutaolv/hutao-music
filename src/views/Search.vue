@@ -36,7 +36,10 @@
       </div>
 
       <div v-if="keyword" class="section">
-        <h3 class="section-title" style="font-size:18px;">歌曲结果 ({{ filteredSongs.length }})</h3>
+        <div class="song-toolbar">
+          <h3 class="section-title" style="font-size:18px;margin:0;">歌曲结果 ({{ filteredSongs.length }})</h3>
+          <button v-if="filteredSongs.length" class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx">&#x25B6; 播放全部</button>
+        </div>
         <div v-if="filteredSongs.length" class="result-list">
           <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" @play="store.playSong" @add="store.addToPlaylist" />
         </div>
@@ -94,6 +97,7 @@ const selectedScope = ref('music') // B站搜索范围：music=音乐分区，al
 const page = ref(1) // 当前搜索页码（B站分页）
 const hasMore = ref(false) // 是否还有下一页
 const loadingMore = ref(false)
+const playingAll = ref(false)
 const allPlatforms = platforms
 let debounceTimer = null
 
@@ -119,6 +123,15 @@ function selectScope(scope) {
   if (selectedScope.value === scope) return
   selectedScope.value = scope
   if (keyword.value.trim()) doSearch()
+}
+
+// 播放全部并触发按钮弹跳动画
+function playAllFx() {
+  const songs = filteredSongs.value
+  if (!songs.length) return
+  playingAll.value = true
+  store.playAll(songs)
+  setTimeout(() => { playingAll.value = false }, 350)
 }
 
 function onInput() {
@@ -334,6 +347,35 @@ onMounted(() => {
 .load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-light); }
 
 .load-more:disabled { opacity: 0.5; cursor: default; }
+
+.song-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.play-all-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent-light);
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.play-all-btn:hover { opacity: 0.85; }
+
+.play-all-btn:active { transform: scale(0.9); }
+.play-all-btn.playing { animation: playall-pop 0.3s ease; }
+
+@keyframes playall-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 
 .artist-result-grid {
   display: grid;
