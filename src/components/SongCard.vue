@@ -13,6 +13,8 @@
       <div class="artist">{{ song.artist }}</div>
     </div>
     <span class="duration">{{ song.duration }}</span>
+    <!-- 仅显示播放按钮（我的喜欢/历史播放列表），与整卡播放互不冲突 -->
+    <button v-if="showPlay && !showActions" class="action-btn play-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
     <!-- showActions 为 true 时显示播放/添加到播放列表按钮（搜索结果等场景），点击不触发整卡播放 -->
     <template v-if="showActions">
       <button class="action-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
@@ -31,7 +33,9 @@ const props = defineProps({
   song: { type: Object, required: true },
   rank: { type: Number },
   // 是否显示播放/添加到播放列表按钮，默认隐藏（保留原有整卡点击播放）
-  showActions: { type: Boolean, default: false }
+  showActions: { type: Boolean, default: false },
+  // 是否只显示播放按钮（我的喜欢/历史播放等处显式提供播放入口）
+  showPlay: { type: Boolean, default: false }
 })
 
 defineEmits(['play', 'add', 'fav-changed'])
@@ -153,6 +157,9 @@ function toggleFav() {
 }
 
 .action-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+/* 播放按钮：主色强调，方便我的喜欢/历史播放列表快速播放 */
+.play-btn:hover { color: #fff; background: var(--accent-light); }
 
 .fav-btn {
   font-size: 16px;

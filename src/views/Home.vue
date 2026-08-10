@@ -37,14 +37,14 @@
 
       <div v-if="activeSection === 'favorites'">
         <div v-if="favoriteSongs.length" class="recent-list">
-          <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" @play="store.playSong" @fav-changed="refreshFavorites" />
+          <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
         <p v-else class="no-result">还没有收藏歌曲</p>
       </div>
 
       <div v-else>
         <div v-if="recentPlays.length" class="recent-list">
-          <SongCard v-for="song in recentPlays" :key="song.id" :song="song" @play="store.playSong" @fav-changed="refreshFavorites" />
+          <SongCard v-for="song in recentPlays" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
         <p v-else class="no-result">还没有播放记录</p>
       </div>
