@@ -8,6 +8,20 @@ import * as migu from '../services/migu.js'
 
 const router = Router()
 
+// 清洗歌词文本里的 HTML 实体（如 &nbsp; &amp; &lt; &#39;），避免原样显示
+function sanitizeLyricsText(text) {
+  if (!text) return text
+  return String(text)
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/g, '&')
+}
+
 router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect } = req.query
   if (!platform || !id) {
@@ -89,7 +103,12 @@ router.get('/lyrics', async (req, res) => {
         lyrics = await migu.getLyrics(contentId || id)
         break
     }
-    res.json({ code: 200, data: lyrics || { lyrics: '', transLyrics: '' } })
+    res.json({
+      code: 200,
+      data: lyrics
+        ? { lyrics: sanitizeLyricsText(lyrics.lyrics), transLyrics: sanitizeLyricsText(lyrics.transLyrics) }
+        : { lyrics: '', transLyrics: '' }
+    })
   } catch (e) {
     res.json({ code: 200, data: { lyrics: '', transLyrics: '' } })
   }

@@ -148,7 +148,7 @@ export async function searchArtists(keyword, limit = 20) {
   try {
     // 用音乐区视频搜索按作者聚合出"歌手"：保证每个歌手都有可播放的音乐作品，
     // 避免 bili_user 搜出的有声书/影视 UP 主（无音乐作品）混入歌手列表
-    const songs = await search(keyword)
+    const { songs } = await search(keyword)
     if (!songs.length) return []
     const map = new Map()
     for (const s of songs) {
