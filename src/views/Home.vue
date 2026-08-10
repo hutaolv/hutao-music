@@ -6,7 +6,7 @@
         <div v-for="(songs, platform) in top3ByPlatform" :key="platform" class="chart-preview-card" @click="router.push({ path: '/charts', query: { platform } })">
           <div class="chart-header" :style="{ borderColor: platformColors[platform] }">
             <span class="chart-platform" :style="{ color: platformColors[platform] }">{{ platform }}</span>
-            <span class="chart-more">查看全部 &rarr;</span>
+            <span class="chart-more" @click.stop="router.push({ path: '/charts', query: { platform } })">查看全部 &rarr;</span>
           </div>
           <div v-for="(song, i) in songs" :key="song.id" class="chart-song" @click.stop="store.playSong(song)">
             <span class="chart-rank" :class="{ gold: i === 0, silver: i === 1, bronze: i === 2 }">{{ i + 1 }}</span>
@@ -36,6 +36,10 @@
       </div>
 
       <div v-if="activeSection === 'favorites'">
+        <div v-if="favoriteSongs.length" class="list-head">
+          <span class="list-count">共 {{ favoriteSongs.length }} 首</span>
+          <button class="play-all-btn" @click="store.playAll(favoriteSongs)">&#x25B6; 播放全部</button>
+        </div>
         <div v-if="favoriteSongs.length" class="recent-list">
           <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
@@ -43,6 +47,10 @@
       </div>
 
       <div v-else>
+        <div v-if="recentPlays.length" class="list-head">
+          <span class="list-count">共 {{ recentPlays.length }} 首</span>
+          <button class="play-all-btn" @click="store.playAll(recentPlays)">&#x25B6; 播放全部</button>
+        </div>
         <div v-if="recentPlays.length" class="recent-list">
           <SongCard v-for="song in recentPlays" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
@@ -143,7 +151,33 @@ function refreshFavorites() {
 .chart-more {
   font-size: 12px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
+
+/* 播放全部按钮：主色圆角胶囊样式 */
+.play-all-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent-light);
+  padding: 4px 10px;
+  border-radius: 999px;
+  transition: opacity 0.2s, transform 0.2s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.play-all-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+
+/* 我的喜欢/历史播放列表头：数量 + 播放全部 */
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.list-count { font-size: 12px; color: var(--text-muted); }
 
 .chart-song {
   display: flex;

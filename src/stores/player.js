@@ -114,11 +114,22 @@ export const usePlayerStore = defineStore('player', () => {
     showPlaylist.value = !showPlaylist.value
   }
 
+  // 播放全部：清空原播放列表并替换为传入列表，从第一首开始播放
+  function playAll(songs) {
+    if (!songs?.length) return
+    playlist.value = [...songs]
+    currentIndex.value = 0
+    currentSong.value = songs[0]
+    savePlaylist(playlist.value)
+    addRecentPlay(currentSong.value)
+    isPlaying.value = true
+  }
+
   return {
     currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
     playMode,     showPlaylist, playModes, nextMode,
     rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
-    clearPlaylist, setVolume, togglePlayMode, togglePlaylist
+    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, playAll
   }
 })

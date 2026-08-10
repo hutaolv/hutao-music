@@ -14,6 +14,11 @@
     <div v-if="loading" class="loading-bar">正在获取 {{ activePlatform }} 最新榜单...</div>
     <div v-if="!loading && !currentSongs.length" class="no-result">暂无榜单数据</div>
 
+    <div v-if="currentSongs.length" class="chart-toolbar">
+      <span class="chart-toolbar-info">共 {{ currentSongs.length }} 首</span>
+      <button class="play-all-btn" @click="store.playAll(currentSongs)">&#x25B6; 播放全部</button>
+    </div>
+
     <div v-if="currentSongs.length" class="chart-header-row">
       <span class="col-rank">#</span>
       <span class="col-cover"></span>
@@ -187,6 +192,28 @@ function toggleFav(song) {
   padding: 12px 16px;
   font-size: 13px;
 }
+
+/* 榜单工具条：歌曲数 + 播放全部按钮 */
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0 4px;
+}
+
+.chart-toolbar-info { font-size: 12px; color: var(--text-muted); }
+
+.play-all-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent-light);
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.play-all-btn:hover { opacity: 0.85; transform: translateY(-1px); }
 
 .chart-header-row {
   color: var(--text-muted);
