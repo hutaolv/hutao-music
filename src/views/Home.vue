@@ -32,7 +32,7 @@
           class="section-title tab-title"
           :class="{ active: activeSection === 'recent' }"
           @click="activeSection = 'recent'"
-        >最近播放</h2>
+        >历史播放</h2>
       </div>
 
       <div v-if="activeSection === 'favorites'">
@@ -110,8 +110,10 @@ function refreshFavorites() {
 
 .chart-preview-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 卡宽按屏幕百分比（每列约容器宽度的20%），min 220px 防过窄，auto-fill 自动换行并居中 */
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), calc(20% - 16px)));
   gap: 16px;
+  justify-content: center;
 }
 
 .chart-preview-card {
@@ -235,13 +237,5 @@ function refreshFavorites() {
 @media (max-width: 768px) {
   .fav-recent-tabs { gap: 16px; }
   .tab-title { font-size: 18px; }
-}
-
-@media (max-width: 1024px) {
-  .chart-preview-grid { grid-template-columns: repeat(3, 1fr); }
-}
-
-@media (max-width: 640px) {
-  .chart-preview-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
