@@ -1,4 +1,5 @@
 import axios from 'axios'
+import crypto from 'crypto'
 
 // 轮换使用的浏览器 UA 列表，降低被识别为同一爬虫的概率
 const USER_AGENTS = [
@@ -297,6 +298,72 @@ export async function getVideoUrl(bvid) {
   return null
 }
 
+// 秒转 LRC 时间戳 [mm:ss.xx]
+function formatLrcTime(t) {
+  const mm = Math.floor(t / 60)
+  const ss = Math.floor(t % 60)
+  const ms = Math.round((t - Math.floor(t)) * 100)
+  return `[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(ms).padStart(2, '0')}]`
+}
+
+// B站 WBI 签名：mixin key 由 img_key/sub_key 按固定置换表打乱后取前 32 位
+function getMixinKey(imgKey, subKey) {
+  const MIXIN_KEY_ENC_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52]
+  const orig = imgKey + subKey
+  let key = ''
+  for (const i of MIXIN_KEY_ENC_TAB) key += orig[i]
+  return key.slice(0, 32)
+}
+
+// 从 nav 接口拿 wbi 密钥，对参数做 WBI 签名返回带 wts/w_rid 的参数对象
+async function wbiSign(params) {
+  const { data } = await axios.get('https://api.bilibili.com/x/web-interface/nav', {
+    headers: buildBiliHeaders('https://www.bilibili.com/'),
+    timeout: 8000
+  })
+  const img = data?.data?.wbi_img?.img_url || ''
+  const sub = data?.data?.wbi_img?.sub_url || ''
+  const imgKey = img.slice(img.lastIndexOf('/') + 1, img.lastIndexOf('.'))
+  const subKey = sub.slice(sub.lastIndexOf('/') + 1, sub.lastIndexOf('.'))
+  const mixinKey = getMixinKey(imgKey, subKey)
+  const wts = Math.floor(Date.now() / 1000)
+  const signed = { ...params, wts }
+  const query = Object.keys(signed).sort().map(k => `${encodeURIComponent(k)}=${encodeURIComponent(signed[k])}`).join('&')
+  const wRid = crypto.createHash('md5').update(query + mixinKey).digest('hex')
+  signed.w_rid = wRid
+  return signed
+}
+
+// 获取视频 CC 字幕并转成 LRC（优先 AI 已生成字幕），取不到返回 null
+async function fetchVideoSubtitle(bvid, aid, cid) {
+  try {
+    const signed = await wbiSign({ aid, cid })
+    const res = await axios.get('https://api.bilibili.com/x/player/wbi/v2', {
+      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      params: signed,
+      timeout: 8000
+    })
+    const subtitles = res.data?.data?.subtitle?.subtitles || []
+    if (!subtitles.length) return null
+    const sub = subtitles.find(s => s.ai_status === 2) || subtitles[0]
+    const url = sub.subtitle_url.startsWith('//') ? 'https:' + sub.subtitle_url : sub.subtitle_url
+    const { data: subBody } = await axios.get(url, {
+      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      timeout: 8000
+    })
+    if (!Array.isArray(subBody?.body) || !subBody.body.length) return null
+    const lines = []
+    for (const l of subBody.body) {
+      const content = String(l.content || '').trim()
+      if (content) lines.push(formatLrcTime(Number(l.from) || 0) + content)
+    }
+    return lines.length ? lines.join('\n') : null
+  } catch (e) {
+    console.error('Bilibili subtitle error:', e.message)
+    return null
+  }
+}
+
 export async function getLyrics(id, lyricUrl) {
   if (lyricUrl) {
     try {
@@ -321,15 +388,19 @@ export async function getLyrics(id, lyricUrl) {
     } catch (e) {
       console.error('Bilibili lyrics info error:', e.message)
     }
-    // 搜索到的视频歌曲没有音频馆 sid：按 bvid 取 cid 后把视频弹幕转成 LRC 歌词（尽力而为）
+    // 搜索到的视频歌曲没有音频馆 sid：优先取视频 CC 字幕，再回退把弹幕转成 LRC 歌词
     try {
       const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
         headers: buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
         params: { bvid: id },
         timeout: 8000
       })
-      const cid = view.data?.data?.cid
+      const vinfo = view.data?.data
+      const cid = vinfo?.cid
       if (cid) {
+        const subtitleLrc = await fetchVideoSubtitle(id, vinfo?.aid, cid)
+        if (subtitleLrc) return { lyrics: subtitleLrc, transLyrics: '' }
+        // 字幕不可用时回退弹幕
         const dm = await axios.get('https://api.bilibili.com/x/v1/dm/list.so', {
           headers: buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
           params: { oid: cid },
@@ -344,10 +415,7 @@ export async function getLyrics(id, lyricUrl) {
           const t = parseFloat(m[1].split(',')[0])
           const text = m[2].replace(/&[^;]+;/g, '').trim()
           if (!text) continue
-          const mm = Math.floor(t / 60)
-          const ss = Math.floor(t % 60)
-          const ms = Math.round((t - Math.floor(t)) * 100)
-          lines.push(`[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(ms).padStart(2, '0')}]${text}`)
+          lines.push(formatLrcTime(t) + text)
         }
         if (lines.length) return { lyrics: lines.join('\n'), transLyrics: '' }
       }
