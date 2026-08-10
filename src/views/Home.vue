@@ -38,7 +38,7 @@
       <div v-if="activeSection === 'favorites'">
         <div v-if="favoriteSongs.length" class="list-head">
           <span class="list-count">共 {{ favoriteSongs.length }} 首</span>
-          <button class="play-all-btn" @click="store.playAll(favoriteSongs)">&#x25B6; 播放全部</button>
+          <button class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx(favoriteSongs)">&#x25B6; 播放全部</button>
         </div>
         <div v-if="favoriteSongs.length" class="recent-list">
           <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
@@ -49,7 +49,7 @@
       <div v-else>
         <div v-if="recentPlays.length" class="list-head">
           <span class="list-count">共 {{ recentPlays.length }} 首</span>
-          <button class="play-all-btn" @click="store.playAll(recentPlays)">&#x25B6; 播放全部</button>
+          <button class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx(recentPlays)">&#x25B6; 播放全部</button>
         </div>
         <div v-if="recentPlays.length" class="recent-list">
           <SongCard v-for="song in recentPlays" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
@@ -76,6 +76,16 @@ const activeSection = ref('favorites')
 const recentPlays = ref([])
 const favoriteSongs = ref([])
 const liveCharts = ref({})
+// 播放全部按钮的弹跳动画状态，触发后短暂点亮再复位
+const playingAll = ref(false)
+
+// 播放全部并触发按钮弹跳动画
+function playAllFx(songs) {
+  if (!songs?.length) return
+  playingAll.value = true
+  store.playAll(songs)
+  setTimeout(() => { playingAll.value = false }, 350)
+}
 
 const top3ByPlatform = computed(() => {
   const result = {}
@@ -167,7 +177,17 @@ function refreshFavorites() {
   white-space: nowrap;
 }
 
-.play-all-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+.play-all-btn:hover { opacity: 0.85; }
+
+/* 点击播放全部时按钮回弹动画 */
+.play-all-btn:active { transform: scale(0.9); }
+.play-all-btn.playing { animation: playall-pop 0.3s ease; }
+
+@keyframes playall-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 
 /* 我的喜欢/历史播放列表头：数量 + 播放全部 */
 .list-head {

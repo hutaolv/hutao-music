@@ -16,7 +16,7 @@
 
     <div v-if="currentSongs.length" class="chart-toolbar">
       <span class="chart-toolbar-info">共 {{ currentSongs.length }} 首</span>
-      <button class="play-all-btn" @click="store.playAll(currentSongs)">&#x25B6; 播放全部</button>
+      <button class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx(currentSongs)">&#x25B6; 播放全部</button>
     </div>
 
     <div v-if="currentSongs.length" class="chart-header-row">
@@ -69,6 +69,16 @@ const activeSubList = ref(0)
 
 const liveData = ref({})
 const loading = ref(false)
+// 播放全部按钮的弹跳动画状态，触发后短暂点亮再复位
+const playingAll = ref(false)
+
+// 播放全部并触发按钮弹跳动画
+function playAllFx(songs) {
+  if (!songs?.length) return
+  playingAll.value = true
+  store.playAll(songs)
+  setTimeout(() => { playingAll.value = false }, 350)
+}
 
 const sublists = computed(() => {
   return liveData.value[activePlatform.value] || []
@@ -213,7 +223,17 @@ function toggleFav(song) {
   transition: opacity 0.2s, transform 0.2s;
 }
 
-.play-all-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+.play-all-btn:hover { opacity: 0.85; }
+
+/* 点击播放全部时按钮回弹动画 */
+.play-all-btn:active { transform: scale(0.9); }
+.play-all-btn.playing { animation: playall-pop 0.3s ease; }
+
+@keyframes playall-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 
 .chart-header-row {
   color: var(--text-muted);
