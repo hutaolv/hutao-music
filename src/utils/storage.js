@@ -89,7 +89,14 @@ export function setDesktopLyricsColor(c) {
 
 export function getDesktopLyricsPos() {
   const saved = localStorage.getItem(DL_KEYS.POS)
-  return saved ? JSON.parse(saved) : { top: 80, right: 24 }
+  if (!saved) return { top: 80, left: 24 }
+  const pos = JSON.parse(saved)
+  // 兼容旧版本存的是 right：转成 left
+  if (pos.left == null && pos.right != null) {
+    const width = parseInt(localStorage.getItem('musichub_dl_width')) || 320
+    return { top: pos.top, left: Math.max(0, window.innerWidth - pos.right - width) }
+  }
+  return { top: pos.top, left: pos.left }
 }
 
 export function setDesktopLyricsPos(pos) {

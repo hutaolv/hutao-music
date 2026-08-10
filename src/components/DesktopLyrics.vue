@@ -1,11 +1,15 @@
 <template>
   <div v-if="store.desktopLyrics && store.currentSong && parsedLyrics.length" class="desktop-lyrics" ref="containerRef"
-    :style="containerStyle">
+    :style="containerStyle" @mousedown="onMouseDown">
     <div class="desktop-header" ref="headerRef">
       <div class="desktop-controls">
         <button class="dl-btn" @click.stop="showColorPicker = !showColorPicker" title="歌词颜色">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-1 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
         </button>
+        <span class="size-group">
+          <button v-for="s in sizeOptions" :key="s.key" class="dl-btn size-btn"
+            :class="{ active: winSize === s.key }" @click.stop="setSize(s.key)" :title="'尺寸:' + s.label">{{ s.label }}</button>
+        </span>
         <button class="dl-btn" @click.stop="store.desktopLyrics = false" title="关闭">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
@@ -24,12 +28,11 @@
         </div>
       </div>
     </div>
-    <div class="resize-handle" @mousedown.stop="startResize"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import { getDesktopLyricsColor, setDesktopLyricsColor, getDesktopLyricsPos, setDesktopLyricsPos } from '../utils/storage'
 
@@ -39,22 +42,35 @@ const headerRef = ref(null)
 const showColorPicker = ref(false)
 const lyricColor = ref(getDesktopLyricsColor())
 const winPos = ref(getDesktopLyricsPos())
-const winWidth = ref(parseInt(localStorage.getItem('musichub_dl_width')) || 320)
+
+// 尺寸档位：小/中/大，联动窗口宽度与歌词字号
+const sizeOptions = [
+  { key: 'small', label: '小', width: 260, font: 16 },
+  { key: 'medium', label: '中', width: 360, font: 20 },
+  { key: 'large', label: '大', width: 520, font: 26 }
+]
+const winSize = ref(localStorage.getItem('musichub_dl_size') || 'medium')
 
 let isDragging = false
-let isResizing = false
 let startX = 0, startY = 0
 let offsetX = 0, offsetY = 0
-let startW = 0
 
 const colors = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#ffffff']
 
+const sizeConf = computed(() => sizeOptions.find(s => s.key === winSize.value) || sizeOptions[1])
+
 const containerStyle = computed(() => ({
   top: winPos.value.top + 'px',
-  right: winPos.value.right + 'px',
-  width: winWidth.value + 'px',
-  '--lyric-color': lyricColor.value
+  left: winPos.value.left + 'px',
+  width: sizeConf.value.width + 'px',
+  '--lyric-color': lyricColor.value,
+  '--dl-font-size': sizeConf.value.font + 'px'
 }))
+
+function setSize(key) {
+  winSize.value = key
+  localStorage.setItem('musichub_dl_size', key)
+}
 
 const parsedLyrics = computed(() => {
   const lines = store.rawLyrics.split('\n')
@@ -104,44 +120,21 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  if (isResizing) {
-    const newW = Math.max(160, startW + (e.clientX - startX))
-    winWidth.value = newW
-    localStorage.setItem('musichub_dl_width', String(newW))
-    return
-  }
   if (!isDragging) return
-  winPos.value = { top: offsetY + e.clientY - startY, right: window.innerWidth - (offsetX + e.clientX - startX) }
-  containerRef.value.style.left = (offsetX + e.clientX - startX) + 'px'
-  containerRef.value.style.top = (offsetY + e.clientY - startY) + 'px'
-  containerRef.value.style.right = 'auto'
+  // 只更新响应式位置，避免与 Vue 的 :style 补丁冲突
+  winPos.value = { top: offsetY + e.clientY - startY, left: offsetX + e.clientX - startX }
 }
 
 function onMouseUp() {
-  if (isResizing) { isResizing = false; document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); return }
   isDragging = false
   if (containerRef.value) {
     containerRef.value.style.cursor = 'grab'
     const rect = containerRef.value.getBoundingClientRect()
-    setDesktopLyricsPos({ top: rect.top, right: window.innerWidth - rect.right })
+    setDesktopLyricsPos({ top: rect.top, left: rect.left })
   }
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
 }
-
-function startResize(e) {
-  isResizing = true
-  startX = e.clientX
-  startY = e.clientY
-  startW = winWidth.value
-  document.addEventListener('mousemove', onMouseMove)
-  document.addEventListener('mouseup', onMouseUp)
-}
-
-onMounted(() => {
-  const el = containerRef.value
-  if (el) el.addEventListener('mousedown', onMouseDown)
-})
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', onMouseMove)
@@ -174,6 +167,25 @@ onUnmounted(() => {
   display: flex;
   gap: 4px;
   cursor: default;
+  align-items: center;
+}
+.size-group {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.3);
+}
+.size-btn {
+  width: auto;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.size-btn.active {
+  color: #fff;
+  background: rgba(255,255,255,0.2);
 }
 .dl-btn {
   width: 24px; height: 24px;
@@ -207,7 +219,7 @@ onUnmounted(() => {
   padding: 0 8px;
 }
 .desktop-next-row {
-  font-size: 13px;
+  font-size: calc(var(--dl-font-size, 20px) * 0.8);
   color: rgba(255,255,255,0.25);
   text-align: center;
   line-height: 1.4;
@@ -223,7 +235,7 @@ onUnmounted(() => {
   min-height: 36px;
 }
 .desktop-lyric-text {
-  font-size: 20px;
+  font-size: var(--dl-font-size, 20px);
   font-weight: 700;
   color: rgba(255,255,255,0.3);
   transition: color 0.3s;
@@ -231,30 +243,10 @@ onUnmounted(() => {
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .desktop-lyric-text.active {
   color: var(--lyric-color, #818cf8);
   text-shadow: 0 0 20px color-mix(in srgb, var(--lyric-color, #818cf8) 40%, transparent);
 }
-.resize-handle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.resize-handle::after {
-  content: '';
-  position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid rgba(255,255,255,0.3);
-  border-bottom: 2px solid rgba(255,255,255,0.3);
-}
-.desktop-lyrics:hover .resize-handle { opacity: 1; }
 </style>
