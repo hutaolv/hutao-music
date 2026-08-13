@@ -13,7 +13,7 @@
             <div class="title">{{ store.currentSong.title }}</div>
             <div class="artist" :title="store.currentSong.artist">{{ store.currentSong.artist }}</div>
           </div>
-          <button class="fav-btn" :class="{ favorited: isFav }" @click="toggleFav">&#x2665;</button>
+          <button class="fav-btn" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
         </div>
         <div v-else class="song-info empty">
           <div class="text">
@@ -126,6 +126,14 @@ const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
 const isFav = ref(false)
 const downloadUrl = ref('')
+const anim = ref('')
+let animTimer = null
+
+const favClass = computed(() => {
+  const c = { favorited: isFav.value }
+  if (anim.value) c[anim.value] = true
+  return c
+})
 
 // 音质档位：standard=标准 high=高音质 lossless=无损（本地持久化，切换时重新获取播放地址）
 const qualityOptions = [
@@ -413,6 +421,9 @@ function toggleFav() {
     addFavorite(store.currentSong)
   }
   isFav.value = !isFav.value
+  anim.value = isFav.value ? 'fav-anim-love' : 'fav-anim-break'
+  clearTimeout(animTimer)
+  animTimer = setTimeout(() => { anim.value = '' }, 800)
 }
 
 function formatTime(t) {

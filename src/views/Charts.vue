@@ -45,7 +45,7 @@
         <span class="col-action">
           <button class="action-btn play-btn" @click="store.playSong(song)" title="播放">&#x25B6;</button>
           <button class="action-btn add-btn" @click="store.addToPlaylist(song)" title="添加到播放列表">&#x2795;</button>
-          <button class="action-btn fav-btn" :class="{ favorited: isFav(song.id) }" @click="toggleFav(song)" title="收藏">&#x2665;</button>
+          <button class="action-btn fav-btn" :class="favClass(song.id)" @click="toggleFav(song)" title="收藏"><span class="fav-heart">&#x2665;</span></button>
         </span>
       </div>
     </div>
@@ -53,7 +53,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
@@ -126,19 +126,34 @@ onMounted(() => {
 
 // 收藏状态版本号：点击收藏后 +1 触发 isFav 重算，保证按钮状态实时刷新
 const favVersion = ref(0)
+// 每行收藏按钮的动画类（收藏=心动 / 取消=破裂），按歌曲 id 记录
+const favAnim = reactive({})
+const favAnimTimers = {}
 
 function isFav(songId) {
   favVersion.value // 建立响应式依赖
   return getFavorites().some(s => s.id === songId)
 }
 
+function favClass(songId) {
+  favVersion.value
+  const c = { favorited: isFav(songId) }
+  const a = favAnim[songId]
+  if (a) c[a] = true
+  return c
+}
+
 function toggleFav(song) {
-  if (isFav(song.id)) {
+  const removing = isFav(song.id)
+  if (removing) {
     removeFavorite(song.id)
   } else {
     addFavorite(song)
   }
   favVersion.value++
+  favAnim[song.id] = removing ? 'fav-anim-break' : 'fav-anim-love'
+  clearTimeout(favAnimTimers[song.id])
+  favAnimTimers[song.id] = setTimeout(() => { favAnim[song.id] = '' }, 800)
 }
 </script>
 

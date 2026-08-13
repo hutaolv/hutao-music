@@ -20,12 +20,12 @@
       <button class="action-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
       <button class="action-btn" @click.stop="$emit('add', song)" title="添加到播放列表">&#x2795;</button>
     </template>
-    <button class="fav-btn" :class="{ favorited: isFav }" @click.stop="toggleFav">&#x2665;</button>
+    <button class="fav-btn" :class="favClass" @click.stop="toggleFav"><span class="fav-heart">&#x2665;</span></button>
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { platformColors } from '../data/platforms'
 
@@ -42,6 +42,14 @@ const emit = defineEmits(['play', 'add', 'fav-changed'])
 
 const isFav = ref(getFavorites().some(s => s.id === props.song.id))
 const platformColor = platformColors[props.song.platform] || '#6366f1'
+const anim = ref('')
+let animTimer = null
+
+const favClass = computed(() => {
+  const c = { favorited: isFav.value }
+  if (anim.value) c[anim.value] = true
+  return c
+})
 
 function hideImg(e) { e.target.style.display = 'none' }
 
@@ -52,6 +60,9 @@ function toggleFav() {
     addFavorite(props.song)
   }
   isFav.value = !isFav.value
+  anim.value = isFav.value ? 'fav-anim-love' : 'fav-anim-break'
+  clearTimeout(animTimer)
+  animTimer = setTimeout(() => { anim.value = '' }, 800)
   // 通知父组件（如"我的喜欢"列表）刷新收藏数据
   emit('fav-changed')
 }

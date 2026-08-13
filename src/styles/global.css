@@ -130,3 +130,71 @@ img {
   opacity: 0;
   transform: translateY(20px);
 }
+
+/* ===== 收藏爱心动画（三处收藏按钮共用） ===== */
+.fav-btn { position: relative; }
+.fav-btn::after { pointer-events: none; }
+/* 爱心字符：独立元素，放大动画只作用于爱心，按钮背景圆圈（hover 圆形背景）不放大 */
+.fav-heart { display: inline-block; position: relative; }
+
+/* 收藏：砰然心动——爱心放大到 3 倍 */
+.fav-btn.fav-anim-love .fav-heart { animation: fav-heartbeat 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+@keyframes fav-heartbeat {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(3); }
+  100% { transform: scale(1); }
+}
+
+/* 取消收藏：爱心放大至 3 倍后，裂纹自上而下裂开并伴随轻微震动（心碎），爱心整体不分离 */
+.fav-btn.fav-anim-break .fav-heart { animation: fav-crack 0.8s ease both; }
+/* 裂纹主线：从心尖自上而下展开 */
+.fav-btn.fav-anim-break .fav-heart::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 5%;
+  width: 2.5px;
+  height: 0;
+  border-radius: 2px;
+  background: #1c0409;
+  transform: translateX(-50%);
+  animation: fav-crack-line 0.8s ease both;
+}
+/* 裂纹分叉：底部向左斜向延伸 */
+.fav-btn.fav-anim-break .fav-heart::after {
+  content: '';
+  position: absolute;
+  left: 55%;
+  top: 62%;
+  width: 28%;
+  height: 2.5px;
+  border-radius: 2px;
+  background: #1c0409;
+  transform-origin: left center;
+  transform: rotate(42deg) scaleX(0);
+  animation: fav-crack-branch 0.8s ease both;
+}
+@keyframes fav-crack {
+  0%   { transform: scale(1); }
+  28%  { transform: scale(3); }
+  42%  { transform: scale(3); }
+  50%  { transform: scale(3.05) translateX(-2px) rotate(-1.2deg); }
+  56%  { transform: scale(3) translateX(2px) rotate(1.2deg); }
+  62%  { transform: scale(3.04) translateX(-1px) rotate(-0.6deg); }
+  70%  { transform: scale(3); }
+  100% { transform: scale(1); }
+}
+@keyframes fav-crack-line {
+  0%, 40% { height: 0; opacity: 0; }
+  48%     { height: 26%; opacity: 1; }
+  64%     { height: 78%; opacity: 1; }
+  78%     { height: 100%; opacity: 1; }
+  96%     { height: 100%; opacity: 1; }
+  100%    { height: 100%; opacity: 0; }
+}
+@keyframes fav-crack-branch {
+  0%, 52% { transform: rotate(42deg) scaleX(0); opacity: 1; }
+  70%     { transform: rotate(42deg) scaleX(1); opacity: 1; }
+  96%     { transform: rotate(42deg) scaleX(1); opacity: 1; }
+  100%    { transform: rotate(42deg) scaleX(1); opacity: 0; }
+}
