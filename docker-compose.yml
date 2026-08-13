@@ -1,0 +1,8 @@
+services:
+  music:
+    build: .
+    image: hutao-music
+    container_name: hutao-music
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
