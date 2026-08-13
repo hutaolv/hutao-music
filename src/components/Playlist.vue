@@ -173,4 +173,12 @@ function hideImg(e) {
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* 手机端（≤767px）：宽度按屏幕自适应，靠右留边距，避免溢出屏幕 */
+@media (max-width: 767px) {
+  .playlist-panel {
+    width: min(380px, calc(100vw - 24px));
+    right: 12px;
+  }
+}
 </style>

@@ -355,9 +355,14 @@ function toggleFav(song) {
   50% { opacity: 0.5; }
 }
 
-@media (max-width: 768px) {
-  .col-artist { width: 100px; }
-  .col-duration { width: 50px; }
-  .col-action { width: 96px; }
+/* 手机端（≤767px）：隐藏歌手列节省空间，操作列收窄，按钮同步缩小免得溢出 */
+@media (max-width: 767px) {
+  .col-artist { display: none; }
+  .col-cover { width: 36px; }
+  .row-cover { width: 36px; height: 36px; }
+  .col-duration { width: 44px; }
+  .col-action { width: 92px; gap: 2px; }
+  .action-btn { width: 28px; height: 28px; font-size: 13px; }
+  .chart-header-row, .chart-row { gap: 8px; padding: 10px 10px; }
 }
 </style>

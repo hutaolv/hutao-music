@@ -198,3 +198,27 @@ img {
   96%     { transform: rotate(42deg) scaleX(1); opacity: 1; }
   100%    { transform: rotate(42deg) scaleX(1); opacity: 0; }
 }
+
+/* ===== 手机端适配（≤767px，避开 iPad 768px，桌面/平板默认样式不受影响） ===== */
+@media (max-width: 767px) {
+  /* 手机端导航栏变两层（logo+链接一行、搜索框一行）更高；播放条改双行布局更高 */
+  :root {
+    --nav-height: 104px;
+    --player-height: 120px;
+  }
+
+  /* 页面内容收窄边距，让手机上内容充分利用宽度 */
+  .page-container {
+    padding: 16px 12px;
+  }
+
+  .section-title {
+    font-size: 20px;
+    margin-bottom: 16px;
+  }
+
+  .section-subtitle {
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+}

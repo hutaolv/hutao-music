@@ -149,4 +149,39 @@ function doSearch() {
 .search-btn:hover {
   background: var(--bg-hover);
 }
+
+/* 手机端（≤767px）：导航栏改为两行——第一行 logo+链接，第二行搜索框占满宽度 */
+@media (max-width: 767px) {
+  .nav-inner {
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 4px 12px;
+    padding: 0 12px;
+  }
+
+  .logo-text {
+    font-size: 17px;
+  }
+
+  .logo-icon {
+    font-size: 22px;
+  }
+
+  .nav-link {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  /* 搜索框固定到第二行并占满整行 */
+  .search-bar {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .search-bar input {
+    font-size: 13px;
+  }
+}
 </style>

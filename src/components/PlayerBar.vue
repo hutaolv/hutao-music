@@ -665,9 +665,50 @@ onUnmounted(() => {
 /* 拿不到真实音频时的提示样式 */
 .failed-toast { background: rgba(249, 115, 22, 0.92); }
 
-@media (max-width: 768px) {
-  .player-left { width: 180px; }
-  .player-right { width: 120px; }
-  .volume-bar { width: 60px; }
+/* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息+收藏，第二行控制按钮+进度条。
+   桌面的单行三区布局不命中此断点，保持不变 */
+@media (max-width: 767px) {
+  .player-inner {
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 2px 0;
+    padding: 0 12px;
+  }
+
+  /* 第一行：歌曲信息占满整行 */
+  .player-left {
+    width: 100%;
+  }
+
+  /* 第二行：控制按钮 + 进度条占满整行 */
+  .player-center {
+    width: 100%;
+    gap: 2px;
+  }
+
+  /* 手机上隐藏右侧不常用控件（音质、歌词面板、桌面歌词、下载、静音、音量），
+     避免内容溢出；播放列表按钮在控制区仍可用 */
+  .player-right {
+    display: none;
+  }
+
+  .controls {
+    gap: 10px;
+  }
+
+  .ctrl-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+
+  .play-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .progress-area {
+    max-width: none;
+  }
 }
 </style>

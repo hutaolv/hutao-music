@@ -264,9 +264,19 @@ function playAll() {
 }
 .load-more-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
 
+/* 手机端（≤640px）：头部纵向排列；歌曲行隐藏平台/时长列，收窄边距避免溢出 */
 @media (max-width: 640px) {
   .artist-header { flex-direction: column; text-align: center; }
   .artist-avatar { width: 120px; height: 120px; }
   .artist-name { font-size: 24px; }
+  .song-row { gap: 10px; padding: 12px 10px; }
+  .song-platform, .song-duration { display: none; }
+}
+
+/* 超窄屏（≤480px）：封面缩小，操作按钮（播放/添加）收紧，保证一行放得下 */
+@media (max-width: 480px) {
+  .song-rank { width: 24px; font-size: 13px; }
+  .song-cover { width: 36px; height: 36px; }
+  .action-btn { width: 28px; height: 28px; font-size: 13px; }
 }
 </style>
