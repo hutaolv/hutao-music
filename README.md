@@ -73,6 +73,38 @@ npm run build        # 构建前端到 dist/
 npm run server       # 启动服务（自动托管 dist），默认端口 3001
 ```
 
+## Android APK 打包（Capacitor）
+
+用 Capacitor 将前端打包成 Android APK。要求本机已装 Node.js ≥ 20.19 与 JDK ≥ 21，并配置 `ANDROID_HOME` 指向 Android SDK。
+
+```bash
+# 1. 安装 Capacitor 依赖
+npm install
+npm install -D @capacitor/cli @capacitor/android
+
+# 2. 生成 Android 工程（首次运行，之后可跳过）
+npx cap add android
+
+# 3. 构建前端并同步到 Android 工程（打包前必须执行，命令中替换为你的服务器地址）
+$env:VITE_API_BASE='http://你的服务器地址:3001'
+npm run build
+npx cap sync android
+
+# 4. 编译 APK（需临时切到 JDK 21）
+$env:JAVA_HOME='<JDK 21 所在目录>'
+$env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
+.\android\gradlew.bat -p android :app:assembleDebug --no-daemon
+```
+
+产物位于 `android\app\build\outputs\apk\debug\app-debug.apk`，拷到手机安装即可。
+
+要点：
+
+- `VITE_API_BASE` 只在本终端会话注入，**不写死进代码**，指向服务器根地址（不含 `/api`）；若服务器走 HTTPS 改为 `https://域名` 即可
+- `android\` 工程与 `capacitor.config.ts` 已提交到仓库；首次在新机器打包前需重跑 `npx cap add android`
+- `capacitor.config.ts` 中 `androidScheme: 'http'` 用于让 WebView 能直接请求明文接口（避免 mixed content 拦截）；配套 `android\app\src\main\AndroidManifest.xml` 已开启 `usesCleartextTraffic`
+- 修改前端代码后重新打包：重跑第 3、4 步即可
+
 ## Docker 部署
 
 单容器同时托管前端构建产物与后端 API，一键部署：
