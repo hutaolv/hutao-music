@@ -96,13 +96,15 @@ $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
 .\android\gradlew.bat -p android :app:assembleDebug --no-daemon
 ```
 
-产物位于 `android\app\build\outputs\apk\debug\app-debug.apk`，拷到手机安装即可。
+产物位于 `android\app\build\outputs\apk\debug\胡桃音悦.apk`，拷到手机安装即可。
 
 要点：
 
 - `VITE_API_BASE` 只在本终端会话注入，**不写死进代码**，指向服务器根地址（不含 `/api`）；若服务器走 HTTPS 改为 `https://域名` 即可
 - `android\` 工程与 `capacitor.config.ts` 已提交到仓库；首次在新机器打包前需重跑 `npx cap add android`
 - `capacitor.config.ts` 中 `androidScheme: 'http'` 用于让 WebView 能直接请求明文接口（避免 mixed content 拦截）；配套 `android\app\src\main\AndroidManifest.xml` 已开启 `usesCleartextTraffic`
+- 应用图标：PWA 与 APK 均使用 `public/icons/hutao.png`（APK 侧已按各密度缩放进 `android\app\src\main\res\mipmap-*`）
+- APK 内不会注册 Service Worker（本地 assets 无需缓存），避免旧 SW 缓存导致覆盖安装白屏；网页版仍正常使用 PWA
 - 修改前端代码后重新打包：重跑第 3、4 步即可
 
 ## Docker 部署
