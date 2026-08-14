@@ -259,6 +259,15 @@ function initAudio() {
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
   })
+  // 后台回来时若状态是播放中但音频暂停（如后台切歌被系统打断/拒绝），自动恢复
+  document.addEventListener('visibilitychange', onVisibilityChange)
+}
+
+function onVisibilityChange() {
+  if (document.hidden || !audio) return
+  if (store.isPlaying && audio.paused && audio.src) {
+    audio.play().catch(() => {})
+  }
 }
 
 function updateLyrics() {
@@ -449,6 +458,7 @@ onUnmounted(() => {
   if (playFailedTimer) clearTimeout(playFailedTimer)
   if (vipSkipTimer) clearTimeout(vipSkipTimer)
   document.removeEventListener('click', onDocClick)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   if (audio) {
     audio.pause()
     audio = null
