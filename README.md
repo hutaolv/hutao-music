@@ -107,6 +107,17 @@ $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
 - APK 内不会注册 Service Worker（本地 assets 无需缓存），避免旧 SW 缓存导致覆盖安装白屏；网页版仍正常使用 PWA
 - 修改前端代码后重新打包：重跑第 3、4 步即可
 
+### 发布新版本
+
+1. **递增版本号（三处同步）**：
+   - `android\app\build.gradle` 的 `versionName`
+   - `src\version.js` 的 `APP_VERSION`
+   - 服务器 `server\downloads\version.json` 的 `version`
+2. 重新打包后，把 `android\app\build\outputs\apk\debug\胡桃音悦.apk` 复制到服务器 `server\downloads\`（该目录已挂载进容器，替换即生效，无需重建镜像），并更新 `version.json` 中的版本号与更新说明 `notes`。
+3. 用户手机上的 APK 启动时会请求 `/api/version`，检测到更高版本后弹窗提示「下载更新」，跳转系统浏览器下载安装包，下载完成后到通知栏点击安装。
+
+> 安装包下载地址形如 `http://<服务器>:3001/downloads/胡桃音悦.apk`（仓库 `.gitignore` 已忽略 APK 文件，`version.json` 正常提交）。
+
 ## Docker 部署
 
 单容器同时托管前端构建产物与后端 API，一键部署：

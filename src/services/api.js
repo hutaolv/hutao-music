@@ -132,6 +132,23 @@ export async function getLyrics(song) {
 
 // 获取歌手歌曲。artistName 可选，供 B站/抖音/咪咕等需按歌手名辅助搜索的平台使用；
 // page 用于咪咕分页加载。返回 { songs, hasMore }
+export async function fetchLatestVersion() {
+  try {
+    const res = await fetch(`${API_ORIGIN}/api/version`)
+    const json = await res.json()
+    if (json.code === 200 && json.data?.version) {
+      return {
+        version: String(json.data.version),
+        apkUrl: toAbsolute(json.data.apkUrl),
+        notes: json.data.notes || ''
+      }
+    }
+  } catch (e) {
+    console.warn('Fetch latest version failed:', e.message)
+  }
+  return null
+}
+
 export async function getArtistSongs(platform, artistId, artistName, page = 1) {
   let url = `${API_BASE}/song/artist?platform=${encodeURIComponent(platform)}&artistId=${encodeURIComponent(artistId)}`
   if (artistName) url += `&name=${encodeURIComponent(artistName)}`

@@ -6,3 +6,6 @@ services:
     ports:
       - "3001:3001"
     restart: unless-stopped
+    volumes:
+      # 安装包与版本信息目录：服务器替换 APK / version.json 即时生效，无需重建镜像
+      - ./server/downloads:/app/server/downloads

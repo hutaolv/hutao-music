@@ -4,3 +4,5 @@ server/node_modules/
 .idea/
 .DS_Store
 *.log
+# APK 安装包不入库（体积大），version.json 正常提交
+server/downloads/*.apk

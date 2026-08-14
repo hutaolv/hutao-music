@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { Readable } from 'stream'
 import chartsRouter from './routes/charts.js'
 import searchRouter from './routes/search.js'
@@ -76,6 +76,35 @@ app.get('/api/proxy/audio', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })
 })
+
+// APK 版本检查：读 server/downloads/version.json，返回最新版本与安装包下载地址
+app.get('/api/version', (req, res) => {
+  try {
+    const data = JSON.parse(readFileSync(versionJsonPath, 'utf8'))
+    if (!data || !data.version || !data.apkFile) {
+      return res.status(404).json({ code: 404, message: 'no release' })
+    }
+    res.json({
+      code: 200,
+      data: {
+        version: String(data.version),
+        apkUrl: `/downloads/${encodeURIComponent(data.apkFile)}`,
+        notes: data.notes || ''
+      }
+    })
+  } catch {
+    res.status(404).json({ code: 404, message: 'no release' })
+  }
+})
+
+// 静态托管安装包目录（/downloads/胡桃音悦.apk），强制下载行为
+const downloadsDir = resolve(__dirname, 'downloads')
+const versionJsonPath = resolve(downloadsDir, 'version.json')
+if (existsSync(downloadsDir)) {
+  app.use('/downloads', express.static(downloadsDir, {
+    setHeaders: (res) => res.setHeader('Content-Disposition', 'attachment')
+  }))
+}
 
 const distDir = resolve(__dirname, '../dist')
 if (existsSync(distDir)) {

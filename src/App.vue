@@ -18,6 +18,25 @@
   <DesktopLyrics />
 
   <transition name="fade">
+    <div v-if="showUpdate" class="dialog-mask" @click.self="showUpdate = false">
+      <div class="dialog dialog-update">
+        <div class="dialog-head">
+          <span class="dialog-title">发现新版本 v{{ updateInfo.version }}</span>
+          <button class="dialog-close" @click="showUpdate = false">&#x2715;</button>
+        </div>
+        <div class="dialog-body">
+          <p v-if="updateInfo.notes" class="update-notes">{{ updateInfo.notes }}</p>
+          <p>点击「下载更新」将通过系统浏览器下载最新安装包。下载完成后请前往通知栏点击安装（首次安装需在系统设置中允许"安装未知应用"）。</p>
+        </div>
+        <div class="dialog-foot">
+          <button class="dialog-btn ghost" @click="showUpdate = false">稍后再说</button>
+          <button class="dialog-btn primary" @click="downloadUpdate">下载更新</button>
+        </div>
+      </div>
+    </div>
+  </transition>
+
+  <transition name="fade">
     <div v-if="showDisclaimer" class="dialog-mask" @click.self="showDisclaimer = false">
       <div class="dialog">
         <div class="dialog-head">
@@ -59,12 +78,48 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import NavBar from './components/NavBar.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import DesktopLyrics from './components/DesktopLyrics.vue'
+import { APP_VERSION } from './version'
+import { fetchLatestVersion } from './services/api'
 
 const showDisclaimer = ref(false)
+
+// APK 版本检测：仅打包成 APK（Capacitor）时启用，网页版始终是最新不需提示
+const showUpdate = ref(false)
+const updateInfo = ref({ version: '', notes: '', apkUrl: '' })
+
+// 点分版本号比较：a > b 返回 1，a === b 返回 0，a < b 返回 -1
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0)
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0
+    const y = pb[i] || 0
+    if (x !== y) return x > y ? 1 : -1
+  }
+  return 0
+}
+
+async function checkForUpdate() {
+  const info = await fetchLatestVersion()
+  if (info && compareVersions(info.version, APP_VERSION) > 0) {
+    updateInfo.value = info
+    showUpdate.value = true
+  }
+}
+
+// 跳转系统浏览器下载安装包（WebView 内无法直接安装）
+function downloadUpdate() {
+  if (updateInfo.value.apkUrl) window.open(updateInfo.value.apkUrl, '_system')
+}
+
+onMounted(() => {
+  if ('Capacitor' in window) checkForUpdate()
+})
 </script>
 
 <style>
@@ -174,6 +229,55 @@ const showDisclaimer = ref(false)
 
 .dl-contact a {
   color: var(--accent-light);
+}
+
+/* 版本更新弹窗 */
+.dialog-update {
+  max-width: 460px;
+}
+
+.update-notes {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--bg-card);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  white-space: pre-line;
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.dialog-btn {
+  padding: 9px 22px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.dialog-btn.ghost {
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.dialog-btn.ghost:hover {
+  background: var(--bg-hover);
+}
+
+.dialog-btn.primary {
+  color: #fff;
+  background: var(--accent-light);
+}
+
+.dialog-btn.primary:hover {
+  opacity: 0.85;
 }
 
 @media (max-width: 767px) {
