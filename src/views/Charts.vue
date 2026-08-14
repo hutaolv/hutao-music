@@ -66,7 +66,12 @@ const store = usePlayerStore()
 // 支持从首页"查看全部"带平台参数进入，如 /charts?platform=网易云音乐
 // 默认展示网易云音乐排行榜（保持平台标签原有顺序）
 const DEFAULT_PLATFORM = '网易云音乐'
-const activePlatform = ref(route.query.platform && platforms.includes(route.query.platform) ? route.query.platform : DEFAULT_PLATFORM)
+const PLATFORM_STORAGE_KEY = 'hutao:charts-platform'
+// 优先用路由参数（明确导航意图），否则恢复上次选中的平台，都没有才回退默认
+const lastPlatform = localStorage.getItem(PLATFORM_STORAGE_KEY)
+const activePlatform = ref(route.query.platform && platforms.includes(route.query.platform)
+  ? route.query.platform
+  : (lastPlatform && platforms.includes(lastPlatform) ? lastPlatform : DEFAULT_PLATFORM))
 const activeSubList = ref(0)
 
 const liveData = ref({})
@@ -96,6 +101,7 @@ const currentSongs = computed(() => {
 function switchPlatform(p) {
   activePlatform.value = p
   activeSubList.value = 0
+  localStorage.setItem(PLATFORM_STORAGE_KEY, p)
 }
 
 async function loadPlatform(platform) {
