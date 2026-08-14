@@ -297,6 +297,52 @@ function onEnded() {
   }
 }
 
+// 预取下一首播放地址：后台切歌时不发起网络请求，直接秒切，规避手机浏览器后台 JS 冻结
+const nextUrlCache = { id: null, url: '' }
+
+function getNextSong() {
+  const list = store.playlist
+  if (!list.length) return null
+  if (store.playMode === 'random') return list[Math.floor(Math.random() * list.length)]
+  return list[(store.currentIndex + 1) % list.length]
+}
+
+async function prefetchNextUrl() {
+  const next = getNextSong()
+  if (!next || next.id === store.currentSong?.id || next.vip) return
+  // 直链歌曲无需预取，播放时直接可用
+  if (next.audioUrl || next.sourceUrl) return
+  if (nextUrlCache.id === next.id) return
+  try {
+    const url = await getSongUrl(next, quality.value)
+    if (url) nextUrlCache.id = next.id
+    nextUrlCache.url = url
+  } catch { /* 预取失败不影响正常播放 */ }
+}
+
+// 媒体会话：锁屏/通知栏显示歌曲信息与播放控制，也是 iOS Safari 后台持续播放的必要条件
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return
+  const update = () => {
+    if (!store.currentSong) return
+    const cover = store.currentSong.cover
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: store.currentSong.title || '未知歌曲',
+      artist: store.currentSong.artist || '未知歌手',
+      album: store.currentSong.album || '胡桃音悦',
+      artwork: cover ? [{ src: toAbsolute(cover), sizes: '512x512', type: 'image/jpeg' }] : []
+    })
+    navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused'
+  }
+  try {
+    navigator.mediaSession.setActionHandler('play', () => store.togglePlay())
+    navigator.mediaSession.setActionHandler('pause', () => store.togglePlay())
+    navigator.mediaSession.setActionHandler('nexttrack', () => store.playNext())
+    navigator.mediaSession.setActionHandler('previoustrack', () => store.playPrev())
+  } catch { /* 个别平台不支持个别 action，忽略 */ }
+  watch(() => [store.currentSong, store.isPlaying], update)
+}
+
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
   if (vipSkipTimer) { clearTimeout(vipSkipTimer); vipSkipTimer = null }
@@ -324,6 +370,12 @@ watch(() => store.currentSong, async (song) => {
     let url = song.audioUrl || song.sourceUrl || ''
     // 直链播放地址（如 B站/抖音）可能是代理相对路径，APK 里需转成绝对地址
     url = toAbsolute(url)
+    // 命中预取缓存：后台自动切歌时直接复用，跳过网络探测
+    if (!url && nextUrlCache.id === song.id && nextUrlCache.url) {
+      url = nextUrlCache.url
+      nextUrlCache.id = null
+      nextUrlCache.url = ''
+    }
     if (!url) {
       // 探测该歌曲可用音质，并确保使用实际可用的音质（用户偏好不可用时回退到可用最高档）
       const res = await getSongUrl(song, quality.value, true)
@@ -345,6 +397,7 @@ watch(() => store.currentSong, async (song) => {
       audio.play().catch(() => {})
       store.isPlaying = true
       downloadUrl.value = url
+      prefetchNextUrl()
       const lrc = await getLyrics(song)
       if (lrc) {
         store.rawLyrics = lrc.lyrics || ''
@@ -451,6 +504,7 @@ function onImgError(e) {
 
 onMounted(() => {
   initAudio()
+  setupMediaSession()
   document.addEventListener('click', onDocClick)
 })
 
