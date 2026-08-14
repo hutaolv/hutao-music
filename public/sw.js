@@ -4,9 +4,7 @@ const CACHE_VERSION = 'hutao-music-v1'
 const CORE_ASSETS = [
   '/',
   '/manifest.webmanifest',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-maskable-512.png'
+  '/icons/hutao.png'
 ]
 
 // 安装阶段：预缓存应用外壳，保证首屏离线可用
