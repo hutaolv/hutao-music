@@ -10,35 +10,16 @@
           {{ item.name }}
         </router-link>
       </div>
-      <div class="search-bar">
-        <input v-model="keyword" type="text" placeholder="搜索音乐、歌手..." @keydown.enter="doSearch" />
-        <button class="search-btn" @click="doSearch">&#x1F50D;</button>
-      </div>
     </div>
   </nav>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { addSearchHistory } from '../utils/storage'
-
-const router = useRouter()
-const keyword = ref('')
-
 const navItems = [
   { path: '/', name: '首页' },
   { path: '/charts', name: '排行榜' },
   { path: '/search', name: '搜索' }
 ]
-
-function doSearch() {
-  const kw = keyword.value.trim()
-  if (kw) {
-    addSearchHistory(kw)
-    router.push({ path: '/search', query: { q: kw } })
-  }
-}
 </script>
 
 <style scoped>
@@ -107,50 +88,7 @@ function doSearch() {
   background: rgba(99, 102, 241, 0.1);
 }
 
-.search-bar {
-  flex: 1;
-  max-width: 360px;
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  background: var(--bg-card);
-  border-radius: 20px;
-  padding: 0 4px 0 16px;
-  border: 1px solid var(--border-color);
-  transition: border-color 0.2s;
-}
-
-.search-bar:focus-within {
-  border-color: var(--accent);
-}
-
-.search-bar input {
-  flex: 1;
-  height: 36px;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.search-bar input::placeholder {
-  color: var(--text-muted);
-}
-
-.search-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.search-btn:hover {
-  background: var(--bg-hover);
-}
-
-/* 手机端（≤767px）：导航栏改为两行——第一行 logo+链接，第二行搜索框占满宽度 */
+/* 手机端（≤767px）：导航栏收紧排版 */
 @media (max-width: 767px) {
   .nav-inner {
     flex-wrap: wrap;
@@ -169,18 +107,6 @@ function doSearch() {
 
   .nav-link {
     padding: 6px 10px;
-    font-size: 13px;
-  }
-
-  /* 搜索框固定到第二行并占满整行 */
-  .search-bar {
-    order: 3;
-    flex-basis: 100%;
-    max-width: none;
-    margin-left: 0;
-  }
-
-  .search-bar input {
     font-size: 13px;
   }
 }
