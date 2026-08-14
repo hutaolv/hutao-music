@@ -25,7 +25,7 @@
           <button class="dialog-close" @click="showDisclaimer = false">&#x2715;</button>
         </div>
         <div class="dialog-body">
-          <p class="dl-update">最后更新：2026-08-14</p>
+          <p class="dl-update">最后更新：2026-08-15</p>
 
           <h4>一、服务性质与定位声明</h4>
           <p>1. 本平台是一个前后端分离的音乐资源聚合与检索工具，旨在为用户提供便捷的跨平台音乐搜索与试听体验，无需注册或登录即可使用。</p>

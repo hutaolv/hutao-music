@@ -43,7 +43,14 @@
         <div v-if="favoriteSongs.length" class="recent-list">
           <SongCard v-for="song in favoriteSongs" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
-        <p v-else class="no-result">还没有收藏歌曲</p>
+        <div v-else class="empty-state">
+          <svg viewBox="0 0 24 24" class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          </svg>
+          <div class="empty-title">还没有收藏歌曲</div>
+          <div class="empty-desc">去排行榜逛逛，遇到喜欢的歌点一下&#x2665; 就能收藏到这里</div>
+          <button class="empty-btn" @click="router.push('/charts')">去看榜单</button>
+        </div>
       </div>
 
       <div v-else>
@@ -54,7 +61,15 @@
         <div v-if="recentPlays.length" class="recent-list">
           <SongCard v-for="song in recentPlays" :key="song.id" :song="song" show-play @play="store.playSong" @fav-changed="refreshFavorites" />
         </div>
-        <p v-else class="no-result">还没有播放记录</p>
+        <div v-else class="empty-state">
+          <svg viewBox="0 0 24 24" class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <div class="empty-title">还没有播放记录</div>
+          <div class="empty-desc">现在播放一首歌，它会自动出现在这里，方便下次继续听</div>
+          <button class="empty-btn" @click="router.push('/charts')">去听榜单</button>
+        </div>
       </div>
     </div>
   </div>
@@ -245,6 +260,52 @@ function refreshFavorites() {
   border-radius: var(--radius);
   overflow: hidden;
 }
+
+/* 空状态：图标 + 提示 + 引导按钮 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.empty-icon {
+  width: 56px;
+  height: 56px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  opacity: 0.8;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.empty-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 320px;
+  margin-bottom: 20px;
+}
+
+.empty-btn {
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent-light);
+  padding: 8px 20px;
+  border-radius: 999px;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.empty-btn:hover { opacity: 0.85; }
+.empty-btn:active { transform: scale(0.95); }
 
 .fav-recent-section {
   margin-bottom: 40px;
