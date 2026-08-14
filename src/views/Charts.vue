@@ -64,7 +64,9 @@ const route = useRoute()
 const store = usePlayerStore()
 
 // 支持从首页"查看全部"带平台参数进入，如 /charts?platform=网易云音乐
-const activePlatform = ref(route.query.platform && platforms.includes(route.query.platform) ? route.query.platform : platforms[0])
+// 默认展示网易云音乐排行榜（保持平台标签原有顺序）
+const DEFAULT_PLATFORM = '网易云音乐'
+const activePlatform = ref(route.query.platform && platforms.includes(route.query.platform) ? route.query.platform : DEFAULT_PLATFORM)
 const activeSubList = ref(0)
 
 const liveData = ref({})
