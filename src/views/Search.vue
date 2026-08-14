@@ -36,14 +36,15 @@
       </div>
 
       <div v-if="keyword" class="section">
-        <div class="song-toolbar">
+        <div v-if="filteredSongs.length" class="song-toolbar">
           <h3 class="section-title" style="font-size:18px;margin:0;">歌曲结果 ({{ filteredSongs.length }})</h3>
           <button v-if="filteredSongs.length" class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx">&#x25B6; 播放全部</button>
         </div>
+        <HutaoLoading v-if="loading" text="胡桃正在全力搜索中" />
         <div v-if="filteredSongs.length" class="result-list">
           <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" @play="store.playSong" @add="store.addToPlaylist" />
         </div>
-        <p v-else class="no-result">未找到相关歌曲</p>
+        <p v-if="!loading && !filteredSongs.length" class="no-result">未找到相关歌曲</p>
         <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
           {{ loadingMore ? '加载中...' : '加载更多' }}
         </button>
@@ -83,6 +84,7 @@ import { searchAll as apiSearchAll } from '../services/api'
 import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils/storage'
 import { platforms, platformColors } from '../data/platforms'
 import SongCard from '../components/SongCard.vue'
+import HutaoLoading from '../components/HutaoLoading.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -102,6 +104,7 @@ const selectedScope = ref(lastSearchScope === 'music' || lastSearchScope === 'al
 const page = ref(1) // 当前搜索页码（B站分页）
 const hasMore = ref(false) // 是否还有下一页
 const loadingMore = ref(false)
+const loading = ref(false) // 搜索请求进行中，展示胡桃加载动画
 const playingAll = ref(false)
 const allPlatforms = platforms
 let debounceTimer = null
@@ -160,6 +163,7 @@ async function doSearch() {
 
   try {
     const scope = selectedPlatform.value === 'B站' ? selectedScope.value : undefined
+    loading.value = true
     const apiData = await apiSearchAll(kw, selectedPlatform.value, scope, 1)
     allSongs.value = apiData?.songs || []
     artistResults.value = apiData?.artists || []
@@ -169,6 +173,8 @@ async function doSearch() {
     allSongs.value = []
     artistResults.value = []
     hasMore.value = false
+  } finally {
+    loading.value = false
   }
   router.replace({ query: { q: kw } })
 }

@@ -11,7 +11,7 @@
       <button v-for="(list, i) in sublists" :key="i" class="sublist-tab" :class="{ active: activeSubList === i }" @click="activeSubList = i">{{ list.name }}</button>
     </div>
 
-    <div v-if="loading" class="loading-bar">正在获取 {{ activePlatform }} 最新榜单...</div>
+    <HutaoLoading v-if="loading" text="胡桃正在全力加载中" />
     <div v-if="!loading && !currentSongs.length" class="no-result">暂无榜单数据</div>
 
     <div v-if="currentSongs.length" class="chart-toolbar">
@@ -59,6 +59,7 @@ import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
+import HutaoLoading from '../components/HutaoLoading.vue'
 
 const route = useRoute()
 const store = usePlayerStore()
@@ -346,22 +347,6 @@ function toggleFav(song) {
 .fav-btn.favorited { color: #ef4444; }
 
 .no-result { padding: 40px; text-align: center; color: var(--text-muted); font-size: 15px; }
-
-.loading-bar {
-  padding: 12px 16px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  text-align: center;
-  background: var(--bg-card);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
 
 /* 手机端（≤767px）：隐藏歌手列节省空间，操作列收窄，按钮同步缩小免得溢出 */
 @media (max-width: 767px) {
