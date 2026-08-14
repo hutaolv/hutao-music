@@ -1,6 +1,9 @@
 // PWA Service Worker：应用外壳缓存 + 运行时缓存
-// 策略：预缓存首页/图标，运行时缓存静态资源（html/js/css/图片），接口请求不缓存直接走网络
-const CACHE_VERSION = 'hutao-music-v1'
+// 策略：
+// - 页面导航（HTML）网络优先：每次打开优先拿最新 index.html，避免旧缓存页面导致白屏，miss 时回退缓存
+// - 静态资源（js/css/图片）缓存优先：加载提速，miss 时回源并写入缓存
+// - 接口请求（/api/*）一律走网络，不缓存
+const CACHE_VERSION = 'hutao-music-v2'
 const CORE_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -14,7 +17,7 @@ self.addEventListener('install', (event) => {
   )
 })
 
-// 激活阶段：清理旧版本缓存，并接管所有已打开的页面
+// 激活阶段：清理旧版本缓存（v1 的旧 index.html 会在此被清除），并接管已打开的页面
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
@@ -23,20 +26,30 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-// 请求拦截：
-// - /api/* 接口始终走网络（数据实时，不能缓存旧的）
-// - 其他同源请求：缓存优先，miss 时回源并写入缓存
+// 请求拦截
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (event.request.method !== 'GET') return
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/api/')) return
 
+  // 页面导航：网络优先，避免命中缓存的旧 index.html（引用旧 hash 资源）导致白屏
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        const copy = response.clone()
+        caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy))
+        return response
+      }).catch(() => caches.match(event.request))
+    )
+    return
+  }
+
+  // 静态资源：缓存优先，miss 时回源
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached
       return fetch(event.request).then((response) => {
-        // 只缓存成功的、可缓存的响应，避免把错误页写进缓存
         if (response.ok) {
           const copy = response.clone()
           caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy))
