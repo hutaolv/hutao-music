@@ -22,6 +22,14 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    // 产物命名：debug 包直接输出为 胡桃音悦.apk（默认是 app-debug.apk）
+    applicationVariants.all { variant ->
+        if (variant.buildType.name == 'debug') {
+            variant.outputs.all {
+                outputFileName = "胡桃音悦.apk"
+            }
+        }
+    }
 }
 
 repositories {
