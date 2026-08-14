@@ -116,6 +116,7 @@ import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
+import { toAbsolute } from '../services/api'
 import Playlist from './Playlist.vue'
 
 const store = usePlayerStore()
@@ -312,6 +313,8 @@ watch(() => store.currentSong, async (song) => {
     }
     isFav.value = getFavorites().some(s => s.id === song.id)
     let url = song.audioUrl || song.sourceUrl || ''
+    // 直链播放地址（如 B站/抖音）可能是代理相对路径，APK 里需转成绝对地址
+    url = toAbsolute(url)
     if (!url) {
       // 探测该歌曲可用音质，并确保使用实际可用的音质（用户偏好不可用时回退到可用最高档）
       const res = await getSongUrl(song, quality.value, true)

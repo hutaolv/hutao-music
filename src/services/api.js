@@ -1,10 +1,33 @@
-const API_BASE = '/api'
+// API 基地址：
+// - 网页版走相对路径 /api（同源，由 Express/Nginx 转发）
+// - 打包成 APK 后 WebView 加载的是本地资源，/api 会指向手机本地，必须改用线上服务器地址
+// - 通过 VITE_API_BASE 构建时注入（打包 APK 时由构建命令指定，不写死在代码里）
+//   注意 VITE_API_BASE 应指向服务器根地址（不含 /api），下方统一拼接
+const API_ORIGIN = import.meta.env.VITE_API_BASE || ''
+const API_BASE = `${API_ORIGIN}/api`
+
+// 把后端返回的相对路径（/api/proxy/...）转成绝对地址：
+// 网页版保持相对路径（同源），APK 里 WebView origin 是本地，必须补上服务器地址才能加载封面/音频
+export function toAbsolute(url) {
+  if (!url || typeof url !== 'string') return url
+  if (url.startsWith('/') && !url.startsWith('//') && API_ORIGIN) return API_ORIGIN + url
+  return url
+}
 
 export async function fetchCharts(platform) {
   try {
     const res = await fetch(`${API_BASE}/charts?platform=${encodeURIComponent(platform)}`)
     const json = await res.json()
-    if (json.code === 200) return json.data
+    if (json.code === 200) {
+      // 榜单歌曲封面可能是代理相对路径，APK 里统一转绝对地址
+      const data = json.data
+      if (Array.isArray(data)) {
+        data.forEach(list => {
+          if (Array.isArray(list?.songs)) list.songs.forEach(s => { if (s) s.cover = toAbsolute(s.cover) })
+        })
+      }
+      return data
+    }
     return null
   } catch (e) {
     console.warn(`Fetch ${platform} charts failed:`, e.message)
@@ -20,7 +43,13 @@ export async function searchAll(keyword, platform, scope, page) {
   try {
     const res = await fetch(url)
     const json = await res.json()
-    if (json.code === 200) return json.data
+    if (json.code === 200) {
+      const data = json.data
+      // 搜索结果歌曲/歌手的封面或头像可能是代理相对路径，APK 里统一转绝对地址
+      if (Array.isArray(data?.songs)) data.songs.forEach(s => { if (s) s.cover = toAbsolute(s.cover) })
+      if (Array.isArray(data?.artists)) data.artists.forEach(a => { if (a) a.avatar = toAbsolute(a.avatar) })
+      return data
+    }
     return { songs: [], artists: [] }
   } catch (e) {
     console.warn('Search failed:', e.message)
@@ -75,8 +104,9 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
     const json = await res.json()
     if (json.code === 200 && json.data?.url) {
       // 探测时返回对象（含可用音质列表），否则返回 url 字符串，兼容两种调用方式
-      if (detect) return { url: json.data.url, availableQualities: json.data.availableQualities || ['standard'] }
-      return json.data.url
+      // 播放地址可能是后端代理的相对路径，APK 里需转成绝对地址
+      if (detect) return { url: toAbsolute(json.data.url), availableQualities: json.data.availableQualities || ['standard'] }
+      return toAbsolute(json.data.url)
     }
   } catch (e) {
     console.warn('Get song URL failed:', e.message)
@@ -109,7 +139,12 @@ export async function getArtistSongs(platform, artistId, artistName, page = 1) {
   try {
     const res = await fetch(url)
     const json = await res.json()
-    if (json.code === 200) return json.data
+    if (json.code === 200) {
+      // 歌手歌曲封面可能是代理相对路径，APK 里统一转绝对地址
+      const data = json.data
+      if (Array.isArray(data?.songs)) data.songs.forEach(s => { if (s) s.cover = toAbsolute(s.cover) })
+      return data
+    }
     return { songs: [], hasMore: false }
   } catch (e) {
     console.warn('Get artist songs failed:', e.message)
