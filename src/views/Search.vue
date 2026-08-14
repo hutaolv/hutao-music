@@ -92,8 +92,13 @@ const keyword = ref('')
 const allSongs = ref([])
 const artistResults = ref([])
 const searchHistory = ref([])
-const selectedPlatform = ref('网易云音乐')
-const selectedScope = ref('music') // B站搜索范围：music=音乐分区，all=全站+增强过滤
+const SEARCH_PLATFORM_STORAGE_KEY = 'hutao:search-platform'
+const lastSearchPlatform = localStorage.getItem(SEARCH_PLATFORM_STORAGE_KEY)
+// 恢复上次选中的平台，避免从歌词页等返回时被重置为默认
+const selectedPlatform = ref(lastSearchPlatform && platforms.includes(lastSearchPlatform) ? lastSearchPlatform : '网易云音乐')
+const SEARCH_SCOPE_STORAGE_KEY = 'hutao:search-scope'
+const lastSearchScope = localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY)
+const selectedScope = ref(lastSearchScope === 'music' || lastSearchScope === 'all' ? lastSearchScope : 'music') // B站搜索范围：music=音乐分区，all=全站+增强过滤
 const page = ref(1) // 当前搜索页码（B站分页）
 const hasMore = ref(false) // 是否还有下一页
 const loadingMore = ref(false)
@@ -116,12 +121,14 @@ function formatNum(n) {
 function selectPlatform(p) {
   if (selectedPlatform.value === p) return
   selectedPlatform.value = p
+  localStorage.setItem(SEARCH_PLATFORM_STORAGE_KEY, p)
   if (keyword.value.trim()) doSearch()
 }
 
 function selectScope(scope) {
   if (selectedScope.value === scope) return
   selectedScope.value = scope
+  localStorage.setItem(SEARCH_SCOPE_STORAGE_KEY, scope)
   if (keyword.value.trim()) doSearch()
 }
 
