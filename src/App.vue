@@ -9,7 +9,7 @@
   </main>
   <footer class="site-footer">
     <p>
-      本平台为技术学习与个人使用，不存储任何音乐资源，版权归各平台所有，仅限个人非商业试听使用。      <a href="javascript:;" class="footer-link" @click="showDisclaimer = true">查看免责声明</a>
+      本平台为技术学习与个人使用，不存储任何音乐资源，版权归各平台所有，仅限个人非商业试听使用。      <a href="javascript:;" class="footer-link" @click="showDisclaimer = true">查看免责声明</a><span class="footer-sep">&middot;</span><a class="footer-link download-apk" href="/downloads/胡桃音悦.apk" download>下载安卓版 APK</a>
     </p>
   </footer>
   <transition name="playerbar">
@@ -138,6 +138,29 @@ onMounted(() => {
 .footer-link {
   color: var(--accent-light);
   margin-left: 4px;
+}
+
+.footer-sep {
+  margin: 0 6px;
+  color: var(--text-muted);
+}
+
+/* 下载安卓版：胶囊按钮样式，更醒目 */
+.download-apk {
+  display: inline-block;
+  padding: 5px 12px;
+  margin-left: 6px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-light);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.download-apk:hover {
+  background: rgba(99, 102, 241, 0.2);
 }
 
 /* 免责声明弹窗 */

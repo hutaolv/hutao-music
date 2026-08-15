@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { neteaseThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
 
 const BASE = 'https://music.163.com/api'
 
@@ -196,19 +197,24 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
 const BR_MAP = { standard: 128000, high: 320000, lossless: 999000 }
 
 export async function getSongUrl(id, quality = 'standard') {
+  // 1. 先尝试官方 API
   try {
     const { data } = await axios.get(`https://music.163.com/api/song/enhance/player/url`, {
       headers: cookieHeaders,
-      params: { ids: `[${id}]`, br: BR_MAP[quality] || 128000 }
+      params: { ids: `[${id}]`, br: BR_MAP[quality] || 128000 },
+      timeout: 8000
     })
     if (data.code === 200 && data.data?.[0]?.url) {
       return data.data[0].url
     }
-    return null
   } catch (e) {
-    console.error('NetEase song URL error:', e.message)
-    return null
+    console.error('NetEase official API error:', e.message)
   }
+
+  // 2. 官方 API 失败时，使用第三方 API
+  console.log(`[NetEase] Official API failed for ${id}, trying third-party APIs...`)
+  const result = await fetchWithFallback(neteaseThirdPartyApis, id, quality)
+  return result?.url || null
 }
 
 // 探测歌曲实际可用的音质档位：无损需接口返回 level 为 lossless/hires，
@@ -234,6 +240,23 @@ export async function detectQualities(id) {
     }
   } catch (e) {
     console.error('NetEase detect qualities error:', e.message)
+  }
+  if (result.length >= 2) return result
+  // 官方 API 探测结果不足时，用第三方 API 补充探测
+  const thirdPartyProbes = [
+    { q: 'lossless', level: 'lossless' },
+    { q: 'high', level: 'exhigh' },
+    { q: 'standard', level: 'standard' }
+  ]
+  for (const p of thirdPartyProbes) {
+    if (result.includes(p.q)) continue
+    try {
+      const probeResult = await Promise.race([
+        fetchWithFallback(neteaseThirdPartyApis, id, p.level),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+      ])
+      if (probeResult?.url) result.push(p.q)
+    } catch {}
   }
   return result.length ? result : ['standard']
 }

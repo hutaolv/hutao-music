@@ -11,9 +11,13 @@
       <span class="filter-label">平台：</span>
       <span v-for="p in allPlatforms" :key="p"
         class="platform-filter"
-        :class="{ active: selectedPlatform === p }"
+        :class="{ active: selectedPlatform === p && !useThirdParty }"
         :style="{ '--pf-color': platformColors[p] || '#6366f1' }"
         @click="selectPlatform(p)">{{ p }}</span>
+      <span class="filter-divider">|</span>
+      <span class="platform-filter hutao-search"
+        :class="{ active: useThirdParty }"
+        @click="toggleThirdParty">&#x1F335; 胡桃搜</span>
     </div>
 
     <div v-if="selectedPlatform === 'B站'" class="scope-filters">
@@ -80,7 +84,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { searchAll as apiSearchAll } from '../services/api'
+import { searchAll as apiSearchAll, thirdPartySearch } from '../services/api'
 import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils/storage'
 import { platforms, platformColors } from '../data/platforms'
 import SongCard from '../components/SongCard.vue'
@@ -98,6 +102,8 @@ const SEARCH_PLATFORM_STORAGE_KEY = 'hutao:search-platform'
 const lastSearchPlatform = localStorage.getItem(SEARCH_PLATFORM_STORAGE_KEY)
 // 恢复上次选中的平台，避免从歌词页等返回时被重置为默认
 const selectedPlatform = ref(lastSearchPlatform && platforms.includes(lastSearchPlatform) ? lastSearchPlatform : '网易云音乐')
+// 胡桃搜开关：启用时使用第三方 API 搜索，关闭时使用官方 API 搜索
+const useThirdParty = ref(false)
 const SEARCH_SCOPE_STORAGE_KEY = 'hutao:search-scope'
 const lastSearchScope = localStorage.getItem(SEARCH_SCOPE_STORAGE_KEY)
 const selectedScope = ref(lastSearchScope === 'music' || lastSearchScope === 'all' ? lastSearchScope : 'music') // B站搜索范围：music=音乐分区，all=全站+增强过滤
@@ -122,9 +128,16 @@ function formatNum(n) {
 }
 
 function selectPlatform(p) {
-  if (selectedPlatform.value === p) return
+  if (selectedPlatform.value === p && !useThirdParty.value) return
   selectedPlatform.value = p
+  useThirdParty.value = false
   localStorage.setItem(SEARCH_PLATFORM_STORAGE_KEY, p)
+  if (keyword.value.trim()) doSearch()
+}
+
+// 切换胡桃搜开关：启用时使用第三方 API 搜索，关闭时使用官方 API 搜索
+function toggleThirdParty() {
+  useThirdParty.value = !useThirdParty.value
   if (keyword.value.trim()) doSearch()
 }
 
@@ -162,13 +175,22 @@ async function doSearch() {
   searchHistory.value = getSearchHistory()
 
   try {
-    const scope = selectedPlatform.value === 'B站' ? selectedScope.value : undefined
     loading.value = true
-    const apiData = await apiSearchAll(kw, selectedPlatform.value, scope, 1)
-    allSongs.value = apiData?.songs || []
-    artistResults.value = apiData?.artists || []
+    if (useThirdParty.value) {
+      // 胡桃搜：第三方 API 搜索
+      const apiData = await thirdPartySearch(kw, selectedPlatform.value)
+      allSongs.value = apiData?.songs || []
+      artistResults.value = []
+      hasMore.value = false
+    } else {
+      // 官方 API 搜索
+      const scope = selectedPlatform.value === 'B站' ? selectedScope.value : undefined
+      const apiData = await apiSearchAll(kw, selectedPlatform.value, scope, 1)
+      allSongs.value = apiData?.songs || []
+      artistResults.value = apiData?.artists || []
+      hasMore.value = !!apiData?.hasMore
+    }
     page.value = 1
-    hasMore.value = !!apiData?.hasMore
   } catch {
     allSongs.value = []
     artistResults.value = []
@@ -290,7 +312,23 @@ onMounted(() => {
   user-select: none;
 }
 
+.filter-divider {
+  color: var(--text-muted);
+  margin: 0 4px;
+  opacity: 0.4;
+}
+
 .platform-filter:hover { border-color: var(--pf-color); color: var(--pf-color); }
+
+.hutao-search {
+  --pf-color: #10b981;
+}
+
+.hutao-search.active {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-color: transparent;
+}
 
 .platform-filter.active {
   background: color-mix(in srgb, var(--pf-color) 20%, transparent);

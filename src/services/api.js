@@ -84,11 +84,16 @@ export async function searchArtists(keyword) {
 // 获取播放地址。quality: standard/high/lossless（音质档位，由播放器选择并持久化）。
 // detect=true 时后端同时探测该歌曲可用音质，返回 { url, availableQualities }
 export async function getSongUrl(song, quality = 'standard', detect = false) {
-  const songId = song.platformId || song.id
+  // 第三方搜索的歌曲：id 是第三方 ID，platformId 是官方 ID（用于歌词）
+  // 播放时需要告诉后端使用第三方 API，但播放地址需要用官方 ID 获取
+  const isThirdParty = song.isThirdParty
+  // 第三方歌曲播放用 platformId（官方ID），官方歌曲播放用 platformId 或 id
+  const songId = isThirdParty ? (song.platformId || song.id) : (song.platformId || song.id)
   const params = new URLSearchParams({
     platform: song.platform,
     id: songId
   })
+  if (isThirdParty) params.set('source', 'thirdparty')
   if (quality && quality !== 'standard') params.set('quality', quality)
   if (detect) params.set('detect', '1')
   if (song.bvid) params.set('bvid', song.bvid)
@@ -147,6 +152,24 @@ export async function fetchLatestVersion() {
     console.warn('Fetch latest version failed:', e.message)
   }
   return null
+}
+
+export async function thirdPartySearch(keyword, platform) {
+  let url = `${API_BASE}/search/thirdparty?keyword=${encodeURIComponent(keyword)}`
+  if (platform) url += `&platform=${encodeURIComponent(platform)}`
+  try {
+    const res = await fetch(url)
+    const json = await res.json()
+    if (json.code === 200) {
+      const data = json.data
+      if (Array.isArray(data?.songs)) data.songs.forEach(s => { if (s) s.cover = toAbsolute(s.cover) })
+      return data
+    }
+    return { songs: [] }
+  } catch (e) {
+    console.warn('Third-party search failed:', e.message)
+    return { songs: [] }
+  }
 }
 
 export async function getArtistSongs(platform, artistId, artistName, page = 1) {

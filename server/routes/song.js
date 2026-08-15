@@ -5,6 +5,7 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
+import { neteaseThirdPartyApis, qqThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
 
@@ -23,7 +24,7 @@ function sanitizeLyricsText(text) {
 }
 
 router.get('/url', async (req, res) => {
-  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect } = req.query
+  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source } = req.query
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
@@ -34,31 +35,64 @@ router.get('/url', async (req, res) => {
     const q = ['standard', 'high', 'lossless'].includes(quality) ? quality : 'standard'
     // detect=1 时探测该歌曲实际可用的音质档位，供前端动态显示音质菜单
     let availableQualities = null
-    switch (platform) {
-      case '网易云音乐':
-        if (detect === '1') availableQualities = await netease.detectQualities(id)
-        url = await netease.getSongUrl(id, q)
-        if (!url && q !== 'standard') url = await netease.getSongUrl(id, 'standard')
-        break
-      case 'QQ音乐':
-        if (detect === '1') availableQualities = await qqmusic.detectQualities(mid || id, mediaMid)
-        url = await qqmusic.getSongUrl(mid || id, mediaMid, q)
-        if (!url && q !== 'standard') url = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
-        break
-      case 'B站':
-        // 音频馆歌曲走 auid；搜索到的音乐视频按 bvid 取真实的视频音频流
-        if (req.query.auid) url = await bilibili.getSongUrl(req.query.auid)
-        if (!url && req.query.bvid) url = await bilibili.getVideoUrl(req.query.bvid)
-        break
-      case '抖音':
-      case '汽水音乐':
-        url = req.query.sourceUrl || null
-        break
-      case '咪咕音乐':
-        if (detect === '1') availableQualities = await migu.detectQualities(contentId || id, copyrightId)
-        url = await migu.getSongUrl(contentId || id, copyrightId, q)
-        if (!url && q !== 'standard') url = await migu.getSongUrl(contentId || id, copyrightId, 'standard')
-        break
+
+    // 第三方搜索的歌曲：直接使用第三方 API
+    if (source === 'thirdparty') {
+      const thirdPartyApis = platform === 'QQ音乐' ? qqThirdPartyApis : neteaseThirdPartyApis
+      if (detect === '1') {
+        // 探测第三方 API 支持的音质
+        availableQualities = []
+        const probes = [
+          { q: 'lossless', quality: 'lossless' },
+          { q: 'high', quality: 'high' },
+          { q: 'standard', quality: 'standard' }
+        ]
+        for (const p of probes) {
+          try {
+            const result = await Promise.race([
+              fetchWithFallback(thirdPartyApis, id, p.quality),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+            ])
+            if (result?.url) availableQualities.push(p.q)
+          } catch {}
+        }
+        if (!availableQualities.length) availableQualities = ['standard']
+      }
+      // 获取播放地址
+      const result = await fetchWithFallback(thirdPartyApis, id, q)
+      url = result?.url || null
+      if (!url && q !== 'standard') {
+        const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard')
+        url = fallback?.url || null
+      }
+    } else {
+      // 官方搜索的歌曲：使用官方 API
+      switch (platform) {
+        case '网易云音乐':
+          if (detect === '1') availableQualities = await netease.detectQualities(id)
+          url = await netease.getSongUrl(id, q)
+          if (!url && q !== 'standard') url = await netease.getSongUrl(id, 'standard')
+          break
+        case 'QQ音乐':
+          if (detect === '1') availableQualities = await qqmusic.detectQualities(mid || id, mediaMid)
+          url = await qqmusic.getSongUrl(mid || id, mediaMid, q)
+          if (!url && q !== 'standard') url = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
+          break
+        case 'B站':
+          // 音频馆歌曲走 auid；搜索到的音乐视频按 bvid 取真实的视频音频流
+          if (req.query.auid) url = await bilibili.getSongUrl(req.query.auid)
+          if (!url && req.query.bvid) url = await bilibili.getVideoUrl(req.query.bvid)
+          break
+        case '抖音':
+        case '汽水音乐':
+          url = req.query.sourceUrl || null
+          break
+        case '咪咕音乐':
+          if (detect === '1') availableQualities = await migu.detectQualities(contentId || id, copyrightId)
+          url = await migu.getSongUrl(contentId || id, copyrightId, q)
+          if (!url && q !== 'standard') url = await migu.getSongUrl(contentId || id, copyrightId, 'standard')
+          break
+      }
     }
     // 拿不到真实音频时不返回 demo，前端据此提示"无法获取"并跳过，url 保持为 null
     res.json({ code: 200, data: { url, availableQualities } })

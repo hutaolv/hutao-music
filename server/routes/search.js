@@ -4,8 +4,23 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
+import { searchWithThirdParty } from '../services/thirdPartyApis.js'
 
 const router = Router()
+
+// 胡桃搜 - 第三方 API 搜索
+router.get('/thirdparty', async (req, res) => {
+  const { keyword, platform } = req.query
+  if (!keyword) {
+    return res.json({ code: 400, message: 'keyword required' })
+  }
+  try {
+    const songs = await searchWithThirdParty(keyword, platform)
+    res.json({ code: 200, data: { songs } })
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message })
+  }
+})
 
 // 各平台搜索服务映射：search = 歌曲搜索，artist = 歌手搜索（部分平台没有，走兜底）
 const serviceMap = {

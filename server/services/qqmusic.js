@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { qqThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
 
 const BASE = 'https://u.y.qq.com/cgi-bin/musicu.fcg'
 
@@ -258,10 +259,11 @@ const QUALITY_FILENAME = { standard: ['M500', 'mp3'], high: ['M800', 'mp3'], los
 export async function getSongUrl(mid, mediaMid, quality = 'standard') {
   const guid = String(Math.floor(Math.random() * 10000000000))
   const useMid = mediaMid || mid
-  // 根据所选音质构造文件名（如 M800xxxx.mp3），CgiGetVkey 会返回对应音质的 purl
-  const [tag, ext] = QUALITY_FILENAME[quality] || QUALITY_FILENAME.standard
-  const fileName = `${tag}${useMid}.${ext}`
+
+  // 1. 先尝试官方 API
   try {
+    const [tag, ext] = QUALITY_FILENAME[quality] || QUALITY_FILENAME.standard
+    const fileName = `${tag}${useMid}.${ext}`
     const { data } = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.1 Safari/537.36',
@@ -285,21 +287,23 @@ export async function getSongUrl(mid, mediaMid, quality = 'standard') {
             }
           }
         })
-      }
+      },
+      timeout: 8000
     })
-    // 取 CDN 服务器地址 sip 拼接 purl（比硬编码 dl.stream 更可靠），把 http 升级为 https 并补齐斜杠
     const urlData = data?.url?.data
     const urlInfo = urlData?.midurlinfo?.[0]
     if (urlInfo?.purl) {
       const sip = (urlData?.sip?.[0] || 'https://dl.stream.qqmusic.qq.com/').replace(/^http:\/\//, 'https://').replace(/\/$/, '')
-      // purl 一般不带前导斜杠，按需补齐，避免拼出双斜杠或缺失斜杠
       return `${sip}${urlInfo.purl.startsWith('/') ? '' : '/'}${urlInfo.purl}`
     }
-    return null
   } catch (e) {
-    console.error('QQ song URL error:', e.message)
-    return null
+    console.error('QQ official API error:', e.message)
   }
+
+  // 2. 官方 API 失败时，使用第三方 API
+  console.log(`[QQ] Official API failed for ${mid}, trying third-party APIs...`)
+  const result = await fetchWithFallback(qqThirdPartyApis, useMid, quality)
+  return result?.url || null
 }
 
 // 探测歌曲可用音质：按各音质文件名请求，能拿到 purl 才算该音质可用
@@ -337,6 +341,23 @@ export async function detectQualities(mid, mediaMid) {
     }
   } catch (e) {
     console.error('QQ detect qualities error:', e.message)
+  }
+  if (result.length >= 2) return result
+  // 官方 API 探测结果不足时，用第三方 API 补充探测
+  const thirdPartyProbes = [
+    { q: 'lossless', quality: 'lossless' },
+    { q: 'high', quality: 'high' },
+    { q: 'standard', quality: 'standard' }
+  ]
+  for (const p of thirdPartyProbes) {
+    if (result.includes(p.q)) continue
+    try {
+      const probeResult = await Promise.race([
+        fetchWithFallback(qqThirdPartyApis, useMid, p.quality),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+      ])
+      if (probeResult?.url) result.push(p.q)
+    } catch {}
   }
   return result.length ? result : ['standard']
 }

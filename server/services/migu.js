@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { miguThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
 
 const BASE = 'https://app.c.nf.migu.cn'
 const SEARCH_BASE = 'http://app.c.nf.migu.cn'
@@ -190,6 +191,7 @@ export async function getArtistSongs(singerId, artistName, pageNo = 1) {
 const TONE_MAP = { standard: 'PQ', high: 'HQ', lossless: 'SQ' }
 
 export async function getSongUrl(contentId, copyrightId, quality = 'standard') {
+  // 1. 先尝试官方 API
   try {
     const { data } = await axios.get(`${BASE}/MIGUM3.0/strategy/pc/listen/v1.0`, {
       headers,
@@ -199,11 +201,14 @@ export async function getSongUrl(contentId, copyrightId, quality = 'standard') {
     if (data?.code === '000000' && data?.data?.url) {
       return data.data.url
     }
-    return null
   } catch (e) {
-    console.error('MiGu song URL error:', e.message)
-    return null
+    console.error('MiGu official API error:', e.message)
   }
+
+  // 2. 官方 API 失败时，使用第三方 API
+  console.log(`[MiGu] Official API failed for ${contentId}, trying third-party APIs...`)
+  const result = await fetchWithFallback(miguThirdPartyApis, contentId, quality)
+  return result?.url || null
 }
 
 // 探测歌曲可用音质：接口返回 dialogInfo（如"会员专属音质，请先登录"）视为该音质不可用

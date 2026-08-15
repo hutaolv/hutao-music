@@ -40,7 +40,7 @@
         </div>
         <div class="progress-area">
           <span class="time">{{ formatTime(store.currentTime) }}</span>
-          <div class="progress-bar" ref="progressRef" @click="seekProgress">
+          <div class="progress-bar" ref="progressRef" @click="seekProgress" @mousedown.prevent="startDrag">
             <div class="progress-track">
               <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
               <div class="progress-thumb" :style="{ left: progressPercent + '%' }"></div>
@@ -129,6 +129,7 @@ const isFav = ref(false)
 const downloadUrl = ref('')
 const anim = ref('')
 let animTimer = null
+const isDragging = ref(false)
 
 const favClass = computed(() => {
   const c = { favorited: isFav.value }
@@ -457,14 +458,47 @@ async function downloadSong() {
   }
 }
 
+// 进度条点击跳转：点击位置转换为播放进度
 function seekProgress(e) {
-  if (!progressRef.value || !durationSec.value) return
+  if (!progressRef.value || !durationSec.value || isDragging.value) return
   const rect = progressRef.value.getBoundingClientRect()
   const pct = (e.clientX - rect.left) / rect.width
   store.currentTime = pct * durationSec.value
   if (audio && audio.src) {
     audio.currentTime = store.currentTime
   }
+}
+
+// 进度条拖动：mousedown 时开始拖动，监听全局 mousemove/mouseup
+function startDrag(e) {
+  if (!progressRef.value || !durationSec.value) return
+  isDragging.value = true
+  updateDrag(e)
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', stopDrag)
+}
+
+function onDragMove(e) {
+  if (!isDragging.value) return
+  updateDrag(e)
+}
+
+// 更新拖动位置：将鼠标位置转换为播放进度
+function updateDrag(e) {
+  if (!progressRef.value || !durationSec.value) return
+  const rect = progressRef.value.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  store.currentTime = pct * durationSec.value
+  if (audio && audio.src) {
+    audio.currentTime = store.currentTime
+  }
+}
+
+// 停止拖动：移除全局事件监听
+function stopDrag() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', stopDrag)
 }
 
 function seekVolume(e) {
@@ -513,6 +547,8 @@ onUnmounted(() => {
   if (vipSkipTimer) clearTimeout(vipSkipTimer)
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', stopDrag)
   if (audio) {
     audio.pause()
     audio = null
@@ -654,8 +690,9 @@ onUnmounted(() => {
 .progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
 .progress-track { width: 100%; height: 4px; background: var(--border-color); border-radius: 2px; position: relative; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s linear; }
-.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; }
 .progress-bar:hover .progress-thumb { opacity: 1; }
+.progress-bar:active .progress-thumb { cursor: grabbing; }
 .progress-bar:hover .progress-track { height: 6px; }
 .progress-bar:hover .progress-fill { height: 6px; }
 
