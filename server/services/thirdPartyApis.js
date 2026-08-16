@@ -294,10 +294,51 @@ export const miguThirdPartyApis = [
   }
 ]
 
+// ==================== 酷我音乐第三方 API ====================
+// 音质映射：standard=128k, high=320k, lossless=flac
+const KUWO_QUALITY_MAP = { standard: '128kmp3', high: '320kmp3', lossless: '2000kflac' }
+export const kuwoThirdPartyApis = [
+  // haitangw：稳定，支持歌词和封面
+  {
+    name: 'haitangw-kuwo',
+    fetch: async (id, quality) => {
+      const qMap = { standard: '128k', high: '320k', lossless: 'flac' }
+      const { data } = await axios.get(`https://musicapi.haitangw.net/music/kw.php`, {
+        params: { id, level: qMap[quality] || 'flac', type: 'json' },
+        headers, timeout: 5000
+      })
+      return { url: data?.data?.url, name: data?.data?.name, artist: data?.data?.artist, cover: data?.data?.pic }
+    }
+  },
+  // nobb：简单稳定
+  {
+    name: 'nobb-kuwo',
+    fetch: async (id, quality) => {
+      const { data } = await axios.get(`https://api.nobb.cc/kuwo.music/index.php`, {
+        params: { id },
+        headers, timeout: 5000
+      })
+      return { url: data?.url }
+    }
+  },
+  // nxinxz：支持歌词和封面
+  {
+    name: 'nxinxz-kuwo',
+    fetch: async (id, quality) => {
+      const qMap = { standard: 'standard', high: 'exhigh', lossless: 'lossless' }
+      const { data } = await axios.get(`http://music.nxinxz.com/kw.php`, {
+        params: { id, level: qMap[quality] || 'lossless', type: 'json' },
+        headers, timeout: 5000
+      })
+      return { url: data?.data?.url, name: data?.data?.name, artist: data?.data?.artist, cover: data?.data?.pic }
+    }
+  }
+]
+
 // ==================== 第三方搜索 API ====================
 // 按优先级依次尝试，每个 API 支持搜索并返回标准化的歌曲列表
 export const thirdPartySearchApis = [
-  // 酷我音乐搜索：稳定快速，返回结果丰富，但 platform 固定为网易云音乐（用于后续播放）
+  // 酷我音乐搜索：稳定快速，返回结果丰富，platform 为目标平台（用于后续播放）
   {
     name: 'kuwo',
     search: async (keyword, platform) => {
@@ -319,7 +360,7 @@ export const thirdPartySearchApis = [
         artist: (item.ARTIST || '').replace(/&/g, '/'),
         album: item.ALBUM || '',
         duration: formatDuration(Number(item.DURATION) || 0),
-        platform: '网易云音乐',
+        platform: platform || '酷我音乐',
         cover: ''
       }))
     }

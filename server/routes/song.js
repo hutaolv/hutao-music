@@ -5,7 +5,7 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
-import { neteaseThirdPartyApis, qqThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
+import { neteaseThirdPartyApis, qqThirdPartyApis, kuwoThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
 
@@ -38,7 +38,7 @@ router.get('/url', async (req, res) => {
 
     // 第三方搜索的歌曲：直接使用第三方 API
     if (source === 'thirdparty') {
-      const thirdPartyApis = platform === 'QQ音乐' ? qqThirdPartyApis : neteaseThirdPartyApis
+      const thirdPartyApis = platform === 'QQ音乐' ? qqThirdPartyApis : platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
       if (detect === '1') {
         // 探测第三方 API 支持的音质
         availableQualities = []
@@ -92,6 +92,15 @@ router.get('/url', async (req, res) => {
           url = await migu.getSongUrl(contentId || id, copyrightId, q)
           if (!url && q !== 'standard') url = await migu.getSongUrl(contentId || id, copyrightId, 'standard')
           break
+        case '酷我音乐':
+          // 酷我音乐官方播放 API 需要加密，暂时使用第三方 API
+          const kuwoResult = await fetchWithFallback(kuwoThirdPartyApis, id, q)
+          url = kuwoResult?.url || null
+          if (!url && q !== 'standard') {
+            const fallback = await fetchWithFallback(kuwoThirdPartyApis, id, 'standard')
+            url = fallback?.url || null
+          }
+          break
       }
     }
     // 拿不到真实音频时不返回 demo，前端据此提示"无法获取"并跳过，url 保持为 null
@@ -135,6 +144,10 @@ router.get('/lyrics', async (req, res) => {
         break
       case '咪咕音乐':
         lyrics = await migu.getLyrics(contentId || id)
+        break
+      case '酷我音乐':
+        // 酷我音乐歌词暂无官方 API，返回空
+        lyrics = null
         break
     }
     res.json({

@@ -5,6 +5,7 @@ import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as qishui from '../services/qishui.js'
 import * as migu from '../services/migu.js'
+import * as kuwo from '../services/kuwo.js'
 
 const router = Router()
 
@@ -14,7 +15,8 @@ const services = {
   'B站': bilibili,
   '抖音': douyin,
   '汽水音乐': qishui,
-  '咪咕音乐': migu
+  '咪咕音乐': migu,
+  '酷我音乐': kuwo
 }
 
 // 内存缓存：排行榜数据5分钟内不重复请求

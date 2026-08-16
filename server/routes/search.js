@@ -4,6 +4,7 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
+import * as kuwo from '../services/kuwo.js'
 import { searchWithThirdParty } from '../services/thirdPartyApis.js'
 
 const router = Router()
@@ -28,7 +29,8 @@ const serviceMap = {
   'QQ音乐': { search: qqmusic.searchSongs, artist: qqmusic.searchArtists },
   'B站': { search: bilibili.search, artist: bilibili.searchArtists },
   '抖音': { search: douyin.searchSongs, artist: douyin.searchArtists },
-  '咪咕音乐': { search: migu.searchSongs, artist: migu.searchArtists }
+  '咪咕音乐': { search: migu.searchSongs, artist: migu.searchArtists },
+  '酷我音乐': { search: kuwo.searchSongs, artist: null }
 }
 
 router.get('/', async (req, res) => {
