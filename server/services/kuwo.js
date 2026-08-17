@@ -21,7 +21,7 @@ const CHART_CONFIGS = [
   {
     id: '17',
     name: '酷我新歌榜',
-    keywords: ['新歌', '热门新歌', '最新歌曲', '2024新歌', '抖音热歌']
+    keywords: ['新歌', '热门新歌', '最新歌曲', '2026新歌', '抖音热歌']
   },
   {
     id: '16',
@@ -46,7 +46,7 @@ const CHART_CONFIGS = [
 ]
 
 // 酷我音乐搜索 API
-export async function searchSongs(keyword, limit = 30) {
+export async function searchSongs(keyword, limit = 50) {
   try {
     const { data } = await axios.get('http://www.kuwo.cn/search/searchMusicBykeyWord', {
       params: {

@@ -5,6 +5,7 @@ import * as qqmusic from '../services/qqmusic.js'
 import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
+import * as kugou from '../services/kugou.js'
 import { neteaseThirdPartyApis, qqThirdPartyApis, kuwoThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
@@ -100,6 +101,11 @@ router.get('/url', async (req, res) => {
             const fallback = await fetchWithFallback(kuwoThirdPartyApis, id, 'standard')
             url = fallback?.url || null
           }
+          break
+        case '酷狗音乐':
+          // 酷狗官方播放接口无需签名：免费歌曲返回直链，付费歌曲 url 为空（前端提示并跳过）
+          url = await kugou.getSongUrl(id)
+          if (!url && q !== 'standard') url = await kugou.getSongUrl(id)
           break
       }
     }

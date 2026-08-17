@@ -6,6 +6,7 @@ import * as douyin from '../services/douyin.js'
 import * as qishui from '../services/qishui.js'
 import * as migu from '../services/migu.js'
 import * as kuwo from '../services/kuwo.js'
+import * as kugou from '../services/kugou.js'
 
 const router = Router()
 
@@ -16,7 +17,8 @@ const services = {
   '抖音': douyin,
   '汽水音乐': qishui,
   '咪咕音乐': migu,
-  '酷我音乐': kuwo
+  '酷我音乐': kuwo,
+  '酷狗音乐': kugou
 }
 
 // 内存缓存：排行榜数据5分钟内不重复请求
