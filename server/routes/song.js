@@ -6,6 +6,7 @@ import * as bilibili from '../services/bilibili.js'
 import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
 import * as kugou from '../services/kugou.js'
+import * as kuwo from '../services/kuwo.js'
 import { neteaseThirdPartyApis, qqThirdPartyApis, kuwoThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
@@ -152,8 +153,8 @@ router.get('/lyrics', async (req, res) => {
         lyrics = await migu.getLyrics(contentId || id)
         break
       case '酷我音乐':
-        // 酷我音乐歌词暂无官方 API，返回空
-        lyrics = null
+        // 酷我歌词：解析 m.kuwo.cn 播放详情页 __NUXT__ 内嵌歌词
+        lyrics = await kuwo.getLyrics(id)
         break
       case '酷狗音乐':
         // 酷狗官方歌词接口需要歌曲时长（毫秒），由前端传入 timelength

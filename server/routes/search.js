@@ -35,6 +35,21 @@ const serviceMap = {
   '酷狗音乐': { search: kugou.searchSongs, artist: null }
 }
 
+// 酷我官方搜索接口不稳定：6 秒超时或无结果时，自动兜底第三方搜索（胡桃搜逻辑）
+async function searchKuwoWithFallback(keyword) {
+  try {
+    const songs = await Promise.race([
+      kuwo.searchSongs(keyword),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000))
+    ])
+    if (songs && songs.length) return songs
+  } catch {
+    // 官方搜索超时/异常，走第三方兜底
+  }
+  console.warn(`Kuwo official search timeout/empty for "${keyword}", fallback to third-party`)
+  return searchWithThirdParty(keyword, '酷我音乐')
+}
+
 router.get('/', async (req, res) => {
   const { keyword, type, platform, scope } = req.query
   if (!keyword) {
@@ -67,6 +82,9 @@ router.get('/', async (req, res) => {
           const result = await bilibili.search(keyword, scope, Number(req.query.page) || 1)
           results.songs = result.songs
           results.hasMore = result.hasMore
+        } else if (platform === '酷我音乐') {
+          // 酷我：官方搜索 6s 超时/无结果时自动兜底第三方搜索
+          results.songs = await searchKuwoWithFallback(keyword)
         } else {
           results.songs = await serviceMap[platform].search(keyword, scope).catch(() => [])
         }
