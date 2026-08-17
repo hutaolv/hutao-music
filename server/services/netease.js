@@ -13,7 +13,7 @@ const KNOWN_LISTS = [
   { id: 3778678, name: '云音乐热歌榜' },
   { id: 3779629, name: '云音乐新歌榜' },
   { id: 19723756, name: '云音乐飙升榜' },
-  { id: 2884035, name: '网易原创歌曲榜' }
+  { id: 2884035, name: '云音乐原创榜' }
 ]
 
 const cookieHeaders = {

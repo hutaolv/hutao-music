@@ -155,6 +155,10 @@ router.get('/lyrics', async (req, res) => {
         // 酷我音乐歌词暂无官方 API，返回空
         lyrics = null
         break
+      case '酷狗音乐':
+        // 酷狗官方歌词接口需要歌曲时长（毫秒），由前端传入 timelength
+        lyrics = await kugou.getLyrics(id, req.query.timelength)
+        break
     }
     res.json({
       code: 200,

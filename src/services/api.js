@@ -125,6 +125,8 @@ export async function getLyrics(song) {
   const params = new URLSearchParams({ platform: song.platform, id: song.platformId || song.id })
   if (song.platformSongMid) params.set('mid', song.platformSongMid)
   if (song.lyricUrl) params.set('lyricUrl', song.lyricUrl)
+  // 酷狗官方歌词接口需要歌曲时长（毫秒）
+  if (song.platform === '酷狗音乐' && song.durationMs) params.set('timelength', song.durationMs)
   try {
     const res = await fetch(`${API_BASE}/song/lyrics?${params}`)
     const json = await res.json()

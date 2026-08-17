@@ -12,8 +12,62 @@ const headers = {
 // 酷狗排行榜配置：8888=热歌榜 6666=飙升榜（来自官网榜单页 rankid）
 const RANK_IDS = [
   { id: 8888, name: '热歌榜' },
-  { id: 6666, name: '飙升榜' }
+  { id: 6666, name: '飙升榜' },
+  { id: 52767, name: '收藏榜' },
+  { id: 74534, name: '新歌榜' },
+  { id: 31310, name: '欧美榜' }
 ]
+
+// 部分榜单移动端接口查不到（如蜂鸟流行榜），改抓 PC 网页版内嵌 JSON
+const PC_RANK_IDS = [
+  { id: 59703, name: '流行榜' }
+]
+
+// 抓取 PC 网页版榜单（www.kugou.com/yy/rank/home/1-{rankid}.html），解析 global.features 内嵌 JSON
+async function fetchRankPage(rankid) {
+  const url = `https://www.kugou.com/yy/rank/home/1-${rankid}.html?from=rank`
+  try {
+    const { data } = await axios.get(url, { headers, timeout: 10000 })
+    const i1 = data.indexOf('global.features')
+    if (i1 < 0) return null
+    const i2 = data.indexOf('[', i1)
+    const i3 = data.indexOf('];', i2)
+    if (i2 < 0 || i3 < 0) return null
+    let list
+    try { list = JSON.parse(data.slice(i2, i3 + 1)) } catch { return null }
+    if (!Array.isArray(list) || !list.length) return null
+    // PC 页面内嵌数据只有 album_id 没有封面 URL，拼 /stdmusic/{id}.jpg 是默认占位图；
+    // 需逐个调 getSongInfo 拿真实专辑封面（album_img）
+    const songs = await Promise.all(list.slice(0, 30).map(async (s) => {
+      let cover = ''
+      try {
+        const gi = await axios.get('http://m.kugou.com/app/i/getSongInfo.php', {
+          params: { cmd: 'playInfo', hash: s.Hash }, headers, timeout: 8000
+        })
+        if (gi.data?.album_img) cover = gi.data.album_img.replace(/\{size\}/i, '240')
+      } catch {}
+      return {
+        id: `kugou_${s.Hash}`,
+        platformId: s.Hash || '',
+        // 内嵌文件名格式"歌手 - 歌名"，按第一个" - "拆分出歌名
+        title: (s.FileName || '').split(' - ').slice(1).join(' - ') || s.FileName || '未知歌曲',
+        artist: (s.author_name || '').replace(/&/g, '/'),
+        artistId: '',
+        album: '',
+        cover,
+        duration: formatDuration(Number(s.timeLen) || 0),
+        durationMs: (Number(s.timeLen) || 0) * 1000,
+        platform: '酷狗音乐',
+        audioUrl: '',
+        vip: Number(s.privilege) === 10
+      }
+    }))
+    return songs
+  } catch (e) {
+    console.error(`KuGou pc rank ${rankid} error:`, e.message)
+    return null
+  }
+}
 
 // 用尺寸占位符的图片地址替换尺寸：{size} -> 240
 function sizedImg(url) {
@@ -31,11 +85,15 @@ function coverOf(s) {
 
 // 归一化歌曲对象（榜单接口字段）
 function toSong(s) {
+  const author = (s.authors?.[0]?.author_name || '').replace(/&/g, '/')
+  let title = s.songname || '未知歌曲'
+  // 部分榜单 songname 是"歌名--歌手"格式，去掉歌手后缀（歌名本身很少含 --）
+  if (author && title.endsWith(`--${author}`)) title = title.slice(0, -(author.length + 2))
   return {
     id: `kugou_${s.hash}`,
     platformId: s.hash || '',
-    title: s.songname || '未知歌曲',
-    artist: (s.authors?.[0]?.author_name || '').replace(/&/g, '/'),
+    title,
+    artist: author,
     artistId: '',
     album: '',
     cover: coverOf(s),
@@ -43,22 +101,27 @@ function toSong(s) {
     durationMs: (Number(s.duration) || 0) * 1000,
     platform: '酷狗音乐',
     audioUrl: '',
-    vip: false
+    vip: Number(s.privilege) === 10
   }
 }
 
 // 获取酷狗音乐排行榜
 export async function getToplist() {
-  const results = await Promise.allSettled(RANK_IDS.map(rank =>
-    axios.get(`https://m.kugou.com/rank/info/?rankid=${rank.id}&page=1&json=true`, { headers, timeout: 10000 })
-      .then(({ data }) => {
-        const list = data?.songs?.list
-        if (!Array.isArray(list) || !list.length) return null
-        const songs = list.slice(0, 30).map(toSong)
-        return { name: rank.name, cover: songs[0]?.cover || '', songs }
-      })
-      .catch(e => { console.error(`KuGou rank ${rank.name} error:`, e.message); return null })
-  ))
+  const results = await Promise.allSettled([
+    ...RANK_IDS.map(rank =>
+      axios.get(`https://m.kugou.com/rank/info/?rankid=${rank.id}&page=1&json=true`, { headers, timeout: 10000 })
+        .then(({ data }) => {
+          const list = data?.songs?.list
+          if (!Array.isArray(list) || !list.length) return null
+          const songs = list.slice(0, 30).map(toSong)
+          return { name: rank.name, cover: songs[0]?.cover || '', songs }
+        })
+        .catch(e => { console.error(`KuGou rank ${rank.name} error:`, e.message); return null })
+    ),
+    ...PC_RANK_IDS.map(rank =>
+      fetchRankPage(rank.id).then(songs => songs ? { name: rank.name, cover: songs[0]?.cover || '', songs } : null)
+    )
+  ])
   const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
   return result.length ? result : null
 }
@@ -84,7 +147,7 @@ export async function searchSongs(keyword, limit = 30) {
       durationMs: (Number(s.Duration) || 0) * 1000,
       platform: '酷狗音乐',
       audioUrl: '',
-      vip: Number(s.Privilege) <= 0 || (s.pay_type === 3)
+      vip: Number(s.Privilege) > 0 || Number(s.PayType) > 0
     }))
   } catch (e) {
     console.error('KuGou search error:', e.message)
@@ -108,6 +171,26 @@ export async function getSongUrl(hash) {
   }
 }
 
+// 获取歌词：m.kugou.com/app/i/krc.php 直接返回明文 LRC（需带 timelength 毫秒），
+// 付费歌曲同样有歌词。timelength 缺失时前端会传 durationMs，取不到则返回 null
+export async function getLyrics(hash, timelength) {
+  if (!hash || !timelength) return null
+  try {
+    const { data } = await axios.get('http://m.kugou.com/app/i/krc.php', {
+      params: { cmd: 100, hash, timelength: Number(timelength) },
+      headers: { ...headers, Referer: 'http://m.kugou.com/' },
+      timeout: 10000
+    })
+    const text = typeof data === 'string' ? data : String(data)
+    if (!text || text.length < 20 || !/\[\d{2}:\d{2}\.\d{2}/.test(text)) return null
+    const lrc = text.replace(/^\uFEFF/, '')
+    return { lyrics: lrc, transLyrics: '' }
+  } catch (e) {
+    console.error('KuGou lyrics error:', e.message)
+    return null
+  }
+}
+
 // 格式化时长：秒 -> M:SS
 function formatDuration(seconds) {
   if (!seconds || isNaN(seconds)) return '0:00'
@@ -116,4 +199,4 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default { searchSongs, getToplist, getSongUrl }
+export default { searchSongs, getToplist, getSongUrl, getLyrics }
