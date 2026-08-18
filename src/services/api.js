@@ -14,9 +14,11 @@ export function toAbsolute(url) {
   return url
 }
 
-export async function fetchCharts(platform) {
+export async function fetchCharts(platform, page) {
   try {
-    const res = await fetch(`${API_BASE}/charts?platform=${encodeURIComponent(platform)}`)
+    let url = `${API_BASE}/charts?platform=${encodeURIComponent(platform)}`
+    if (page && page > 1) url += `&page=${page}`
+    const res = await fetch(url)
     const json = await res.json()
     if (json.code === 200) {
       // 榜单歌曲封面可能是代理相对路径，APK 里统一转绝对地址

@@ -48,6 +48,9 @@
           <button class="action-btn fav-btn" :class="favClass(song.id)" @click="toggleFav(song)" title="收藏"><span class="fav-heart">&#x2665;</span></button>
         </span>
       </div>
+      <button v-if="chartHasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
+        {{ loadingMore ? '加载中...' : '加载更多' }}
+      </button>
     </div>
   </div>
 </template>
@@ -92,12 +95,46 @@ const sublists = computed(() => {
   return liveData.value[activePlatform.value] || []
 })
 
-const currentSongs = computed(() => {
+const currentSubList = computed(() => {
   const lists = liveData.value[activePlatform.value]
-  if (!lists?.length) return []
-  const list = lists[activeSubList.value]
-  return list?.songs || []
+  if (!lists?.length) return null
+  return lists[activeSubList.value] || null
 })
+
+const currentSongs = computed(() => {
+  return currentSubList.value?.songs || []
+})
+
+const loadingMore = ref(false)
+const chartHasMore = computed(() => !!currentSubList.value?.hasMore)
+
+// "加载更多"：加载当前榜单的下一页并追加到列表
+async function loadMore() {
+  const list = currentSubList.value
+  const platform = activePlatform.value
+  if (!list || loadingMore.value || !list.hasMore) return
+  loadingMore.value = true
+  try {
+    const data = await fetchCharts(platform, (list.page || 1) + 1)
+    if (data?.length) {
+      // 按榜单名匹配下一页数据（fetchCharts 返回当前页所有榜单）
+      const next = data.find(l => l.name === list.name)
+      if (next?.songs?.length) {
+        list.page = (list.page || 1) + 1
+        list.songs = list.songs.concat(next.songs)
+        list.hasMore = next.hasMore
+      } else {
+        list.hasMore = false
+      }
+    } else {
+      list.hasMore = false
+    }
+  } catch {
+    list.hasMore = false
+  } finally {
+    loadingMore.value = false
+  }
+}
 
 function switchPlatform(p) {
   activePlatform.value = p
@@ -347,6 +384,21 @@ function toggleFav(song) {
 .fav-btn.favorited { color: #ef4444; }
 
 .no-result { padding: 40px; text-align: center; color: var(--text-muted); font-size: 15px; }
+
+.load-more {
+  display: block;
+  margin: 16px auto 8px;
+  padding: 8px 24px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  transition: all 0.2s;
+}
+.load-more:hover:not(:disabled) { color: var(--text-primary); border-color: var(--text-muted); }
+.load-more:disabled { opacity: 0.5; cursor: default; }
 
 /* 手机端（≤767px）：隐藏歌手列节省空间，操作列收窄，按钮同步缩小免得溢出 */
 @media (max-width: 767px) {

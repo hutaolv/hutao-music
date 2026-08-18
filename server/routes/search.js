@@ -85,6 +85,11 @@ router.get('/', async (req, res) => {
         } else if (platform === '酷我音乐') {
           // 酷我：官方搜索 6s 超时/无结果时自动兜底第三方搜索
           results.songs = await searchKuwoWithFallback(keyword)
+        } else if (platform === '酷狗音乐') {
+          // 酷狗搜索支持分页（每批50首）
+          const pageNum = Number(req.query.page) || 1
+          results.songs = await serviceMap[platform].search(keyword, 50, pageNum).catch(() => [])
+          results.hasMore = results.songs.hasMore
         } else {
           results.songs = await serviceMap[platform].search(keyword, scope).catch(() => [])
         }

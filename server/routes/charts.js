@@ -37,14 +37,16 @@ router.get('/', async (req, res) => {
   if (!platform || !services[platform]) {
     return res.json({ code: 400, message: 'Invalid platform', platforms: Object.keys(services) })
   }
+  const page = Number(req.query.page) || 1
 
-  const cached = getCached(platform)
+  // 缓存 key 带上页码：只有第一页才做缓存（首页展示），翻页加载更多不阻塞
+  const cached = page === 1 ? getCached(platform) : null
   if (cached) return res.json({ code: 200, data: cached })
 
   try {
-    const result = await services[platform].getToplist()
+    const result = await services[platform].getToplist(page)
     if (result) {
-      setCache(platform, result)
+      if (page === 1) setCache(platform, result)
       res.json({ code: 200, data: result })
     } else {
       res.json({ code: 200, data: null, message: `${platform} toplist fetch failed, using fallback` })

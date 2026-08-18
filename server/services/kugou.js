@@ -106,21 +106,46 @@ function toSong(s) {
   }
 }
 
-// 获取酷狗音乐排行榜
-export async function getToplist() {
+// 酷狗排行榜接口固定每页 30 条（total 500）。前端按 50 条/批翻页，这里把多个接口页拼接成一致批
+const RANK_PAGE_SIZE = 50
+const RANK_RAW_PAGE = 30
+
+async function fetchRankBatch(rank, offset) {
+  const start = Math.floor(offset / RANK_RAW_PAGE) + 1
+  const end = Math.ceil((offset + RANK_PAGE_SIZE) / RANK_RAW_PAGE)
+  let songs = []
+  let total = 0
+  for (let p = start; p <= end; p++) {
+    try {
+      const { data } = await axios.get(`https://m.kugou.com/rank/info/?rankid=${rank.id}&page=${p}&json=true`, { headers, timeout: 10000 })
+      const list = data?.songs?.list
+      total = Number(data?.songs?.total) || 0
+      if (Array.isArray(list)) songs = songs.concat(list)
+    } catch (e) {
+      console.error(`KuGou rank ${rank.name} page ${p} error:`, e.message)
+    }
+  }
+  if (!songs.length) return null
+  songs = songs.slice(offset % RANK_RAW_PAGE, offset % RANK_RAW_PAGE + RANK_PAGE_SIZE)
+  if (!songs.length) return null
+  return {
+    name: rank.name,
+    cover: songs[0]?.cover || '',
+    songs: songs.map(toSong),
+    // 还剩余未加载的批数（≥50 才算还有更多）
+    hasMore: offset + RANK_PAGE_SIZE < total
+  }
+}
+
+// 获取酷狗音乐排行榜（每批 50 首）
+export async function getToplist(page = 1) {
+  const offset = (page - 1) * RANK_PAGE_SIZE
   const results = await Promise.allSettled([
-    ...RANK_IDS.map(rank =>
-      axios.get(`https://m.kugou.com/rank/info/?rankid=${rank.id}&page=1&json=true`, { headers, timeout: 10000 })
-        .then(({ data }) => {
-          const list = data?.songs?.list
-          if (!Array.isArray(list) || !list.length) return null
-          const songs = list.slice(0, 30).map(toSong)
-          return { name: rank.name, cover: songs[0]?.cover || '', songs }
-        })
-        .catch(e => { console.error(`KuGou rank ${rank.name} error:`, e.message); return null })
-    ),
+    ...RANK_IDS.map(rank => fetchRankBatch(rank, offset)),
     ...PC_RANK_IDS.map(rank =>
-      fetchRankPage(rank.id).then(songs => songs ? { name: rank.name, cover: songs[0]?.cover || '', songs } : null)
+      fetchRankPage(rank.id).then(songs => songs
+        ? { name: rank.name, cover: songs[0]?.cover || '', songs, hasMore: false }
+        : null)
     )
   ])
   const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
@@ -128,16 +153,24 @@ export async function getToplist() {
 }
 
 // 酷狗音乐搜索（mobilecdn 新版搜索接口：带真实封面 union_cover 和付费标识 pay_type，
-// 老接口 song_search_v2 的 Privilege/PayType 恒为 0 无法识别 VIP，且按专辑ID拼出的封面是占位图）
-export async function searchSongs(keyword, limit = 30) {
+// 老接口 song_search_v2 的 Privilege/PayType 恒为 0 无法识别 VIP，且按专辑ID拼出的封面是占位图。
+// 接口固定每页 30 条，前端按 50 条/批翻页，这里拼多页返回，数组上挂 hasMore）
+export async function searchSongs(keyword, limit = 50, page = 1) {
+  const offset = (page - 1) * limit
+  const start = Math.floor(offset / 30) + 1
+  const end = Math.ceil((offset + limit) / 30)
   try {
-    const { data } = await axios.get('http://mobilecdn.kugou.com/api/v3/search/song', {
-      params: { format: 'json', keyword, page: 1, pagesize: limit, showtype: 1 },
-      headers,
-      timeout: 8000
-    })
-    const lists = data?.data?.info || []
-    return lists.slice(0, limit).map(s => ({
+    const chunks = await Promise.all(Array.from({ length: end - start + 1 }, (_, i) =>
+      axios.get('http://mobilecdn.kugou.com/api/v3/search/song', {
+        params: { format: 'json', keyword, page: start + i, pagesize: 30, showtype: 1 },
+        headers,
+        timeout: 8000
+      })
+    ))
+    let lists = chunks.flatMap(c => c.data?.data?.info || [])
+    const total = Number(chunks[0]?.data?.data?.total) || 0
+    lists = lists.slice(offset % 30, offset % 30 + limit)
+    const songs = lists.map(s => ({
       id: `kugou_${s.hash || s.FileHash}`,
       platformId: s.hash || s.FileHash || '',
       title: s.songname || s.SongName || '未知歌曲',
@@ -151,6 +184,8 @@ export async function searchSongs(keyword, limit = 30) {
       audioUrl: '',
       vip: Number(s.pay_type) > 0 || Number(s.privilege) > 0
     }))
+    songs.hasMore = offset + limit < total
+    return songs
   } catch (e) {
     console.error('KuGou search error:', e.message)
     return []
