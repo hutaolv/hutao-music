@@ -44,9 +44,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 后台播放保活：前台服务 + 唤醒锁 + 播放通知 -->
+    <!-- 后台播放保活：前台服务 + 唤醒锁 -->
+    <!-- 不声明 POST_NOTIFICATIONS：安装时无"显示通知"权限提示，Android 13+ 通知默认隐藏，用户可在系统设置中自行开启 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

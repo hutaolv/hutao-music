@@ -69,17 +69,18 @@ async function fetchRankPage(rankid) {
   }
 }
 
-// 用尺寸占位符的图片地址替换尺寸：{size} -> 240
+// 用尺寸占位符的图片地址替换尺寸：{size} -> 240，并强制 https（避免 https 页面混合内容被拦）
 function sizedImg(url) {
   if (!url || typeof url !== 'string') return ''
-  return url.replace(/\{size\}/i, '240')
+  return url.replace(/\{size\}/i, '240').replace(/^http:/i, 'https:')
 }
 
-// 获取歌曲封面：优先歌手头像，其次按专辑ID拼酷狗专辑封面，都没有留空由前端占位
+// 获取歌曲封面：优先接口返回的真实封面图 Image，其次歌手头像，都没有留空由前端占位
+// （按专辑ID拼 /stdmusic/{id}.jpg 返回的是 0 字节占位图，不再使用）
 function coverOf(s) {
+  if (s.Image) return sizedImg(s.Image)
   const av = s.authors?.[0]?.sizable_avatar
   if (av) return sizedImg(av)
-  if (s.album_id || s.AlbumID) return `http://imgessl.kugou.com/stdmusic/240/${s.album_id || s.AlbumID}.jpg`
   return ''
 }
 
@@ -126,28 +127,29 @@ export async function getToplist() {
   return result.length ? result : null
 }
 
-// 酷狗音乐搜索
+// 酷狗音乐搜索（mobilecdn 新版搜索接口：带真实封面 union_cover 和付费标识 pay_type，
+// 老接口 song_search_v2 的 Privilege/PayType 恒为 0 无法识别 VIP，且按专辑ID拼出的封面是占位图）
 export async function searchSongs(keyword, limit = 30) {
   try {
-    const { data } = await axios.get('http://songsearch.kugou.com/song_search_v2', {
-      params: { keyword, page: 1, pagesize: limit },
+    const { data } = await axios.get('http://mobilecdn.kugou.com/api/v3/search/song', {
+      params: { format: 'json', keyword, page: 1, pagesize: limit, showtype: 1 },
       headers,
       timeout: 8000
     })
-    const lists = data?.data?.lists || []
+    const lists = data?.data?.info || []
     return lists.slice(0, limit).map(s => ({
-      id: `kugou_${s.FileHash || s.MvHash}`,
-      platformId: s.FileHash || '',
-      title: s.SongName || '未知歌曲',
-      artist: (s.SingerName || '').replace(/&/g, '/'),
+      id: `kugou_${s.hash || s.FileHash}`,
+      platformId: s.hash || s.FileHash || '',
+      title: s.songname || s.SongName || '未知歌曲',
+      artist: (s.singername || s.SingerName || '').replace(/&/g, '/'),
       artistId: '',
-      album: s.AlbumName || '',
-      cover: s.AlbumID ? `http://imgessl.kugou.com/stdmusic/240/${s.AlbumID}.jpg` : '',
-      duration: formatDuration(Number(s.Duration) || 0),
-      durationMs: (Number(s.Duration) || 0) * 1000,
+      album: s.album_name || '',
+      cover: sizedImg(s.trans_param?.union_cover || s.cover || s.Image),
+      duration: formatDuration(Number(s.duration) || 0),
+      durationMs: (Number(s.duration) || 0) * 1000,
       platform: '酷狗音乐',
       audioUrl: '',
-      vip: Number(s.Privilege) > 0 || Number(s.PayType) > 0
+      vip: Number(s.pay_type) > 0 || Number(s.privilege) > 0
     }))
   } catch (e) {
     console.error('KuGou search error:', e.message)
