@@ -102,9 +102,6 @@
     </transition>
 
     <transition name="fade">
-      <div v-if="vipToast" class="vip-toast">付费音乐，暂时无法播放，2秒后自动跳过</div>
-    </transition>
-    <transition name="fade">
       <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，5秒后自动跳过</div>
     </transition>
   </div>
@@ -175,7 +172,7 @@ async function setQuality(q) {
   quality.value = q
   localStorage.setItem('playQuality', q)
   const song = store.currentSong
-  if (song && !song.vip && audio && audio.src) {
+  if (song && audio && audio.src) {
     const t = audio.currentTime
     const wasPlaying = store.isPlaying
     const url = await getSongUrl(song, q)
@@ -235,9 +232,7 @@ const playModeText = computed(() => {
   }
 })
 
-const vipToast = ref(false)
 const playFailedToast = ref(false)
-let vipSkipTimer = null
 let playFailedTimer = null
 let audio = null
 
@@ -310,7 +305,7 @@ function getNextSong() {
 
 async function prefetchNextUrl() {
   const next = getNextSong()
-  if (!next || next.id === store.currentSong?.id || next.vip) return
+  if (!next || next.id === store.currentSong?.id) return
   // 直链歌曲无需预取，播放时直接可用
   if (next.audioUrl || next.sourceUrl) return
   if (nextUrlCache.id === next.id) return
@@ -346,9 +341,7 @@ function setupMediaSession() {
 
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
-  if (vipSkipTimer) { clearTimeout(vipSkipTimer); vipSkipTimer = null }
   if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
-  vipToast.value = false
   playFailedToast.value = false
   store.showLyricsPanel = false
   store.rawLyrics = ''
@@ -356,17 +349,6 @@ watch(() => store.currentSong, async (song) => {
   store.currentLyricIndex = -1
   downloadUrl.value = ''
   if (song) {
-    if (song.vip) {
-      store.isPlaying = false
-      audio.pause()
-      audio.src = ''
-      vipToast.value = true
-      vipSkipTimer = setTimeout(() => {
-        vipToast.value = false
-        store.playNext()
-      }, 2000)
-      return
-    }
     isFav.value = getFavorites().some(s => s.id === song.id)
     let url = song.audioUrl || song.sourceUrl || ''
     // 直链播放地址（如 B站/抖音）可能是代理相对路径，APK 里需转成绝对地址
@@ -412,7 +394,7 @@ watch(() => store.currentSong, async (song) => {
 }, { immediate: true })
 
 watch(() => store.isPlaying, (playing) => {
-  if (!audio || store.currentSong?.vip) return
+  if (!audio) return
   if (playing && audio.src) {
     audio.play().catch(() => {})
   } else {
@@ -544,7 +526,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (playFailedTimer) clearTimeout(playFailedTimer)
-  if (vipSkipTimer) clearTimeout(vipSkipTimer)
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('mousemove', onDragMove)

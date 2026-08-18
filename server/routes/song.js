@@ -7,7 +7,7 @@ import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
 import * as kugou from '../services/kugou.js'
 import * as kuwo from '../services/kuwo.js'
-import { neteaseThirdPartyApis, qqThirdPartyApis, kuwoThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
+import { neteaseThirdPartyApis, qqThirdPartyApis, kuwoThirdPartyApis, kugouThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
 
@@ -104,9 +104,21 @@ router.get('/url', async (req, res) => {
           }
           break
         case '酷狗音乐':
-          // 酷狗官方播放接口无需签名：免费歌曲返回直链，付费歌曲 url 为空（前端提示并跳过）
+          // 酷狗官方播放接口无需签名：免费歌曲返回直链，付费歌曲 url 为空。
+          // 官方取不到时依次回退第三方 API 解析 VIP 歌曲播放地址；音质档位逐级降档
           url = await kugou.getSongUrl(id)
-          if (!url && q !== 'standard') url = await kugou.getSongUrl(id)
+          if (!url) {
+            for (const sessionQ of [...new Set([q, 'standard'])]) {
+              const kugouResult = await fetchWithFallback(kugouThirdPartyApis, id, sessionQ)
+              url = kugouResult?.url || null
+              if (url) break
+            }
+            // 第三方 API 解析出的播放地址或为 http CDN（https 页面混合内容被拦）、
+            // 或为证书不匹配的 https 中转站，浏览器直连均不可靠，统一走服务端音频代理
+            if (url) {
+              url = `/api/proxy/audio?url=${encodeURIComponent(url)}`
+            }
+          }
           break
       }
     }
