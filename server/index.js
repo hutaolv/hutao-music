@@ -80,7 +80,7 @@ app.get('/api/health', (req, res) => {
 // APK 版本检查：读 server/downloads/version.json，返回最新版本与安装包下载地址
 app.get('/api/version', (req, res) => {
   try {
-    const data = JSON.parse(readFileSync(versionJsonPath, 'utf8'))
+    const data = JSON.parse(readFileSync(versionJsonPath, 'utf8').replace(/^\uFEFF/, ''))
     if (!data || !data.version || !data.apkFile) {
       return res.status(404).json({ code: 404, message: 'no release' })
     }
