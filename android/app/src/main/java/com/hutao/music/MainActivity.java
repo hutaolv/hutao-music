@@ -1,5 +1,9 @@
 package com.hutao.music;
 
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebView;
 
@@ -14,6 +18,21 @@ public class MainActivity extends BridgeActivity {
         WebView webView = getBridge().getWebView();
         if (webView != null) {
             webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        }
+        startMediaPlaybackService();
+    }
+
+    // 启动前台播放服务（后台/锁屏时音乐连续播放）；Android 13+ 顺带申请通知权限
+    private void startMediaPlaybackService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+        }
+        Intent service = new Intent(this, MediaPlaybackService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(service);
+        } else {
+            startService(service);
         }
     }
 }
