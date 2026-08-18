@@ -91,8 +91,10 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
   const isThirdParty = song.isThirdParty
   // 第三方歌曲播放用 platformId（官方ID），官方歌曲播放用 platformId 或 id
   const songId = isThirdParty ? (song.platformId || song.id) : (song.platformId || song.id)
+  // 胡桃搜歌曲的 platform 是目标平台标签，真实资源来源记录在 realPlatform（如网易云ID），请求播放地址需用它
+  const reqPlatform = isThirdParty && song.realPlatform ? song.realPlatform : song.platform
   const params = new URLSearchParams({
-    platform: song.platform,
+    platform: reqPlatform,
     id: songId
   })
   if (isThirdParty) params.set('source', 'thirdparty')
@@ -124,11 +126,12 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
 }
 
 export async function getLyrics(song) {
-  const params = new URLSearchParams({ platform: song.platform, id: song.platformId || song.id })
+  const platform = song.isThirdParty && song.realPlatform ? song.realPlatform : song.platform
+  const params = new URLSearchParams({ platform, id: song.platformId || song.id })
   if (song.platformSongMid) params.set('mid', song.platformSongMid)
   if (song.lyricUrl) params.set('lyricUrl', song.lyricUrl)
   // 酷狗官方歌词接口需要歌曲时长（毫秒）
-  if (song.platform === '酷狗音乐' && song.durationMs) params.set('timelength', song.durationMs)
+  if (platform === '酷狗音乐' && song.durationMs) params.set('timelength', song.durationMs)
   try {
     const res = await fetch(`${API_BASE}/song/lyrics?${params}`)
     const json = await res.json()

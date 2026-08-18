@@ -548,11 +548,22 @@ export async function searchWithThirdParty(keyword, platform) {
         console.log(`[ThirdParty] search ${api.name} success for "${keyword}", got ${result.length} results`)
         // 同时搜索官方 API 获取官方 ID，用于歌词获取
         const officialIds = await getOfficialIds(keyword, platform, result)
-        return result.map((song, idx) => ({
-          ...song,
-          platformId: officialIds[idx] || song.id,
-          isThirdParty: true
-        }))
+        // 第三方搜索源的平台：kuwo 返回的是目标平台标签，实际资源来自酷我
+        const sourcePlatform = api.name === 'kuwo' ? '酷我音乐' : api.name === 'qq-official' ? 'QQ音乐' : '网易云音乐'
+        // 官方 ID 来自哪个平台，请求播放/歌词就按哪个平台走，避免用网易云ID去酷狗查询
+        const officialPlatform = platform === 'QQ音乐' ? 'QQ音乐' : '网易云音乐'
+        return result.map((song, idx) => {
+          const officialId = officialIds[idx]
+          return {
+            ...song,
+            // platform 保留目标平台标签用于前端过滤显示
+            platform: song.platform,
+            // realPlatform 记录真实资源来源，前端请求播放/歌词时使用
+            realPlatform: officialId ? officialPlatform : sourcePlatform,
+            platformId: officialId || song.id,
+            isThirdParty: true
+          }
+        })
       }
     } catch {
       continue
