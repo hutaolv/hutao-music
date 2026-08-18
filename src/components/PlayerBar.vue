@@ -1,10 +1,21 @@
 <template>
   <div v-show="store.currentSong" class="player-bar">
+    <div class="progress-area" ref="progressRef" @click="seekProgress" @mousedown.prevent="startDrag">
+      <span class="time">{{ formatTime(store.currentTime) }}</span>
+      <div class="progress-bar">
+        <div class="progress-track">
+          <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          <div class="progress-thumb" :style="{ left: progressPercent + '%' }"></div>
+        </div>
+      </div>
+      <span class="time">{{ formatTime(durationSec) }}</span>
+    </div>
     <div class="player-inner">
       <div class="player-left">
         <div v-if="store.currentSong" class="song-info">
           <div class="cover-wrap" @click="goLyrics">
             <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" />
+            <canvas ref="miniSpecRef" class="mini-spectrum"></canvas>
             <div class="cover-expand">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
             </div>
@@ -37,16 +48,6 @@
           </button>
           <button class="ctrl-btn" @click="store.playNext">&#x23ED;</button>
           <button class="ctrl-btn" @click="store.togglePlaylist" :class="{ active: store.showPlaylist }">&#x2630;</button>
-        </div>
-        <div class="progress-area">
-          <span class="time">{{ formatTime(store.currentTime) }}</span>
-          <div class="progress-bar" ref="progressRef" @click="seekProgress" @mousedown.prevent="startDrag">
-            <div class="progress-track">
-              <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
-              <div class="progress-thumb" :style="{ left: progressPercent + '%' }"></div>
-            </div>
-          </div>
-          <span class="time">{{ formatTime(durationSec) }}</span>
         </div>
       </div>
 
@@ -114,6 +115,7 @@ import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
+import { initAudioGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
 import Playlist from './Playlist.vue'
 
 const store = usePlayerStore()
@@ -122,6 +124,7 @@ const progressRef = ref(null)
 const volumeRef = ref(null)
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
+const miniSpecRef = ref(null)
 const isFav = ref(false)
 const downloadUrl = ref('')
 const anim = ref('')
@@ -235,6 +238,7 @@ const playModeText = computed(() => {
 const playFailedToast = ref(false)
 let playFailedTimer = null
 let audio = null
+let unregisterMiniSpec = null
 
 // 拿不到真实音频时：提示"无法获取"，5 秒后自动跳下一首
 function showPlayFailed() {
@@ -249,7 +253,12 @@ function showPlayFailed() {
 
 function initAudio() {
   audio = new Audio()
-  audio.volume = store.volume
+  // 接入 Web Audio 频谱分析（音量改由 GainNode 控制），失败则无频谱但播放正常
+  const graph = initAudioGraph(audio)
+  // 接入成功后 volume 走 GainNode，audio.volume 固定为 1 避免双重衰减
+  if (graph) audio.volume = 1
+  setGraphVolume(store.volume)
+  setSpectrumActive(store.isPlaying)
   audio.addEventListener('timeupdate', updateLyrics)
   audio.addEventListener('ended', onEnded)
   audio.addEventListener('loadedmetadata', () => {
@@ -257,6 +266,20 @@ function initAudio() {
   })
   // 后台回来时若状态是播放中但音频暂停（如后台切歌被系统打断/拒绝），自动恢复
   document.addEventListener('visibilitychange', onVisibilityChange)
+}
+
+// 注册播放条封面上的迷你频谱画布（封面在 v-if 内，需在歌曲渲染完成后调用）
+function registerMiniSpectrum() {
+  if (!miniSpecRef.value || unregisterMiniSpec) return
+  unregisterMiniSpec = registerCanvas(miniSpecRef.value, {
+    bars: 18,
+    colors: ['#a5b4fc'],
+    mirror: false,
+    idleHeight: 0.2,
+    glow: true,
+    peak: true
+  })
+  setSpectrumActive(store.isPlaying)
 }
 
 function onVisibilityChange() {
@@ -350,6 +373,8 @@ watch(() => store.currentSong, async (song) => {
   downloadUrl.value = ''
   if (song) {
     isFav.value = getFavorites().some(s => s.id === song.id)
+    // 封面渲染完成后注册迷你频谱画布（切歌时 v-if 重新挂载 canvas）
+    nextTick(() => registerMiniSpectrum())
     let url = song.audioUrl || song.sourceUrl || ''
     // 直链播放地址（如 B站/抖音）可能是代理相对路径，APK 里需转成绝对地址
     url = toAbsolute(url)
@@ -377,6 +402,8 @@ watch(() => store.currentSong, async (song) => {
     }
     if (url) {
       audio.src = url
+      resumeAudio()
+      setSpectrumActive(true)
       audio.play().catch(() => {})
       store.isPlaying = true
       downloadUrl.value = url
@@ -395,15 +422,23 @@ watch(() => store.currentSong, async (song) => {
 
 watch(() => store.isPlaying, (playing) => {
   if (!audio) return
-  if (playing && audio.src) {
-    audio.play().catch(() => {})
+  if (playing) {
+    // 用户手势触发播放时同步恢复 AudioContext（iOS 自动挂起），频谱才有数据
+    resumeAudio()
+    setSpectrumActive(true)
+    if (audio.src) {
+      audio.play().catch(() => {})
+    }
   } else {
+    setSpectrumActive(false)
     audio.pause()
   }
 })
 
 watch(() => store.volume, (v) => {
-  if (audio) audio.volume = v
+  // 接入 Web Audio 后音量由 GainNode 控制，audio.volume 保持 1（避免双重衰减）
+  if (audio && !isGraphActive()) audio.volume = v
+  setGraphVolume(v)
 })
 
 watch(() => store.seekTime, (t) => {
@@ -522,10 +557,13 @@ onMounted(() => {
   initAudio()
   setupMediaSession()
   document.addEventListener('click', onDocClick)
+  // 首次进入已有歌曲时（watcher immediate 在 audio 初始化前被跳过），封面渲染后补注册
+  nextTick(() => registerMiniSpectrum())
 })
 
 onUnmounted(() => {
   if (playFailedTimer) clearTimeout(playFailedTimer)
+  if (unregisterMiniSpec) unregisterMiniSpec()
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('mousemove', onDragMove)
@@ -550,6 +588,28 @@ onUnmounted(() => {
   z-index: 200;
 }
 
+/* 播放进度条置于播放条顶部，全宽横条 */
+.progress-area {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 32px;
+  cursor: pointer;
+}
+.progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
+.progress-track { width: 100%; height: 3px; background: var(--border-color); border-radius: 2px; position: relative; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s linear; }
+.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; }
+.progress-bar:hover .progress-thumb { opacity: 1; }
+.progress-bar:active .progress-thumb { cursor: grabbing; }
+.progress-bar:hover .progress-track { height: 5px; }
+.progress-bar:hover .progress-fill { height: 5px; }
+.progress-area:hover .progress-thumb { opacity: 1; }
+
 .player-inner {
   max-width: 1400px;
   margin: 0 auto;
@@ -566,6 +626,16 @@ onUnmounted(() => {
 .cover-wrap { position: relative; width: 48px; height: 48px; flex-shrink: 0; cursor: pointer; border-radius: 8px; overflow: hidden; }
 .cover-wrap:hover .cover-expand { opacity: 1; }
 .song-info .cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; display: block; }
+/* 迷你频谱：覆盖在封面的底部，播放时随节奏跳动 */
+.mini-spectrum {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 45%;
+  pointer-events: none;
+  opacity: 0.85;
+}
 .cover-expand {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.45); opacity: 0; transition: opacity 0.2s;
@@ -666,16 +736,8 @@ onUnmounted(() => {
 .quality-option:hover { background: rgba(99, 102, 241, 0.15); color: var(--text-primary); }
 .quality-option.active { background: var(--accent); color: #fff; font-weight: 600; }
 
-.progress-area { width: 100%; max-width: 520px; display: flex; align-items: center; gap: 12px; }
+.progress-area { width: 100%; cursor: pointer; }
 .time { font-size: 11px; color: var(--text-muted); min-width: 35px; text-align: center; font-variant-numeric: tabular-nums; }
-.progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
-.progress-track { width: 100%; height: 4px; background: var(--border-color); border-radius: 2px; position: relative; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s linear; }
-.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; }
-.progress-bar:hover .progress-thumb { opacity: 1; }
-.progress-bar:active .progress-thumb { cursor: grabbing; }
-.progress-bar:hover .progress-track { height: 6px; }
-.progress-bar:hover .progress-fill { height: 6px; }
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
@@ -750,8 +812,8 @@ onUnmounted(() => {
 /* 拿不到真实音频时的提示样式 */
 .failed-toast { background: rgba(249, 115, 22, 0.92); }
 
-/* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息+收藏，第二行控制按钮+进度条。
-   桌面的单行三区布局不命中此断点，保持不变 */
+/* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息+收藏，第二行控制按钮。
+   播放进度条位于播放条顶部，全宽横条 */
 @media (max-width: 767px) {
   .player-inner {
     flex-wrap: wrap;
@@ -765,7 +827,7 @@ onUnmounted(() => {
     width: 100%;
   }
 
-  /* 第二行：控制按钮 + 进度条占满整行 */
+  /* 第二行：控制按钮占满整行 */
   .player-center {
     width: 100%;
     gap: 2px;
@@ -793,7 +855,7 @@ onUnmounted(() => {
   }
 
   .progress-area {
-    max-width: none;
+    padding: 0 12px;
   }
 }
 </style>

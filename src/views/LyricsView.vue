@@ -45,6 +45,8 @@
       <button :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
       <button :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
     </div>
+    <!-- 频谱：置于歌词页底部，播放时随节奏跳动 -->
+    <canvas ref="specRef" class="lyrics-spectrum"></canvas>
   </div>
   <div v-else class="lyrics-view empty">
     <div class="empty-text">请先播放一首歌曲</div>
@@ -52,14 +54,17 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
+import { registerCanvas } from '../utils/spectrum'
 
 const store = usePlayerStore()
 const router = useRouter()
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
+const specRef = ref(null)
+let unregisterSpec = null
 // 播放器样式：disc=旋转圆盘（默认），vinyl=复古黑胶唱片，plain=经典无旋转，选择持久化到本地
 const playerStyle = ref(localStorage.getItem('lyricsPlayerStyle') || 'disc')
 // 封面图加载失败标记，用于回退显示黑胶唱片
@@ -129,6 +134,29 @@ function seekTo(time) {
 function goBack() {
   router.back()
 }
+
+onMounted(() => {
+  registerSpec()
+})
+
+onUnmounted(() => {
+  if (unregisterSpec) unregisterSpec()
+})
+
+// 注册歌词页频谱画布（统一的频谱分析仪波形效果）
+function registerSpec() {
+  if (unregisterSpec) return
+  unregisterSpec = registerCanvas(specRef.value, {
+    style: 'bars',
+    bars: 56,
+    colors: ['#a5b4fc', '#818cf8', '#c084fc'],
+    mirror: false,
+    region: 0.85,
+    center: 1.2,
+    glow: true,
+    peak: true
+  })
+}
 </script>
 
 <style scoped>
@@ -167,6 +195,7 @@ function goBack() {
   width: 100%;
   max-height: 80vh;
   padding: 40px 32px;
+  z-index: 2;
 }
 
 /* 旋转/黑胶样式：横向布局，左图盘右歌词 */
@@ -289,7 +318,7 @@ function goBack() {
 }
 .desktop-btn {
   position: fixed;
-  bottom: 100px;
+  bottom: 130px;
   left: 50%;
   transform: translateX(-50%);
   color: var(--text-muted);
@@ -301,6 +330,7 @@ function goBack() {
   gap: 6px;
   font-size: 13px;
   transition: all 0.2s;
+  z-index: 2;
 }
 .desktop-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
 .desktop-btn.active { color: var(--accent-light); border-color: var(--accent-light); }
@@ -316,8 +346,21 @@ function goBack() {
   justify-content: center;
   border-radius: 50%;
   transition: all 0.2s;
+  z-index: 2;
 }
 .close-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* 频谱：紧贴播放条上沿的顶层窄条，浮于歌词之上跳动，不遮文字 */
+.lyrics-spectrum {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--player-height);
+  width: 100%;
+  height: 90px;
+  pointer-events: none;
+  z-index: 3;
+}
 
 /* 播放器样式切换：旋转 / 经典 */
 .style-switch {
