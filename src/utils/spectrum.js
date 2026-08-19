@@ -315,7 +315,8 @@ function drawCircle(entry, ctx, data) {
     mirror = false,       // true=内外双向辐射
     segments = 10,        // 每根柱的 LED 段数
     gapRatio = 0.35,      // 段间隙占段高的比例
-    innerRadiusRatio = 0.25 // 内环半径占画布短边的比例
+    innerRadiusRatio = 0.25, // 内环半径占画布短边的比例
+    maxBarLenRatio = 0.30 // 柱子最大长度占画布短边的比例
   } = entry.opts
 
   const n = Math.min(bars, Math.floor(data.length * 0.7))
@@ -326,7 +327,7 @@ function drawCircle(entry, ctx, data) {
   // 内环半径：由 innerRadiusRatio 控制，确保不遮挡中心内容（如封面图片）
   const baseRadius = Math.min(w, h) * innerRadiusRatio * region
   // 柱子最大长度
-  const maxBarLen = Math.min(w, h) * 0.30
+  const maxBarLen = Math.min(w, h) * maxBarLenRatio
 
   // 柱宽对应弧度（留 gapRatio 的间隙）
   const arcPerBar = (Math.PI * 2) / n

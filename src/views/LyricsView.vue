@@ -5,7 +5,7 @@
     <div class="lyrics-container" :class="playerStyle">
       <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
-        <div class="album-art-wrap">
+        <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
           <!-- LED环形频谱包围封面 -->
           <canvas v-if="showSpectrum" ref="ringSpecRef" class="ring-spectrum" :class="{ spinning: store.isPlaying }"></canvas>
           <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
@@ -43,7 +43,7 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
-    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 -->
+    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 + 颜色选择 -->
     <div class="style-switch">
       <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
       <button :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
@@ -56,6 +56,13 @@
           <rect x="14" y="6" width="3" height="14" rx="1"/>
           <rect x="19" y="2" width="3" height="18" rx="1"/>
         </svg>
+      </button>
+      <span class="switch-sep"></span>
+      <button class="color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
+        <span class="color-dot rainbow"></span>
+      </button>
+      <button class="color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
+        <span class="color-dot amber"></span>
       </button>
     </div>
   </div>
@@ -171,21 +178,43 @@ onUnmounted(() => {
 
 // 彩虹配色：青→蓝→紫→粉→橙
 const RAINBOW_COLORS = ['#22d3ee', '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb923c']
+// 琥珀配色：暖橙/金色，复古风格
+const AMBER_COLORS = ['#fbbf24', '#f59e0b', '#d97706', '#b45309', '#f97316', '#fb923c']
+// 颜色配置映射
+const COLOR_PRESETS = { rainbow: RAINBOW_COLORS, amber: AMBER_COLORS }
+// 当前频谱颜色，持久化到本地
+const spectrumColor = ref(localStorage.getItem('lyricsSpectrumColor') || 'rainbow')
+
+// 切换并保存频谱颜色
+function setSpectrumColor(color) {
+  spectrumColor.value = color
+  localStorage.setItem('lyricsSpectrumColor', color)
+  // 重新注册频谱以应用新颜色
+  if (unregisterRingSpec) {
+    unregisterRingSpec()
+    unregisterRingSpec = null
+  }
+  if (showSpectrum.value) {
+    nextTick(() => registerRingSpec())
+  }
+}
 
 // 注册LED环形频谱：包围封面图片，随节奏跳动
-// innerRadiusRatio=0.42 确保内环半径大于封面半径，频谱不遮挡封面
+// innerRadiusRatio=0.35 确保内环半径大于封面半径，频谱不遮挡封面
+// maxBarLenRatio=0.12 控制柱子长度，确保不超出画布边界
 function registerRingSpec() {
   if (unregisterRingSpec || !ringSpecRef.value) return
   unregisterRingSpec = registerCanvas(ringSpecRef.value, {
     style: 'circle',
     bars: 72,
-    colors: RAINBOW_COLORS,
+    colors: COLOR_PRESETS[spectrumColor.value] || RAINBOW_COLORS,
     glow: true,
     mirror: true,
     region: 0.95,
     segments: 10,
     gapRatio: 0.35,
-    innerRadiusRatio: 0.42
+    innerRadiusRatio: 0.35,
+    maxBarLenRatio: 0.12
   })
   setSpectrumActive(store.isPlaying)
 }
@@ -267,31 +296,44 @@ watch(ringSpecRef, (el) => {
   flex-shrink: 0;
   width: 360px;
 }
-/* 封面容器：相对定位，用于放置LED环形频谱 */
+/* 封面容器：相对定位，圆形，用于放置LED环形频谱 */
 .album-art-wrap {
   position: relative;
   width: 320px;
   height: 320px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.08);
+  transition: width 0.4s ease, height 0.4s ease;
+}
+/* 开启频谱时容器缩小，给频谱留出空间 */
+.album-art-wrap.with-spectrum {
+  width: 220px;
+  height: 220px;
 }
 .album-art {
   width: 320px;
   height: 320px;
-  /* 圆形专辑封面，播放时匀速旋转（QQ 音乐风格） */
   border-radius: 50%;
   object-fit: cover;
   box-shadow: 0 12px 48px rgba(0,0,0,0.6);
   border: 4px solid rgba(255,255,255,0.12);
   position: relative;
   z-index: 1;
+  transition: width 0.4s ease, height 0.4s ease;
+}
+/* 开启频谱时封面图片缩小 */
+.album-art-wrap.with-spectrum .album-art {
+  width: 220px;
+  height: 220px;
 }
 
-/* LED环形频谱：绝对定位在封面外围，不遮挡封面 */
+/* LED环形频谱：绝对定位在封面外围，不遮挡封面，尺寸足够完整显示柱子 */
 .ring-spectrum {
   position: absolute;
-  top: -72px;
-  left: -72px;
-  width: calc(100% + 144px);
-  height: calc(100% + 144px);
+  top: -120px;
+  left: -120px;
+  width: calc(100% + 240px);
+  height: calc(100% + 240px);
   pointer-events: none;
   z-index: 2;
 }
@@ -487,6 +529,36 @@ watch(ringSpecRef, (el) => {
   color: var(--text-primary);
   background: var(--bg-hover);
 }
+
+/* 颜色选择按钮 */
+.color-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  height: 28px;
+  padding: 0 !important;
+  border-radius: 50% !important;
+}
+.color-btn.active {
+  background: var(--bg-hover);
+}
+.color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.3);
+}
+.color-dot.rainbow {
+  background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6);
+}
+.color-dot.amber {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706);
+}
+.color-btn.active .color-dot {
+  border-color: #fff;
+  box-shadow: 0 0 6px rgba(255,255,255,0.4);
+}
 .lyrics-scroll::-webkit-scrollbar { width: 4px; }
 .lyrics-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
 
@@ -498,13 +570,15 @@ watch(ringSpecRef, (el) => {
     padding: 24px 16px;
   }
   .side-panel { width: 100%; }
-  .album-art-wrap { width: 180px; height: 180px; }
+  .album-art-wrap { width: 180px; height: 180px; border-radius: 50%; }
+  .album-art-wrap.with-spectrum { width: 150px; height: 150px; }
   .album-art { width: 180px; height: 180px; }
+  .album-art-wrap.with-spectrum .album-art { width: 150px; height: 150px; }
   .ring-spectrum {
-    top: -36px;
-    left: -36px;
-    width: calc(100% + 72px);
-    height: calc(100% + 72px);
+    top: -60px;
+    left: -60px;
+    width: calc(100% + 120px);
+    height: calc(100% + 120px);
   }
   .song-info-art { width: 80px; height: 80px; }
   .lyrics-scroll { max-height: 40vh; }

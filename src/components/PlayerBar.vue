@@ -47,6 +47,20 @@
             <span v-else>&#x25B6;</span>
           </button>
           <button class="ctrl-btn" @click="store.playNext">&#x23ED;</button>
+          <button class="ctrl-btn" :class="{ active: showSpectrum }" @click="toggleSpectrum" title="频谱开关">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <rect x="4" y="14" width="3" height="6" rx="1"/>
+              <rect x="9" y="10" width="3" height="10" rx="1"/>
+              <rect x="14" y="6" width="3" height="14" rx="1"/>
+              <rect x="19" y="2" width="3" height="18" rx="1"/>
+            </svg>
+          </button>
+          <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
+            <span class="color-dot rainbow"></span>
+          </button>
+          <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
+            <span class="color-dot amber"></span>
+          </button>
           <button class="ctrl-btn" @click="store.togglePlaylist" :class="{ active: store.showPlaylist }">&#x2630;</button>
         </div>
       </div>
@@ -104,11 +118,12 @@
 
     <!-- LED 环形频谱可视化 -->
     <transition name="fade">
-      <div v-if="store.currentSong" class="spectrum-overlay">
+      <div v-if="store.currentSong && showSpectrum" class="spectrum-overlay">
         <AudioVisualizer
           :is-playing="store.isPlaying"
           spectrum-style="circle"
           :bar-count="72"
+          :colors="COLOR_PRESETS[spectrumColor]"
           :glow="true"
           :mirror="true"
           :segments="10"
@@ -144,6 +159,27 @@ const miniSpecRef = ref(null)
 const isFav = ref(false)
 const downloadUrl = ref('')
 const anim = ref('')
+// 播放条LED频谱开关，持久化到 localStorage
+const showSpectrum = ref(localStorage.getItem('playerSpectrum') !== 'off')
+// 播放条频谱颜色，持久化到 localStorage
+const spectrumColor = ref(localStorage.getItem('playerSpectrumColor') || 'rainbow')
+// 颜色配置映射
+const COLOR_PRESETS = {
+  rainbow: ['#22d3ee', '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb923c'],
+  amber: ['#fbbf24', '#f59e0b', '#d97706', '#b45309', '#f97316', '#fb923c']
+}
+
+// 切换并保存播放条频谱开关状态
+function toggleSpectrum() {
+  showSpectrum.value = !showSpectrum.value
+  localStorage.setItem('playerSpectrum', showSpectrum.value ? 'on' : 'off')
+}
+
+// 切换并保存播放条频谱颜色
+function setSpectrumColor(color) {
+  spectrumColor.value = color
+  localStorage.setItem('playerSpectrumColor', color)
+}
 let animTimer = null
 const isDragging = ref(false)
 
@@ -672,6 +708,25 @@ onUnmounted(() => {
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .ctrl-btn.active { color: var(--accent-light); }
 
+/* 颜色选择按钮 */
+.color-btn { padding: 0; }
+.color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.3);
+}
+.color-dot.rainbow {
+  background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6);
+}
+.color-dot.amber {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706);
+}
+.color-btn.active .color-dot {
+  border-color: #fff;
+  box-shadow: 0 0 6px rgba(255,255,255,0.4);
+}
+
 .play-btn { width: 40px; height: 40px; background: var(--accent); color: white; font-size: 16px; }
 .play-btn:hover { background: var(--accent-light); color: white; }
 
@@ -836,7 +891,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: 320px;
   height: 320px;
-  background: radial-gradient(circle, rgba(12, 12, 20, 0.92) 0%, rgba(12, 12, 20, 0.7) 60%, transparent 100%);
+  background: transparent;
   pointer-events: none;
   z-index: -1;
 }
