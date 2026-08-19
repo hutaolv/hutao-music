@@ -3,11 +3,15 @@
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
     <div class="lyrics-container" :class="playerStyle">
-      <!-- 旋转/黑胶样式：左侧大图盘 -->
+      <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
-        <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
-        <!-- 黑胶样式或封面缺失时显示复古黑胶唱片 -->
-        <div v-else class="album-art vinyl-disc" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
+        <div class="album-art-wrap">
+          <!-- LED环形频谱包围封面 -->
+          <canvas v-if="showSpectrum" ref="ringSpecRef" class="ring-spectrum" :class="{ spinning: store.isPlaying }"></canvas>
+          <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
+          <!-- 黑胶样式或封面缺失时显示复古黑胶唱片 -->
+          <div v-else class="album-art vinyl-disc" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
+        </div>
         <div class="song-meta">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
@@ -39,14 +43,21 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
-    <!-- 播放器样式切换：旋转 / 黑胶 / 经典无旋转 -->
+    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 -->
     <div class="style-switch">
       <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
       <button :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
       <button :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
+      <span class="switch-sep"></span>
+      <button class="spectrum-toggle" :class="{ active: showSpectrum }" @click="toggleSpectrum" title="频谱开关">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <rect x="4" y="14" width="3" height="6" rx="1"/>
+          <rect x="9" y="10" width="3" height="10" rx="1"/>
+          <rect x="14" y="6" width="3" height="14" rx="1"/>
+          <rect x="19" y="2" width="3" height="18" rx="1"/>
+        </svg>
+      </button>
     </div>
-    <!-- 频谱：置于歌词页底部，播放时随节奏跳动 -->
-    <canvas ref="specRef" class="lyrics-spectrum"></canvas>
   </div>
   <div v-else class="lyrics-view empty">
     <div class="empty-text">请先播放一首歌曲</div>
@@ -57,23 +68,37 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { registerCanvas } from '../utils/spectrum'
+import { registerCanvas, setSpectrumActive } from '../utils/spectrum'
 
 const store = usePlayerStore()
 const router = useRouter()
 const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
-const specRef = ref(null)
-let unregisterSpec = null
+const ringSpecRef = ref(null)
+let unregisterRingSpec = null
 // 播放器样式：disc=旋转圆盘（默认），vinyl=复古黑胶唱片，plain=经典无旋转，选择持久化到本地
 const playerStyle = ref(localStorage.getItem('lyricsPlayerStyle') || 'disc')
 // 封面图加载失败标记，用于回退显示黑胶唱片
 const coverBroken = ref(false)
+// LED环形频谱开关，持久化到本地
+const showSpectrum = ref(localStorage.getItem('lyricsSpectrum') !== 'off')
 
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {
   playerStyle.value = style
   localStorage.setItem('lyricsPlayerStyle', style)
+}
+
+// 切换并保存频谱开关状态
+function toggleSpectrum() {
+  showSpectrum.value = !showSpectrum.value
+  localStorage.setItem('lyricsSpectrum', showSpectrum.value ? 'on' : 'off')
+  if (showSpectrum.value) {
+    nextTick(() => registerRingSpec())
+  } else if (unregisterRingSpec) {
+    unregisterRingSpec()
+    unregisterRingSpec = null
+  }
 }
 
 // 封面加载失败或换歌后重置失败标记
@@ -86,7 +111,6 @@ watch(() => store.currentSong?.id, () => {
 })
 
 // 复古黑胶唱片：黑色胶盘 + 同心纹路 + 琥珀中心贴纸
-// 加入高光弧、偏心凹槽、中心横排文字等非对称元素，旋转才能肉眼可见
 const vinylSvg = `<svg viewBox="0 0 200 200" width="100%" height="100%">
   <circle cx="100" cy="100" r="100" fill="#101014"/>
   <circle cx="100" cy="100" r="96" fill="none" stroke="#1c1c22" stroke-width="0.8"/>
@@ -136,27 +160,47 @@ function goBack() {
 }
 
 onMounted(() => {
-  registerSpec()
+  if (showSpectrum.value) {
+    registerRingSpec()
+  }
 })
 
 onUnmounted(() => {
-  if (unregisterSpec) unregisterSpec()
+  if (unregisterRingSpec) unregisterRingSpec()
 })
 
-// 注册歌词页频谱画布（统一的频谱分析仪波形效果）
-function registerSpec() {
-  if (unregisterSpec) return
-  unregisterSpec = registerCanvas(specRef.value, {
-    style: 'bars',
-    bars: 56,
-    colors: ['#a5b4fc', '#818cf8', '#c084fc'],
-    mirror: false,
-    region: 0.85,
-    center: 1.2,
+// 彩虹配色：青→蓝→紫→粉→橙
+const RAINBOW_COLORS = ['#22d3ee', '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb923c']
+
+// 注册LED环形频谱：包围封面图片，随节奏跳动
+// innerRadiusRatio=0.42 确保内环半径大于封面半径，频谱不遮挡封面
+function registerRingSpec() {
+  if (unregisterRingSpec || !ringSpecRef.value) return
+  unregisterRingSpec = registerCanvas(ringSpecRef.value, {
+    style: 'circle',
+    bars: 72,
+    colors: RAINBOW_COLORS,
     glow: true,
-    peak: true
+    mirror: true,
+    region: 0.95,
+    segments: 10,
+    gapRatio: 0.35,
+    innerRadiusRatio: 0.42
   })
+  setSpectrumActive(store.isPlaying)
 }
+
+// 监听播放状态，同步频谱动画
+watch(() => store.isPlaying, (v) => {
+  setSpectrumActive(v)
+})
+
+// 监听频谱开关变化时重新注册canvas
+watch(ringSpecRef, (el) => {
+  if (el && showSpectrum.value) {
+    nextTick(() => registerRingSpec())
+  }
+})
 </script>
 
 <style scoped>
@@ -223,6 +267,12 @@ function registerSpec() {
   flex-shrink: 0;
   width: 360px;
 }
+/* 封面容器：相对定位，用于放置LED环形频谱 */
+.album-art-wrap {
+  position: relative;
+  width: 320px;
+  height: 320px;
+}
 .album-art {
   width: 320px;
   height: 320px;
@@ -231,6 +281,24 @@ function registerSpec() {
   object-fit: cover;
   box-shadow: 0 12px 48px rgba(0,0,0,0.6);
   border: 4px solid rgba(255,255,255,0.12);
+  position: relative;
+  z-index: 1;
+}
+
+/* LED环形频谱：绝对定位在封面外围，不遮挡封面 */
+.ring-spectrum {
+  position: absolute;
+  top: -72px;
+  left: -72px;
+  width: calc(100% + 144px);
+  height: calc(100% + 144px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 播放时频谱跟随封面一起旋转 */
+.ring-spectrum.spinning {
+  animation: album-spin 30s linear infinite;
 }
 
 /* 播放时封面旋转动画 */
@@ -247,6 +315,8 @@ function registerSpec() {
   border-radius: 50%;
   overflow: hidden;
   box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+  position: relative;
+  z-index: 1;
 }
 .vinyl-disc.small {
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
@@ -362,12 +432,13 @@ function registerSpec() {
   z-index: 3;
 }
 
-/* 播放器样式切换：旋转 / 经典 */
+/* 播放器样式切换 + 频谱开关 */
 .style-switch {
   position: fixed;
   top: 24px;
   right: 24px;
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 4px;
   border-radius: 999px;
@@ -385,6 +456,37 @@ function registerSpec() {
 }
 
 .style-switch button.active { color: #fff; background: var(--accent-light); }
+
+/* 频谱开关按钮分隔线 */
+.switch-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-color);
+  margin: 0 2px;
+}
+
+/* 频谱开关按钮：小图标样式 */
+.spectrum-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  height: 28px;
+  padding: 0 !important;
+  border-radius: 50% !important;
+}
+.spectrum-toggle.active {
+  color: #fff;
+  background: var(--accent);
+}
+.spectrum-toggle:not(.active) {
+  color: var(--text-muted);
+  background: transparent;
+}
+.spectrum-toggle:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
 .lyrics-scroll::-webkit-scrollbar { width: 4px; }
 .lyrics-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
 
@@ -396,8 +498,20 @@ function registerSpec() {
     padding: 24px 16px;
   }
   .side-panel { width: 100%; }
-  .album-art { width: 160px; height: 160px; }
+  .album-art-wrap { width: 180px; height: 180px; }
+  .album-art { width: 180px; height: 180px; }
+  .ring-spectrum {
+    top: -36px;
+    left: -36px;
+    width: calc(100% + 72px);
+    height: calc(100% + 72px);
+  }
   .song-info-art { width: 80px; height: 80px; }
   .lyrics-scroll { max-height: 40vh; }
+  .style-switch {
+    top: auto;
+    bottom: calc(var(--player-height) + 16px);
+    right: 16px;
+  }
 }
 </style>

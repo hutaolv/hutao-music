@@ -102,6 +102,21 @@
       <Playlist v-if="store.showPlaylist" />
     </transition>
 
+    <!-- LED 环形频谱可视化 -->
+    <transition name="fade">
+      <div v-if="store.currentSong" class="spectrum-overlay">
+        <AudioVisualizer
+          :is-playing="store.isPlaying"
+          spectrum-style="circle"
+          :bar-count="72"
+          :glow="true"
+          :mirror="true"
+          :segments="10"
+          :gap-ratio="0.35"
+        />
+      </div>
+    </transition>
+
     <transition name="fade">
       <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，5秒后自动跳过</div>
     </transition>
@@ -117,6 +132,7 @@ import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
 import Playlist from './Playlist.vue'
+import AudioVisualizer from './AudioVisualizer.vue'
 
 const store = usePlayerStore()
 const router = useRouter()
@@ -811,6 +827,30 @@ onUnmounted(() => {
 
 /* 拿不到真实音频时的提示样式 */
 .failed-toast { background: rgba(249, 115, 22, 0.92); }
+
+/* 动感频谱覆盖层：置于播放条上方，LED 环形频谱需要足够空间 */
+.spectrum-overlay {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(12, 12, 20, 0.92) 0%, rgba(12, 12, 20, 0.7) 60%, transparent 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+@media (max-width: 767px) {
+  .spectrum-overlay {
+    width: 240px;
+    height: 240px;
+  }
+}
+
+/* 淡入淡出动画 */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 /* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息+收藏，第二行控制按钮。
    播放进度条位于播放条顶部，全宽横条 */

@@ -1,6 +1,8 @@
 // Web Audio 频谱可视化：将 Audio 元素接入 AudioContext，抽取频域数据绘制动感频谱。
 // 支持风格（opts.style）：
-//   bars  柱状跳动（彩色渐变 + 峰值线 + 发光；mirror=true 时从中心上下镜像对称）
+//   bars    柱状跳动（彩色渐变 + 峰值线 + 发光；mirror=true 时从中心上下镜像对称）
+//   wave    波形频谱（平滑曲线 + 渐变填充 + 发光描边）
+//   circle  圆形径向频谱（围绕中心向外扩散的柱状环）
 // 说明：
 // - createMediaElementSource 对同一个 Audio 只能调用一次，且接入后音频必须经 AudioContext
 //   输出（否则无声），因此音量改由 GainNode 控制（audio.volume 会失效）。
@@ -68,7 +70,7 @@ export function setSpectrumActive(v) {
   syncLoop()
 }
 
-// 注册一个画布。opts: { style, bars, colors, mirror, idleHeight, glow, peak } 返回注销函数
+// 注册一个画布。opts: { style, bars, colors, mirror, idleHeight, glow, peak, region, center } 返回注销函数
 export function registerCanvas(canvas, opts = {}) {
   if (!canvas) return () => {}
   const entry = { canvas, opts, peaks: null, particles: [], history: null }
@@ -103,7 +105,11 @@ function draw() {
     const ctx = prepareCanvas(canvas)
     if (!ctx) return
     const style = opts.style || 'bars'
-    drawBars(entry, ctx, freqData)
+    switch (style) {
+      case 'wave': drawWave(entry, ctx, freqData); break
+      case 'circle': drawCircle(entry, ctx, freqData); break
+      default: drawBars(entry, ctx, freqData)
+    }
   })
 }
 
@@ -211,6 +217,280 @@ function paintBar(ctx, i, bw, hh, regionH, colors, mirror, base, peakH, v, glow)
     ctx.fillStyle = withAlpha(lighten(color, 0.35), 0.5 * (v - 0.6))
     ctx.beginPath(); roundRect(ctx, x, top, ww, bottom - top, r); ctx.fill()
   }
+}
+
+// ==================== 波形频谱 ====================
+function drawWave(entry, ctx, data) {
+  const w = entry.canvas.clientWidth || entry.canvas.width
+  const h = entry.canvas.clientHeight || entry.canvas.height
+  const { colors = DEFAULT_COLORS, min = 0.06, mirror = false, glow = true, region = 1 } = entry.opts
+  const n = Math.min(128, Math.floor(data.length * 0.7))
+  const { arr } = sampleHeights(entry, data, n)
+  const regionH = mirror ? h * region / 2 : h * region
+  const base = mirror ? h / 2 : h - regionH
+
+  // 构造平滑波形点
+  const points = []
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * w
+    const v = Math.max(min, arr[i])
+    const hh = (min + (1 - min) * v) * regionH
+    const y = mirror ? base - hh / 2 : base + regionH - hh
+    points.push({ x, y, v })
+  }
+
+  // 渐变填充区域
+  const fillGrad = ctx.createLinearGradient(0, base, 0, base + regionH)
+  fillGrad.addColorStop(0, withAlpha(colors[2] || '#818cf8', 0.5))
+  fillGrad.addColorStop(1, withAlpha(colors[4] || '#f472b6', 0.05))
+  ctx.fillStyle = fillGrad
+  ctx.beginPath()
+  ctx.moveTo(0, base + regionH)
+  drawSmoothCurve(ctx, points, 0, base + regionH)
+  ctx.closePath()
+  ctx.fill()
+
+  // 波形描边
+  const strokeColor = interpolateColors(colors, 0.4)
+  ctx.strokeStyle = strokeColor
+  ctx.lineWidth = 2
+  if (glow) { ctx.shadowColor = strokeColor; ctx.shadowBlur = 10 }
+  ctx.beginPath()
+  drawSmoothCurve(ctx, points, null, null)
+  ctx.stroke()
+  ctx.shadowBlur = 0
+
+  // 镜像对称波形（下半部分）
+  if (mirror) {
+    const mirrorPoints = points.map(p => ({ x: p.x, y: h - (p.y - base) + base, v: p.v }))
+    const fillGrad2 = ctx.createLinearGradient(0, base, 0, base + regionH)
+    fillGrad2.addColorStop(0, withAlpha(colors[2] || '#818cf8', 0.5))
+    fillGrad2.addColorStop(1, withAlpha(colors[4] || '#f472b6', 0.05))
+    ctx.fillStyle = fillGrad2
+    ctx.beginPath()
+    ctx.moveTo(0, base)
+    drawSmoothCurve(ctx, mirrorPoints, 0, base)
+    ctx.closePath()
+    ctx.fill()
+
+    ctx.strokeStyle = strokeColor
+    ctx.lineWidth = 2
+    if (glow) { ctx.shadowColor = strokeColor; ctx.shadowBlur = 10 }
+    ctx.beginPath()
+    drawSmoothCurve(ctx, mirrorPoints, null, null)
+    ctx.stroke()
+    ctx.shadowBlur = 0
+  }
+}
+
+// 绘制平滑贝塞尔曲线，closeY/closeX 用于封闭填充区域
+function drawSmoothCurve(ctx, points, closeX, closeY) {
+  for (let i = 0; i < points.length; i++) {
+    if (i === 0) {
+      ctx.moveTo(points[i].x, points[i].y)
+    } else {
+      const xc = (points[i].x + points[i - 1].x) / 2
+      const yc = (points[i].y + points[i - 1].y) / 2
+      ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, xc, yc)
+    }
+  }
+  if (closeX !== null && closeY !== null) {
+    ctx.lineTo(points[points.length - 1].x, closeY)
+    ctx.lineTo(closeX, closeY)
+  }
+}
+
+// ==================== LED 环形频谱 ====================
+// 围绕圆心向外辐射的分段 LED 柱状频谱，每根柱由多个小段组成，段间有间隙，
+// 柱子颜色沿圆周呈彩虹渐变，高音量段更亮并带发光；mirror=true 时内外双向辐射。
+function drawCircle(entry, ctx, data) {
+  const w = entry.canvas.clientWidth || entry.canvas.width
+  const h = entry.canvas.clientHeight || entry.canvas.height
+  const {
+    bars = 72,           // 环形柱数（建议 60~120）
+    colors = DEFAULT_COLORS,
+    min = 0.05,          // 最小柱高比例
+    glow = true,
+    region = 1,
+    mirror = false,       // true=内外双向辐射
+    segments = 10,        // 每根柱的 LED 段数
+    gapRatio = 0.35,      // 段间隙占段高的比例
+    innerRadiusRatio = 0.25 // 内环半径占画布短边的比例
+  } = entry.opts
+
+  const n = Math.min(bars, Math.floor(data.length * 0.7))
+  const { arr } = sampleHeights(entry, data, n)
+
+  const cx = w / 2
+  const cy = h / 2
+  // 内环半径：由 innerRadiusRatio 控制，确保不遮挡中心内容（如封面图片）
+  const baseRadius = Math.min(w, h) * innerRadiusRatio * region
+  // 柱子最大长度
+  const maxBarLen = Math.min(w, h) * 0.30
+
+  // 柱宽对应弧度（留 gapRatio 的间隙）
+  const arcPerBar = (Math.PI * 2) / n
+  const barArc = arcPerBar * (1 - gapRatio)
+
+  // 峰值追踪
+  if (!entry.peaks || entry.peaks.length !== n) entry.peaks = new Float32Array(n)
+  for (let i = 0; i < n; i++) entry.peaks[i] = Math.max(entry.peaks[i] * 0.92, arr[i])
+
+  // 平均音量（用于中心呼吸效果）
+  const avg = arr.reduce((s, v) => s + v, 0) / n
+
+  // ---------- 绘制底环（LED 灯条轨道） ----------
+  ctx.strokeStyle = withAlpha('#ffffff', 0.04)
+  ctx.lineWidth = Math.max(2, (arcPerBar * baseRadius) * 0.5)
+  ctx.beginPath()
+  ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2)
+  ctx.stroke()
+
+  // ---------- 绘制每根 LED 柱 ----------
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2
+    const v = Math.max(min, arr[i])
+    const peakV = entry.peaks[i]
+    const color = interpolateColors(colors, i / Math.max(1, n - 1))
+
+    // 每段的高度和间隙
+    const totalBarLen = v * maxBarLen
+    const segH = totalBarLen / segments
+    const segGap = segH * gapRatio * 0.5
+
+    const cosA = Math.cos(angle)
+    const sinA = Math.sin(angle)
+    // 法线方向（垂直于柱子，用于柱宽偏移）
+    const nx = -sinA
+    const ny = cosA
+    const halfW = (arcPerBar * baseRadius * 0.38) / 2
+
+    for (let s = 0; s < segments; s++) {
+      // 从内向外：每段之间留间隙
+      const r1 = baseRadius + s * (segH + segGap)
+      const r2 = r1 + segH
+
+      if (r2 > baseRadius + maxBarLen + 5) break
+
+      // 该段的亮度：越靠外越亮（低段衰减），峰值段额外高亮
+      const segNorm = s / segments
+      const brightness = 0.25 + segNorm * 0.55 + (v > 0.7 ? 0.2 : 0)
+      // 峰值段标记（最顶端的段）
+      const isPeak = peakV > min && s === Math.floor(peakV * segments) - 1
+
+      const segColor = isPeak ? lighten(color, 0.3) : color
+      const alpha = Math.min(1, brightness + (isPeak ? 0.15 : 0))
+
+      // 四个角坐标（梯形，外侧稍宽）
+      const w1 = halfW * 0.85
+      const w2 = halfW * 1.0
+      const p1x = cx + cosA * r1 - nx * w1
+      const p1y = cy + sinA * r1 - ny * w1
+      const p2x = cx + cosA * r1 + nx * w1
+      const p2y = cy + sinA * r1 + ny * w1
+      const p3x = cx + cosA * r2 + nx * w2
+      const p3y = cy + sinA * r2 + ny * w2
+      const p4x = cx + cosA * r2 - nx * w2
+      const p4y = cy + sinA * r2 - ny * w2
+
+      // 段渐变（内暗外亮）
+      const grad = ctx.createLinearGradient(
+        cx + cosA * r1, cy + sinA * r1,
+        cx + cosA * r2, cy + sinA * r2
+      )
+      grad.addColorStop(0, withAlpha(segColor, alpha * 0.5))
+      grad.addColorStop(1, withAlpha(segColor, alpha))
+
+      ctx.fillStyle = grad
+      if (glow && segNorm > 0.3) {
+        ctx.shadowColor = segColor
+        ctx.shadowBlur = 4 + segNorm * 6
+      }
+      ctx.beginPath()
+      ctx.moveTo(p1x, p1y)
+      ctx.lineTo(p2x, p2y)
+      ctx.lineTo(p3x, p3y)
+      ctx.lineTo(p4x, p4y)
+      ctx.closePath()
+      ctx.fill()
+      ctx.shadowBlur = 0
+
+      // 峰值段额外高光
+      if (isPeak) {
+        ctx.fillStyle = withAlpha(lighten(color, 0.5), 0.4)
+        ctx.beginPath()
+        ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y)
+        ctx.lineTo(p3x, p3y); ctx.lineTo(p4x, p4y)
+        ctx.closePath()
+        ctx.fill()
+      }
+    }
+
+    // ---------- mirror: 内侧反向辐射 ----------
+    if (mirror) {
+      const innerBarLen = v * maxBarLen * 0.6
+      const innerSegH = innerBarLen / segments
+      const innerSegGap = innerSegH * gapRatio * 0.5
+
+      for (let s = 0; s < segments; s++) {
+        const r1 = baseRadius - s * (innerSegH + innerSegGap)
+        const r2 = r1 - innerSegH
+        if (r2 < baseRadius - maxBarLen * 0.6 - 5) break
+
+        const segNorm = s / segments
+        const brightness = 0.2 + segNorm * 0.45
+        const alpha = Math.min(1, brightness)
+        const w1 = halfW * (1.0 - segNorm * 0.15)
+        const w2 = halfW * (0.85 - segNorm * 0.1)
+
+        const p1x = cx + cosA * r1 - nx * w1
+        const p1y = cy + sinA * r1 - ny * w1
+        const p2x = cx + cosA * r1 + nx * w1
+        const p2y = cy + sinA * r1 + ny * w1
+        const p3x = cx + cosA * r2 + nx * w2
+        const p3y = cy + sinA * r2 + ny * w2
+        const p4x = cx + cosA * r2 - nx * w2
+        const p4y = cy + sinA * r2 - ny * w2
+
+        const grad = ctx.createLinearGradient(
+          cx + cosA * r1, cy + sinA * r1,
+          cx + cosA * r2, cy + sinA * r2
+        )
+        grad.addColorStop(0, withAlpha(color, alpha * 0.5))
+        grad.addColorStop(1, withAlpha(color, alpha * 0.15))
+
+        ctx.fillStyle = grad
+        if (glow && segNorm > 0.4) {
+          ctx.shadowColor = color
+          ctx.shadowBlur = 3 + segNorm * 4
+        }
+        ctx.beginPath()
+        ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y)
+        ctx.lineTo(p3x, p3y); ctx.lineTo(p4x, p4y)
+        ctx.closePath()
+        ctx.fill()
+        ctx.shadowBlur = 0
+      }
+    }
+  }
+
+  // ---------- 中心呼吸光晕 ----------
+  const glowR = baseRadius * (0.92 + avg * 0.08)
+  const innerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR)
+  innerGrad.addColorStop(0, withAlpha(colors[2] || '#818cf8', 0.06 + avg * 0.06))
+  innerGrad.addColorStop(0.6, withAlpha(colors[3] || '#c084fc', 0.03 + avg * 0.03))
+  innerGrad.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = innerGrad
+  ctx.beginPath()
+  ctx.arc(cx, cy, glowR, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 中心细环轮廓
+  ctx.strokeStyle = withAlpha(colors[2] || '#818cf8', 0.12 + avg * 0.1)
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2)
+  ctx.stroke()
 }
 
 // ==================== 工具 ====================
