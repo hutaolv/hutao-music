@@ -1,5 +1,5 @@
 <template>
-  <div v-show="store.currentSong" class="player-bar">
+  <div v-show="store.currentSong" class="player-bar" @click="onPlayerBarClick">
     <div class="progress-area" ref="progressRef" @click="seekProgress" @mousedown.prevent="startDrag">
       <span class="time">{{ formatTime(store.currentTime) }}</span>
       <div class="progress-bar">
@@ -13,7 +13,7 @@
     <div class="player-inner">
       <div class="player-left">
         <div v-if="store.currentSong" class="song-info">
-          <div class="cover-wrap" @click="goLyrics">
+          <div class="cover-wrap" @click="onCoverClick">
             <img :src="store.currentSong.cover" :alt="store.currentSong.title" class="cover" @error="onImgError" />
             <canvas ref="miniSpecRef" class="mini-spectrum"></canvas>
             <div class="cover-expand">
@@ -72,7 +72,7 @@
           <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
             <span class="color-dot amber"></span>
           </button>
-          <button class="ctrl-btn" @click="store.togglePlaylist" :class="{ active: store.showPlaylist }">&#x2630;</button>
+          <button class="ctrl-btn playlist-toggle-btn" @click="store.togglePlaylist" :class="{ active: store.showPlaylist }">&#x2630;</button>
         </div>
       </div>
 
@@ -286,6 +286,26 @@ const parsedLyrics = computed(() => {
   }
   return result.sort((a, b) => a.time - b.time)
 })
+
+// 点击封面：先关闭播放列表，再打开歌词界面
+function onCoverClick() {
+  if (store.showPlaylist) {
+    store.closePlaylist()
+  }
+  goLyrics()
+}
+
+// 点击播放条区域：如果点击的不是播放列表内部或播放列表按钮，关闭播放列表
+function onPlayerBarClick(e) {
+  if (!store.showPlaylist) return
+  // 检查点击目标是否在播放列表内部
+  const playlistEl = document.querySelector('.playlist-panel')
+  if (playlistEl && playlistEl.contains(e.target)) return
+  // 检查点击目标是否是播放列表按钮（包含 ☰ 图标的按钮）
+  if (e.target.closest('.playlist-toggle-btn')) return
+  // 点击的是播放列表外部，关闭播放列表
+  store.closePlaylist()
+}
 
 function goLyrics() {
   if (router.currentRoute.value.path === '/lyrics') {
