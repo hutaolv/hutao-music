@@ -990,18 +990,25 @@ onUnmounted(() => {
   }
 
   .controls {
-    gap: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .ctrl-btn {
-    width: 30px;
-    height: 30px;
-    font-size: 16px;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
   }
 
   .play-btn {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
+  }
+
+  /* 手机端隐藏频谱样式切换按钮，只保留开关 */
+  .style-btn {
+    display: none;
   }
 
   .progress-area {
