@@ -80,6 +80,11 @@
   </div>
 </template>
 
+<script>
+// 搜索结果缓存（普通 script 块，模块级共享，组件销毁重建后仍保留）
+const searchCache = new Map()
+</script>
+
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -89,9 +94,6 @@ import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils
 import { platforms, platformColors } from '../data/platforms'
 import SongCard from '../components/SongCard.vue'
 import HutaoLoading from '../components/HutaoLoading.vue'
-
-// 搜索结果缓存（模块级，组件销毁重建后仍保留）
-const searchCache = new Map()
 
 const router = useRouter()
 const route = useRoute()
