@@ -55,6 +55,17 @@
               <rect x="19" y="2" width="3" height="18" rx="1"/>
             </svg>
           </button>
+          <button class="ctrl-btn style-btn" :class="{ active: spectrumStyle === 'waveform' }" @click="setSpectrumStyle('waveform')" title="波形频谱">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M2 12h2l2-6 3 12 3-8 2 4h2l2-2 2 4h2"/>
+            </svg>
+          </button>
+          <button class="ctrl-btn style-btn" :class="{ active: spectrumStyle === 'circle' }" @click="setSpectrumStyle('circle')" title="环形频谱">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="8"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
           <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
             <span class="color-dot rainbow"></span>
           </button>
@@ -116,10 +127,23 @@
       <Playlist v-if="store.showPlaylist" />
     </transition>
 
-    <!-- LED 环形频谱可视化 -->
+    <!-- 频谱可视化：根据样式切换波形或环形 -->
     <transition name="fade">
-      <div v-if="store.currentSong && showSpectrum" class="spectrum-overlay">
+      <div v-if="store.currentSong && showSpectrum" class="spectrum-overlay" :class="'style-' + spectrumStyle">
+        <!-- 波形线条频谱 -->
         <AudioVisualizer
+          v-if="spectrumStyle === 'waveform'"
+          :is-playing="store.isPlaying"
+          spectrum-style="waveform"
+          :bar-count="120"
+          :colors="COLOR_PRESETS[spectrumColor]"
+          :glow="true"
+          :line-width="2"
+          :taper="0.85"
+        />
+        <!-- 环形LED频谱 -->
+        <AudioVisualizer
+          v-else
           :is-playing="store.isPlaying"
           spectrum-style="circle"
           :bar-count="72"
@@ -163,6 +187,8 @@ const anim = ref('')
 const showSpectrum = ref(localStorage.getItem('playerSpectrum') !== 'off')
 // 播放条频谱颜色，持久化到 localStorage
 const spectrumColor = ref(localStorage.getItem('playerSpectrumColor') || 'rainbow')
+// 播放条频谱样式：waveform=波形线条，circle=环形LED，持久化到 localStorage
+const spectrumStyle = ref(localStorage.getItem('playerSpectrumStyle') || 'waveform')
 // 颜色配置映射
 const COLOR_PRESETS = {
   rainbow: ['#22d3ee', '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb923c'],
@@ -179,6 +205,12 @@ function toggleSpectrum() {
 function setSpectrumColor(color) {
   spectrumColor.value = color
   localStorage.setItem('playerSpectrumColor', color)
+}
+
+// 切换并保存播放条频谱样式
+function setSpectrumStyle(style) {
+  spectrumStyle.value = style
+  localStorage.setItem('playerSpectrumStyle', style)
 }
 let animTimer = null
 const isDragging = ref(false)
@@ -727,6 +759,15 @@ onUnmounted(() => {
   box-shadow: 0 0 6px rgba(255,255,255,0.4);
 }
 
+/* 频谱样式选择按钮 */
+.style-btn {
+  width: 28px !important;
+  height: 28px;
+}
+.style-btn.active {
+  color: var(--accent-light);
+}
+
 .play-btn { width: 40px; height: 40px; background: var(--accent); color: white; font-size: 16px; }
 .play-btn:hover { background: var(--accent-light); color: white; }
 
@@ -883,23 +924,37 @@ onUnmounted(() => {
 /* 拿不到真实音频时的提示样式 */
 .failed-toast { background: rgba(249, 115, 22, 0.92); }
 
-/* 动感频谱覆盖层：置于播放条上方，LED 环形频谱需要足够空间 */
+/* 频谱覆盖层：置于播放条上方 */
 .spectrum-overlay {
   position: absolute;
   bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 320px;
-  height: 320px;
+  left: 0;
+  right: 0;
   background: transparent;
   pointer-events: none;
   z-index: -1;
+  transition: height 0.3s ease;
+}
+/* 波形样式：水平展开 */
+.spectrum-overlay.style-waveform {
+  height: 120px;
+}
+/* 环形样式：居中圆形 */
+.spectrum-overlay.style-circle {
+  height: 320px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: 320px;
 }
 
 @media (max-width: 767px) {
-  .spectrum-overlay {
-    width: 240px;
+  .spectrum-overlay.style-waveform {
+    height: 80px;
+  }
+  .spectrum-overlay.style-circle {
     height: 240px;
+    width: 240px;
   }
 }
 

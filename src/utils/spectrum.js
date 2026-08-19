@@ -108,6 +108,7 @@ function draw() {
     switch (style) {
       case 'wave': drawWave(entry, ctx, freqData); break
       case 'circle': drawCircle(entry, ctx, freqData); break
+      case 'waveform': drawWaveform(entry, ctx, freqData); break
       default: drawBars(entry, ctx, freqData)
     }
   })
@@ -491,6 +492,85 @@ function drawCircle(entry, ctx, data) {
   ctx.lineWidth = 1.5
   ctx.beginPath()
   ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2)
+  ctx.stroke()
+}
+
+// ==================== 波形线条频谱（音频波形风格） ====================
+// 水平展开的细线条波形，上下对称，两端收窄，强发光效果
+// 类似音频编辑器中的波形显示，科技感强
+function drawWaveform(entry, ctx, data) {
+  const w = entry.canvas.clientWidth || entry.canvas.width
+  const h = entry.canvas.clientHeight || entry.canvas.height
+  const {
+    bars = 120,            // 线条数量（越多越细腻）
+    colors = DEFAULT_COLORS,
+    min = 0.03,            // 最小高度比例
+    glow = true,
+    region = 0.85,         // 频谱占用高度比例
+    lineWidth = 2,         // 线条宽度
+    taper = 0.85           // 两端收窄强度（0=不收窄，1=完全收窄到两端）
+  } = entry.opts
+
+  const n = Math.min(bars, Math.floor(data.length * 0.7))
+  const { arr } = sampleHeights(entry, data, n)
+  const cy = h / 2
+  const regionH = h * region / 2
+
+  // 颜色：使用第一个颜色或单色
+  const color = colors[0] || '#22d3ee'
+
+  // 绘制上下对称的波形线条
+  for (let i = 0; i < n; i++) {
+    const x = ((i + 0.5) / n) * w
+    const v = Math.max(min, arr[i])
+
+    // 两端收窄：用正弦窗让中间高、两端低，形成梭形
+    const t = n === 1 ? 0.5 : i / (n - 1)
+    const taperWin = Math.pow(Math.sin(Math.PI * t), taper)
+
+    // 柱高 = 最小高度 + (1-最小高度) * 音量 * 收窄窗
+    const barH = (min + (1 - min) * v * taperWin) * regionH
+
+    // 渐变：中间亮两端暗（沿单根柱子从中心向外衰减）
+    const grad = ctx.createLinearGradient(x, cy - barH, x, cy + barH)
+    grad.addColorStop(0, withAlpha(color, 0.1))
+    grad.addColorStop(0.3, withAlpha(color, 0.9))
+    grad.addColorStop(0.5, withAlpha(lighten(color, 0.3), 1))
+    grad.addColorStop(0.7, withAlpha(color, 0.9))
+    grad.addColorStop(1, withAlpha(color, 0.1))
+
+    ctx.strokeStyle = grad
+    ctx.lineWidth = lineWidth
+    ctx.lineCap = 'round'
+
+    // 发光效果
+    if (glow && taperWin > 0.3) {
+      ctx.shadowColor = color
+      ctx.shadowBlur = 4 + taperWin * 8
+    }
+
+    // 绘制上下对称的线条
+    ctx.beginPath()
+    ctx.moveTo(x, cy - barH)
+    ctx.lineTo(x, cy + barH)
+    ctx.stroke()
+
+    ctx.shadowBlur = 0
+  }
+
+  // 中心水平发光线
+  const avg = arr.reduce((s, v) => s + v, 0) / n
+  const lineGrad = ctx.createLinearGradient(0, cy, w, cy)
+  lineGrad.addColorStop(0, withAlpha(color, 0))
+  lineGrad.addColorStop(0.2, withAlpha(color, 0.15 + avg * 0.2))
+  lineGrad.addColorStop(0.5, withAlpha(color, 0.3 + avg * 0.3))
+  lineGrad.addColorStop(0.8, withAlpha(color, 0.15 + avg * 0.2))
+  lineGrad.addColorStop(1, withAlpha(color, 0))
+  ctx.strokeStyle = lineGrad
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(0, cy)
+  ctx.lineTo(w, cy)
   ctx.stroke()
 }
 

@@ -17,7 +17,7 @@ import { registerCanvas, setSpectrumActive } from '../utils/spectrum'
 const props = defineProps({
   // 是否播放中（控制频谱动画启停）
   isPlaying: { type: Boolean, default: false },
-  // 频谱风格: 'bars' | 'wave' | 'circle'
+  // 频谱风格: 'bars' | 'wave' | 'circle' | 'waveform'
   spectrumStyle: { type: String, default: 'bars' },
   // 柱状/波形采样数量
   barCount: { type: Number, default: 48 },
@@ -37,7 +37,11 @@ const props = defineProps({
   // LED 段数（仅 circle 风格）
   segments: { type: Number, default: 10 },
   // 段间隙比例（仅 circle 风格）
-  gapRatio: { type: Number, default: 0.35 }
+  gapRatio: { type: Number, default: 0.35 },
+  // 线条宽度（仅 waveform 风格）
+  lineWidth: { type: Number, default: 2 },
+  // 两端收窄强度（仅 waveform 风格，0~1）
+  taper: { type: Number, default: 0.85 }
 })
 
 const containerRef = ref(null)
@@ -57,7 +61,9 @@ function register() {
     mirror: props.mirror,
     region: props.region,
     segments: props.segments,
-    gapRatio: props.gapRatio
+    gapRatio: props.gapRatio,
+    lineWidth: props.lineWidth,
+    taper: props.taper
   })
 }
 
@@ -74,7 +80,7 @@ watch(() => props.isPlaying, (v) => {
 
 // 监听视觉 prop 变化，重新注册 canvas
 watch(
-  () => [props.spectrumStyle, props.barCount, props.mirror, props.glow, props.peak, props.region, props.colors, props.segments, props.gapRatio],
+  () => [props.spectrumStyle, props.barCount, props.mirror, props.glow, props.peak, props.region, props.colors, props.segments, props.gapRatio, props.lineWidth, props.taper],
   () => reRegister()
 )
 
