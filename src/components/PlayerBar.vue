@@ -468,6 +468,8 @@ function setupMediaSession() {
 
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
+  // 切歌时立即暂停旧音频，避免等新URL加载期间旧歌继续播放
+  audio.pause()
   if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
   playFailedToast.value = false
   store.showLyricsPanel = false
