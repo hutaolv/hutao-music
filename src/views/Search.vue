@@ -90,6 +90,9 @@ import { platforms, platformColors } from '../data/platforms'
 import SongCard from '../components/SongCard.vue'
 import HutaoLoading from '../components/HutaoLoading.vue'
 
+// 搜索结果缓存（模块级，组件销毁重建后仍保留）
+const searchCache = new Map()
+
 const router = useRouter()
 const route = useRoute()
 const store = usePlayerStore()
@@ -114,8 +117,6 @@ const loading = ref(false) // 搜索请求进行中，展示胡桃加载动画
 const playingAll = ref(false)
 const allPlatforms = platforms
 let debounceTimer = null
-// 搜索结果缓存：key = "关键词|平台|范围"，避免重复搜索
-const searchCache = new Map()
 
 const filteredSongs = computed(() => {
   return allSongs.value.filter(s => s.platform === selectedPlatform.value)
