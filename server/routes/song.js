@@ -122,6 +122,12 @@ router.get('/url', async (req, res) => {
           break
       }
     }
+    // 跨域直链（http/https 域名）统一走 /api/proxy/audio 同源转发：
+    // 音频接入 AudioContext 频谱分析后，浏览器对无 CORS 头的跨域媒体会静音，
+    // 代理保证同源可播放且频谱有数据（已走代理的相对路径 /api/... 不再处理）
+    if (url && !url.startsWith('/')) {
+      url = `/api/proxy/audio?url=${encodeURIComponent(url)}`
+    }
     // 拿不到真实音频时不返回 demo，前端据此提示"无法获取"并跳过，url 保持为 null
     res.json({ code: 200, data: { url, availableQualities } })
   } catch (e) {
