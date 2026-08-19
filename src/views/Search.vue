@@ -114,6 +114,8 @@ const loading = ref(false) // 搜索请求进行中，展示胡桃加载动画
 const playingAll = ref(false)
 const allPlatforms = platforms
 let debounceTimer = null
+// 搜索结果缓存：key = "关键词|平台|范围"，避免重复搜索
+const searchCache = new Map()
 
 const filteredSongs = computed(() => {
   return allSongs.value.filter(s => s.platform === selectedPlatform.value)
@@ -174,6 +176,17 @@ async function doSearch() {
   addSearchHistory(kw)
   searchHistory.value = getSearchHistory()
 
+  // 构造缓存 key，相同关键词+平台+范围直接复用
+  const cacheKey = `${kw}|${selectedPlatform.value}|${useThirdParty.value ? '3rd' : (selectedPlatform.value === 'B站' ? selectedScope.value : '')}`
+  const cached = searchCache.get(cacheKey)
+  if (cached) {
+    allSongs.value = cached.songs
+    artistResults.value = cached.artists
+    hasMore.value = cached.hasMore
+    router.replace({ query: { q: kw } })
+    return
+  }
+
   try {
     loading.value = true
     if (useThirdParty.value) {
@@ -191,6 +204,8 @@ async function doSearch() {
       hasMore.value = !!apiData?.hasMore
     }
     page.value = 1
+    // 写入缓存
+    searchCache.set(cacheKey, { songs: allSongs.value, artists: artistResults.value, hasMore: hasMore.value })
   } catch {
     allSongs.value = []
     artistResults.value = []
