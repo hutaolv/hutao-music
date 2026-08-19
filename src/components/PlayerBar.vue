@@ -468,8 +468,6 @@ function setupMediaSession() {
 
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
-  // 切歌时立即暂停旧音频，避免等新URL加载期间旧歌继续播放
-  audio.pause()
   if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
   playFailedToast.value = false
   store.showLyricsPanel = false
@@ -507,6 +505,8 @@ watch(() => store.currentSong, async (song) => {
       }
     }
     if (url) {
+      // 先暂停旧音频再设置新源，避免切换瞬间旧歌残留
+      audio.pause()
       audio.src = url
       resumeAudio()
       setSpectrumActive(true)
