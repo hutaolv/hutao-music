@@ -505,8 +505,6 @@ watch(() => store.currentSong, async (song) => {
       }
     }
     if (url) {
-      // 先暂停旧音频再设置新源，避免切换瞬间旧歌残留
-      audio.pause()
       audio.src = url
       resumeAudio()
       setSpectrumActive(true)
