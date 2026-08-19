@@ -3,7 +3,7 @@
     <section class="section">
       <h2 class="section-title">热门榜单速览</h2>
       <div v-if="Object.keys(top3ByPlatform).length" class="chart-preview-grid">
-        <div v-for="(songs, platform) in top3ByPlatform" :key="platform" class="chart-preview-card" @click="router.push({ path: '/charts', query: { platform } })">
+        <div v-for="(songs, platform) in top3ByPlatform" :key="platform" class="chart-preview-card" :data-platform="platform" @click="router.push({ path: '/charts', query: { platform } })">
           <div class="chart-header" :style="{ borderColor: platformColors[platform] }">
             <span class="chart-platform" :style="{ color: platformColors[platform] }">{{ platform }}</span>
             <span class="chart-more" @click.stop="router.push({ path: '/charts', query: { platform } })">查看全部 &rarr;</span>
@@ -352,5 +352,8 @@ function refreshFavorites() {
 @media (max-width: 768px) {
   .fav-recent-tabs { gap: 16px; }
   .tab-title { font-size: 18px; }
+  /* 手机端热门榜单速览只保留网易云音乐 */
+  .chart-preview-card:not([data-platform="网易云音乐"]) { display: none; }
+  .chart-preview-grid { grid-template-columns: 1fr; }
 }
 </style>
