@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { usePlayerStore } from '../stores/player'
 
 const routes = [
   { path: '/', name: 'Home', component: () => import('../views/Home.vue'), meta: { title: '首页' } },
@@ -11,6 +12,14 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 歌词页必须有正在播放的歌曲才有意义：无歌曲时直接回首页，避免出现空白歌词页
+router.beforeEach((to) => {
+  if (to.path === '/lyrics') {
+    const player = usePlayerStore()
+    if (!player.currentSong) return { path: '/' }
+  }
 })
 
 export default router

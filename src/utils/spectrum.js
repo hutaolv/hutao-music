@@ -16,6 +16,10 @@ let gainNode = null
 let freqData = null
 let active = false
 let rafId = null
+// 待接入 Web Audio 的 Audio 元素：等到首次用户手势时再创建 AudioContext 并接入。
+// 原因：Android WebView 的自动播放策略会把非手势时机创建的 AudioContext 挂起(suspended)，
+// 而 createMediaElementSource 一旦绑定就永久接管 audio 输出，挂起时播放会整条链路静音。
+let pendingAudio = null
 
 const targets = new Set()
 
@@ -23,15 +27,24 @@ const targets = new Set()
 const DEFAULT_COLORS = ['#22d3ee', '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb923c']
 
 // 将 Audio 元素接入 Web Audio 图：source -> analyser -> gain -> destination
-// 返回 { analyser, gainNode }，失败（如环境不支持）返回 null
+// 返回 { analyser, gainNode }；未接入时返回 null（此时调用方用原生 audio.volume 控音量，保证有声）。
+// 注意：不在此处立即创建 AudioContext，而是暂存 audio 等首次用户手势（见 resumeAudio），
+// 避免非手势时机创建导致 AudioContext 被挂起而静音。
 export function initAudioGraph(audio) {
   if (!audio) return null
   if (audioCtx) return { analyser, gainNode }
+  pendingAudio = audio
+  return null
+}
+
+// 在用户手势内创建 AudioContext 并接入音频图（手势内创建默认 running，可直接出声）
+function buildGraph() {
+  if (audioCtx || !pendingAudio) return
   const AC = window.AudioContext || window.webkitAudioContext
-  if (!AC) return null
+  if (!AC) return
   try {
     audioCtx = new AC()
-    source = audioCtx.createMediaElementSource(audio)
+    source = audioCtx.createMediaElementSource(pendingAudio)
     analyser = audioCtx.createAnalyser()
     analyser.fftSize = 256
     analyser.smoothingTimeConstant = 0.72
@@ -41,9 +54,9 @@ export function initAudioGraph(audio) {
     analyser.connect(gainNode)
     gainNode.connect(audioCtx.destination)
     freqData = new Uint8Array(analyser.frequencyBinCount)
-    return { analyser, gainNode }
+    pendingAudio = null
   } catch {
-    return null
+    pendingAudio = null
   }
 }
 
@@ -57,8 +70,11 @@ export function isGraphActive() {
   return !!audioCtx
 }
 
-// 用户手势触发播放时调用，解除 AudioContext 挂起状态
+// 用户手势触发播放时调用：
+// 1) 首次手势时在此创建 AudioContext 并接入音频图（手势内创建默认为 running，避免静音）；
+// 2) 若仍处于挂起状态（如个别场景被系统挂起），尝试 resume 解除。
 export function resumeAudio() {
+  if (!audioCtx) buildGraph()
   if (audioCtx && audioCtx.state === 'suspended') {
     audioCtx.resume().catch(() => {})
   }

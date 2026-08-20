@@ -43,7 +43,7 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
-    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 + 颜色选择 -->
+    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 + 颜色选择（桌面/平板横排展示） -->
     <div class="style-switch">
       <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
       <button :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
@@ -65,6 +65,50 @@
         <span class="color-dot amber"></span>
       </button>
     </div>
+    <!-- 手机端播放器设置按钮（齿轮）：点击弹出设置面板调整样式/频谱/颜色，仅手机端显示 -->
+    <button class="mobile-settings-btn" @click="mobileSettingsOpen = true" title="播放器设置">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.03.64.08.94L2.83 14.52a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.24.23.41.47.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+      </svg>
+    </button>
+    <!-- 手机端播放器设置面板：底部弹出，含样式/频谱开关/颜色三项 -->
+    <transition name="fade">
+      <div v-if="mobileSettingsOpen" class="mobile-settings-mask" @click="mobileSettingsOpen = false">
+        <div class="mobile-settings-panel" @click.stop>
+          <div class="ms-header">
+            <span class="ms-title">播放器设置</span>
+            <button class="ms-close" @click="mobileSettingsOpen = false" title="关闭">&#x2715;</button>
+          </div>
+          <div class="ms-group">
+            <div class="ms-label">播放器样式</div>
+            <div class="ms-options">
+              <button class="ms-option" :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
+              <button class="ms-option" :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
+              <button class="ms-option" :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
+            </div>
+          </div>
+          <div class="ms-group">
+            <div class="ms-label">封面频谱</div>
+            <div class="ms-options">
+              <button class="ms-option" :class="{ active: showSpectrum }" @click="toggleSpectrum">
+                {{ showSpectrum ? '开' : '关' }}
+              </button>
+            </div>
+          </div>
+          <div class="ms-group">
+            <div class="ms-label">频谱颜色</div>
+            <div class="ms-options">
+              <button class="ms-option" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')">
+                <span class="ms-color-dot rainbow"></span>彩虹
+              </button>
+              <button class="ms-option" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')">
+                <span class="ms-color-dot amber"></span>琥珀
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
   <div v-else class="lyrics-view empty">
     <div class="empty-text">请先播放一首歌曲</div>
@@ -89,6 +133,8 @@ const playerStyle = ref(localStorage.getItem('lyricsPlayerStyle') || 'disc')
 const coverBroken = ref(false)
 // LED环形频谱开关，持久化到本地
 const showSpectrum = ref(localStorage.getItem('lyricsSpectrum') !== 'off')
+// 手机端播放器设置面板展开状态（仅手机端通过齿轮按钮打开）
+const mobileSettingsOpen = ref(false)
 
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {
@@ -115,6 +161,13 @@ function onImgError() {
 
 watch(() => store.currentSong?.id, () => {
   coverBroken.value = false
+})
+
+// 歌词页内歌曲被清空（如清空播放列表）时，当前歌词页失去意义，直接返回首页
+watch(() => store.currentSong, (song) => {
+  if (!song && router.currentRoute.value.path === '/lyrics') {
+    router.replace('/')
+  }
 })
 
 // 复古黑胶唱片：黑色胶盘 + 同心纹路 + 琥珀中心贴纸
@@ -562,6 +615,16 @@ watch(ringSpecRef, (el) => {
 .lyrics-scroll::-webkit-scrollbar { width: 4px; }
 .lyrics-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
 
+/* 手机端播放器设置按钮（齿轮）：固定右上角，仅手机端显示 */
+.mobile-settings-btn {
+  display: none;
+}
+
+/* 手机端设置面板：半透明遮罩 + 底部弹出，避免遮挡歌词阅读区 */
+.mobile-settings-mask {
+  display: none;
+}
+
 /* 窄屏改为上下布局，圆盘缩小 */
 @media (max-width: 768px) {
   .lyrics-container {
@@ -582,10 +645,95 @@ watch(ringSpecRef, (el) => {
   }
   .song-info-art { width: 80px; height: 80px; }
   .lyrics-scroll { max-height: 40vh; }
+}
+
+/* 手机端（≤767px，避开 iPad 768px）：隐藏横排样式切换，改为齿轮设置按钮 + 底部弹出面板 */
+@media (max-width: 767px) {
   .style-switch {
-    top: auto;
-    bottom: calc(var(--player-height) + 16px);
-    right: 16px;
+    display: none;
   }
+  .mobile-settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    z-index: 5;
+  }
+  .mobile-settings-mask {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    /* 需高于播放条(z-index:200)与歌词页(z-index:100)，避免底部内容被遮挡 */
+    z-index: 300;
+  }
+  .mobile-settings-panel {
+    width: min(320px, calc(100vw - 32px));
+    padding: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .ms-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .ms-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+  .ms-close {
+    font-size: 14px;
+    color: var(--text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ms-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .ms-group { margin-bottom: 14px; }
+  .ms-label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+  .ms-options { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ms-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    transition: all 0.2s;
+  }
+  .ms-option.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .ms-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.3);
+  }
+  .ms-color-dot.rainbow { background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6); }
+  .ms-color-dot.amber { background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706); }
+  /* 面板淡入淡出 */
+  .fade-enter-active, .fade-leave-active { transition: opacity 0.25s; }
+  .fade-enter-from, .fade-leave-to { opacity: 0; }
 }
 </style>

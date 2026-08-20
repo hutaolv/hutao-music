@@ -47,7 +47,7 @@
             <span v-else>&#x25B6;</span>
           </button>
           <button class="ctrl-btn" @click="store.playNext">&#x23ED;</button>
-          <button class="ctrl-btn" :class="{ active: showSpectrum }" @click="toggleSpectrum" title="频谱开关">
+          <button class="ctrl-btn spectrum-btn" :class="{ active: showSpectrum }" @click="toggleSpectrum" title="频谱开关">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
               <rect x="4" y="14" width="3" height="6" rx="1"/>
               <rect x="9" y="10" width="3" height="10" rx="1"/>
@@ -359,8 +359,13 @@ function initAudio() {
   audio = new Audio()
   // 接入 Web Audio 频谱分析（音量改由 GainNode 控制），失败则无频谱但播放正常
   const graph = initAudioGraph(audio)
-  // 接入成功后 volume 走 GainNode，audio.volume 固定为 1 避免双重衰减
-  if (graph) audio.volume = 1
+  if (graph) {
+    // 接入成功后 volume 走 GainNode，audio.volume 固定为 1 避免双重衰减
+    audio.volume = 1
+  } else {
+    // 图尚未接入（等首次用户手势创建 AudioContext）：先用原生 volume 兜底，保证一定有声音
+    audio.volume = store.volume
+  }
   setGraphVolume(store.volume)
   setSpectrumActive(store.isPlaying)
   audio.addEventListener('timeupdate', updateLyrics)
@@ -370,6 +375,14 @@ function initAudio() {
   })
   // 后台回来时若状态是播放中但音频暂停（如后台切歌被系统打断/拒绝），自动恢复
   document.addEventListener('visibilitychange', onVisibilityChange)
+}
+
+// 首次用户手势（click/touchstart 捕获阶段）内同步解锁 AudioContext：
+// 此时创建/恢复是合法的手势上下文，Android WebView 不会拒绝，频谱接入后不再静音
+function onFirstGesture() {
+  resumeAudio()
+  // 图可能刚接入（gain 默认 1），把手势前的音量偏好同步到 GainNode
+  setGraphVolume(store.volume)
 }
 
 // 注册播放条封面上的迷你频谱画布（封面在 v-if 内，需在歌曲渲染完成后调用）
@@ -661,6 +674,9 @@ onMounted(() => {
   initAudio()
   setupMediaSession()
   document.addEventListener('click', onDocClick)
+  // 捕获阶段注册一次性手势解锁：确保首次点击/触摸在用户手势栈内恢复 AudioContext
+  document.addEventListener('click', onFirstGesture, { capture: true, once: true })
+  document.addEventListener('touchstart', onFirstGesture, { capture: true, once: true })
   // 首次进入已有歌曲时（watcher immediate 在 audio 初始化前被跳过），封面渲染后补注册
   nextTick(() => registerMiniSpectrum())
 })
@@ -672,6 +688,8 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', stopDrag)
+  document.removeEventListener('click', onFirstGesture)
+  document.removeEventListener('touchstart', onFirstGesture)
   if (audio) {
     audio.pause()
     audio = null
@@ -969,16 +987,15 @@ onUnmounted(() => {
 }
 
 @media (max-width: 767px) {
-  .spectrum-overlay.style-waveform {
-    height: 80px;
+  /* 手机端取消频谱设置：隐藏开关/颜色按钮（与样式按钮一起）与整块频谱覆盖层，
+     仅保留封面上的迷你频谱，保持播放条简洁 */
+  .spectrum-btn, .style-btn, .color-btn {
+    display: none;
   }
-  .spectrum-overlay.style-circle {
-    height: 240px;
-    width: 240px;
+  .spectrum-overlay {
+    display: none;
   }
 }
-
-/* 淡入淡出动画 */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
@@ -1026,7 +1043,7 @@ onUnmounted(() => {
     height: 34px;
   }
 
-  /* 手机端隐藏频谱样式切换按钮，只保留开关 */
+  /* 手机端不显示频谱样式切换按钮（频谱设置整体见上方的 spectrum-btn/style-btn/color-btn 隐藏规则） */
   .style-btn {
     display: none;
   }
