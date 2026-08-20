@@ -25,9 +25,12 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { platformColors } from '../data/platforms'
+import { usePlayerStore } from '../stores/player'
+
+const store = usePlayerStore()
 
 const props = defineProps({
   song: { type: Object, required: true },
@@ -72,6 +75,8 @@ async function toggleFav() {
     }
     // 通知父组件（如"我的喜欢"列表）刷新收藏数据
     emit('fav-changed')
+    // 通知全局收藏版本号，其他页面（首页）同步刷新
+    store.touchFavVersion()
   } catch { /* 忽略落盘失败，UI 已即时反馈 */ }
 }
 </script>

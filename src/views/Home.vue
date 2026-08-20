@@ -76,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
@@ -132,6 +132,11 @@ async function refreshFavorites() {
   favoriteSongs.value = await getFavorites()
   recentPlays.value = await getRecentPlays()
 }
+
+// 任意入口（播放条/榜单/歌曲卡）收藏变化时刷新"我的喜欢"列表
+watch(() => store.favVersion, async () => {
+  favoriteSongs.value = await getFavorites()
+})
 </script>
 
 <style scoped>

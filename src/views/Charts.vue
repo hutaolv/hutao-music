@@ -203,6 +203,7 @@ async function toggleFav(song) {
   // 重新从 IndexedDB 拉取收藏列表，保证按钮状态同步
   favList.value = await getFavorites()
   favVersion.value++
+  store.touchFavVersion()
   favAnim[song.id] = removing ? 'fav-anim-break' : 'fav-anim-love'
   clearTimeout(favAnimTimers[song.id])
   favAnimTimers[song.id] = setTimeout(() => { favAnim[song.id] = '' }, 800)

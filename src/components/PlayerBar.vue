@@ -679,6 +679,8 @@ async function toggleFav() {
     } else {
       await removeFavorite(store.currentSong.id)
     }
+    // 通知首页刷新"我的喜欢"列表
+    store.touchFavVersion()
   } catch { /* 忽略落盘失败，UI 已即时反馈 */ }
 }
 

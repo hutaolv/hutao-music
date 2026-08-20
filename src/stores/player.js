@@ -23,6 +23,8 @@ export const usePlayerStore = defineStore('player', () => {
   const desktopLyrics = ref(false)
   const showLyricsPanel = ref(false)
   const seekTime = ref(-1)
+  // 收藏变更版本号：任意入口（播放条/榜单/歌曲卡）收藏变动后 +1，首页据此刷新"我的喜欢"列表
+  const favVersion = ref(0)
 
   const playModes = ['sequence', 'loop', 'random']
 
@@ -135,11 +137,16 @@ export const usePlayerStore = defineStore('player', () => {
     isPlaying.value = true
   }
 
+  // 通知收藏列表变更（首页据此刷新"我的喜欢"）
+  function touchFavVersion() {
+    favVersion.value++
+  }
+
   return {
     currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
     playMode,     showPlaylist, playModes, nextMode,
-    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime,
+    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
-    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll
+    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll, touchFavVersion
   }
 })
