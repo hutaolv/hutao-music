@@ -9,6 +9,11 @@
 // - 同一时间允许多个 canvas 注册，共用一份分析数据；绘制循环由本模块统一驱动。
 // - 组件只负责注册/注销 canvas 与切换播放状态。
 
+// 是否为 Android 应用内 WebView（Capacitor 注入 window.Capacitor，UA 含 wv）：
+// WebView 中 MediaElementSource 接管音频存在不可逆静音风险，故此环境完全不走真实 WebAudio，
+// 音频始终原生直出，频谱用模拟数据驱动，保证一定有声音
+const IS_WEBVIEW = typeof window !== 'undefined' && (!!window.Capacitor || /wv/i.test(navigator.userAgent || ''))
+
 let audioCtx = null
 let source = null
 let analyser = null
@@ -20,6 +25,8 @@ let rafId = null
 // 原因：Android WebView 的自动播放策略会把非手势时机创建的 AudioContext 挂起(suspended)，
 // 而 createMediaElementSource 一旦绑定就永久接管 audio 输出，挂起时播放会整条链路静音。
 let pendingAudio = null
+// 标记 Web Audio 已确认不可用（创建/恢复失败），后续不再尝试，保证音频始终可直出
+let graphDisabled = false
 
 const targets = new Set()
 
@@ -28,22 +35,37 @@ const DEFAULT_COLORS = ['#22d3ee', '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '
 
 // 将 Audio 元素接入 Web Audio 图：source -> analyser -> gain -> destination
 // 返回 { analyser, gainNode }；未接入时返回 null（此时调用方用原生 audio.volume 控音量，保证有声）。
-// 注意：不在此处立即创建 AudioContext，而是暂存 audio 等首次用户手势（见 resumeAudio），
-// 避免非手势时机创建导致 AudioContext 被挂起而静音。
+// 注意：此函数只暂存 audio，真正创建 AudioContext 需等用户手势且用户开启频谱时
+// 由 enableSpectrumGraph() 完成 —— 避免非手势/不需要频谱时创建导致链路静音。
 export function initAudioGraph(audio) {
   if (!audio) return null
+  // WebView 环境一律不接管：音频直出保证有声，频谱动画走模拟数据
+  if (IS_WEBVIEW) return null
   if (audioCtx) return { analyser, gainNode }
   pendingAudio = audio
   return null
 }
 
-// 在用户手势内创建 AudioContext 并接入音频图（手势内创建默认 running，可直接出声）
-function buildGraph() {
-  if (audioCtx || !pendingAudio) return
+// 用户开启频谱且首次手势内调用：创建 AudioContext 并绑定 audio（不可逆）。
+// 若创建/恢复失败则返回 null 且不再尝试，此时播放完全走原生 audio，保证一定有声音。
+// WebView 环境直接返回 null（永不接管，避免不可逆静音风险）。
+export function enableSpectrumGraph() {
+  if (IS_WEBVIEW) return null
+  if (audioCtx) return { analyser, gainNode }
+  if (!pendingAudio) return null
+  if (graphDisabled) return null
   const AC = window.AudioContext || window.webkitAudioContext
-  if (!AC) return
+  if (!AC) { graphDisabled = true; return null }
   try {
     audioCtx = new AC()
+    // 手势内创建通常即 running；若仍 suspended 尝试 resume，成功才继续绑定
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    if (audioCtx.state === 'suspended') {
+      audioCtx.close()
+      audioCtx = null
+      graphDisabled = true
+      return null
+    }
     source = audioCtx.createMediaElementSource(pendingAudio)
     analyser = audioCtx.createAnalyser()
     analyser.fftSize = 256
@@ -55,8 +77,11 @@ function buildGraph() {
     gainNode.connect(audioCtx.destination)
     freqData = new Uint8Array(analyser.frequencyBinCount)
     pendingAudio = null
+    return { analyser, gainNode }
   } catch {
-    pendingAudio = null
+    audioCtx = null
+    graphDisabled = true
+    return null
   }
 }
 
@@ -71,10 +96,9 @@ export function isGraphActive() {
 }
 
 // 用户手势触发播放时调用：
-// 1) 首次手势时在此创建 AudioContext 并接入音频图（手势内创建默认为 running，避免静音）；
-// 2) 若仍处于挂起状态（如个别场景被系统挂起），尝试 resume 解除。
+// 仅当图已存在且处于挂起状态时尝试 resume 解除；本函数不再创建图，
+// 图的创建由 enableSpectrumGraph() 显式控制（用户开启频谱时才接管音频）。
 export function resumeAudio() {
-  if (!audioCtx) buildGraph()
   if (audioCtx && audioCtx.state === 'suspended') {
     audioCtx.resume().catch(() => {})
   }
@@ -102,7 +126,8 @@ export function registerCanvas(canvas, opts = {}) {
 }
 
 function syncLoop() {
-  const want = active && targets.size > 0 && analyser
+  // WebView 环境用模拟数据绘制（无需 analyser），其它环境必须有 analyser 才有数据
+  const want = active && targets.size > 0 && (analyser || IS_WEBVIEW)
   if (want && !rafId) {
     rafId = requestAnimationFrame(draw)
   } else if (!want && rafId) {
@@ -112,20 +137,41 @@ function syncLoop() {
   }
 }
 
+// WebView 下用正弦叠加 + 时间基准生成模拟频域数据，呈现"跳动频谱"的视觉效果（非真实音频数据）
+let fakeFreqData = null
+function getSpectrumData() {
+  if (analyser) {
+    if (!freqData) freqData = new Uint8Array(analyser.frequencyBinCount)
+    analyser.getByteFrequencyData(freqData)
+    return freqData
+  }
+  if (!fakeFreqData) fakeFreqData = new Uint8Array(256)
+  if (active) {
+    const t = performance.now() / 1000
+    for (let i = 0; i < fakeFreqData.length; i++) {
+      const base = 70 + 40 * Math.sin(t * 2 + i * 0.3)
+      const wa = 40 + 30 * Math.sin(t * 3.7 + i * 0.9)
+      const wb = 25 * Math.sin(t * 1.3 + i * 0.15)
+      fakeFreqData[i] = Math.max(0, Math.min(255, base + wa + wb + Math.random() * 18))
+    }
+  }
+  return fakeFreqData
+}
+
 function draw() {
   rafId = requestAnimationFrame(draw)
-  if (!active || !targets.size || !analyser) return
-  analyser.getByteFrequencyData(freqData)
+  if (!active || !targets.size || (!analyser && !IS_WEBVIEW)) return
+  const data = getSpectrumData()
   targets.forEach(entry => {
     const { canvas, opts } = entry
     const ctx = prepareCanvas(canvas)
     if (!ctx) return
     const style = opts.style || 'bars'
     switch (style) {
-      case 'wave': drawWave(entry, ctx, freqData); break
-      case 'circle': drawCircle(entry, ctx, freqData); break
-      case 'waveform': drawWaveform(entry, ctx, freqData); break
-      default: drawBars(entry, ctx, freqData)
+      case 'wave': drawWave(entry, ctx, data); break
+      case 'circle': drawCircle(entry, ctx, data); break
+      case 'waveform': drawWaveform(entry, ctx, data); break
+      default: drawBars(entry, ctx, data)
     }
   })
 }

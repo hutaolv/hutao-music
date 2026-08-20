@@ -169,7 +169,7 @@ import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
-import { initAudioGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
+import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
 import Playlist from './Playlist.vue'
 import AudioVisualizer from './AudioVisualizer.vue'
 
@@ -199,6 +199,15 @@ const COLOR_PRESETS = {
 function toggleSpectrum() {
   showSpectrum.value = !showSpectrum.value
   localStorage.setItem('playerSpectrum', showSpectrum.value ? 'on' : 'off')
+  // 开启频谱时若图尚未接入，在此点击手势内尝试激活（手势内创建 AudioContext 才不会被挂起）
+  if (showSpectrum.value && !graphEnabled) {
+    const graph = enableSpectrumGraph()
+    if (graph) {
+      graphEnabled = true
+      if (audio) audio.volume = 1
+      setGraphVolume(store.volume)
+    }
+  }
 }
 
 // 切换并保存播放条频谱颜色
@@ -357,15 +366,10 @@ function showPlayFailed() {
 
 function initAudio() {
   audio = new Audio()
-  // 接入 Web Audio 频谱分析（音量改由 GainNode 控制），失败则无频谱但播放正常
-  const graph = initAudioGraph(audio)
-  if (graph) {
-    // 接入成功后 volume 走 GainNode，audio.volume 固定为 1 避免双重衰减
-    audio.volume = 1
-  } else {
-    // 图尚未接入（等首次用户手势创建 AudioContext）：先用原生 volume 兜底，保证一定有声音
-    audio.volume = store.volume
-  }
+  // 默认不接管 Web Audio：先按原生 audio 直出（audio.volume 控音量），保证一定有声音。
+  // 仅当用户开启频谱且首次手势成功激活图时才切换为 GainNode 控音（见 onFirstGesture / enableSpectrumGraph）
+  initAudioGraph(audio)
+  audio.volume = store.volume
   setGraphVolume(store.volume)
   setSpectrumActive(store.isPlaying)
   audio.addEventListener('timeupdate', updateLyrics)
@@ -377,12 +381,26 @@ function initAudio() {
   document.addEventListener('visibilitychange', onVisibilityChange)
 }
 
-// 首次用户手势（click/touchstart 捕获阶段）内同步解锁 AudioContext：
-// 此时创建/恢复是合法的手势上下文，Android WebView 不会拒绝，频谱接入后不再静音
+// 是否希望显示频谱：播放条频谱开关 或 歌词页环形频谱 任一开启都视为需要频谱
+function spectrumWanted() {
+  return showSpectrum.value || localStorage.getItem('lyricsSpectrum') !== 'off'
+}
+
+// 首次用户手势（click/touchstart 捕获阶段）内同步处理：
+// 1) 若用户开启频谱 → 此刻创建 AudioContext 并接入（手势内创建默认为 running，频谱才有数据，不静音）；
+// 2) 若创建/恢复失败（部分 Android WebView 不支持）→ 不接管，音频继续原生直出，保证一定有声音
+let graphEnabled = false
 function onFirstGesture() {
+  if (!graphEnabled && spectrumWanted()) {
+    const graph = enableSpectrumGraph()
+    if (graph) {
+      graphEnabled = true
+      // 图接管后音量走 GainNode，原生 volume 置 1 避免双重衰减
+      if (audio) audio.volume = 1
+      setGraphVolume(store.volume)
+    }
+  }
   resumeAudio()
-  // 图可能刚接入（gain 默认 1），把手势前的音量偏好同步到 GainNode
-  setGraphVolume(store.volume)
 }
 
 // 注册播放条封面上的迷你频谱画布（封面在 v-if 内，需在歌曲渲染完成后调用）
