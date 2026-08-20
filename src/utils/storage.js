@@ -36,7 +36,7 @@ export function getRecentPlays() {
 export function addRecentPlay(song) {
   let list = getRecentPlays().filter(s => s.id !== song.id)
   list.unshift(song)
-  if (list.length > 30) list = list.slice(0, 30)
+  // 最近播放不做数量限制，保存全部
   localStorage.setItem(KEYS.RECENT_PLAYS, JSON.stringify(list))
   return list
 }
