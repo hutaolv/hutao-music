@@ -507,7 +507,10 @@ watch(() => store.currentSong, async (song) => {
   store.currentLyricIndex = -1
   downloadUrl.value = ''
   if (song) {
-    isFav.value = getFavorites().some(s => s.id === song.id)
+    // 收藏状态从 IndexedDB 异步读取（同步读取已不适用）
+    getFavorites().then(list => {
+      isFav.value = list.some(s => s.id === song.id)
+    }).catch(() => {})
     // 封面渲染完成后注册迷你频谱画布（切歌时 v-if 重新挂载 canvas）
     nextTick(() => registerMiniSpectrum())
     let url = song.audioUrl || song.sourceUrl || ''
@@ -664,17 +667,19 @@ function toggleMute() {
   store.setVolume(store.volume > 0 ? 0 : 0.7)
 }
 
-function toggleFav() {
+async function toggleFav() {
   if (!store.currentSong) return
-  if (isFav.value) {
-    removeFavorite(store.currentSong.id)
-  } else {
-    addFavorite(store.currentSong)
-  }
   isFav.value = !isFav.value
   anim.value = isFav.value ? 'fav-anim-love' : 'fav-anim-break'
   clearTimeout(animTimer)
   animTimer = setTimeout(() => { anim.value = '' }, 800)
+  try {
+    if (isFav.value) {
+      await addFavorite(store.currentSong)
+    } else {
+      await removeFavorite(store.currentSong.id)
+    }
+  } catch { /* 忽略落盘失败，UI 已即时反馈 */ }
 }
 
 function formatTime(t) {

@@ -2,6 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getPlaylist, savePlaylist, addRecentPlay, getVolume, saveVolume } from '../utils/storage'
 
+// 收藏/历史改用 IndexedDB 后 addRecentPlay 为异步，播放流程不等待返回值，静默失败即可
+function recordRecent(song) {
+  addRecentPlay(song).catch(() => {})
+}
+
 export const usePlayerStore = defineStore('player', () => {
   const currentSong = ref(null)
   const playlist = ref(getPlaylist())
@@ -33,7 +38,7 @@ export const usePlayerStore = defineStore('player', () => {
       currentIndex.value = idx
     }
     savePlaylist(playlist.value)
-    addRecentPlay(song)
+    recordRecent(song)
     isPlaying.value = true
   }
 
@@ -51,7 +56,7 @@ export const usePlayerStore = defineStore('player', () => {
       currentIndex.value = (currentIndex.value + 1) % playlist.value.length
     }
     currentSong.value = playlist.value[currentIndex.value]
-    addRecentPlay(currentSong.value)
+    recordRecent(currentSong.value)
     isPlaying.value = true
   }
 
@@ -63,7 +68,7 @@ export const usePlayerStore = defineStore('player', () => {
       currentIndex.value = (currentIndex.value - 1 + playlist.value.length) % playlist.value.length
     }
     currentSong.value = playlist.value[currentIndex.value]
-    addRecentPlay(currentSong.value)
+    recordRecent(currentSong.value)
     isPlaying.value = true
   }
 
@@ -126,7 +131,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentIndex.value = 0
     currentSong.value = songs[0]
     savePlaylist(playlist.value)
-    addRecentPlay(currentSong.value)
+    recordRecent(currentSong.value)
     isPlaying.value = true
   }
 

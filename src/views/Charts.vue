@@ -168,17 +168,21 @@ watch(() => route.query.platform, (p) => {
 
 onMounted(() => {
   loadPlatform(activePlatform.value)
+  // 异步加载已收藏列表，初始化收藏按钮状态
+  getFavorites().then(list => { favList.value = list }).catch(() => {})
 })
 
 // 收藏状态版本号：点击收藏后 +1 触发 isFav 重算，保证按钮状态实时刷新
 const favVersion = ref(0)
+// 已收藏歌曲列表（IndexedDB 异步读取，缓存为响应式数组供模板同步判断）
+const favList = ref([])
 // 每行收藏按钮的动画类（收藏=心动 / 取消=破裂），按歌曲 id 记录
 const favAnim = reactive({})
 const favAnimTimers = {}
 
 function isFav(songId) {
   favVersion.value // 建立响应式依赖
-  return getFavorites().some(s => s.id === songId)
+  return favList.value.some(s => s.id === songId)
 }
 
 function favClass(songId) {
@@ -189,13 +193,15 @@ function favClass(songId) {
   return c
 }
 
-function toggleFav(song) {
+async function toggleFav(song) {
   const removing = isFav(song.id)
   if (removing) {
-    removeFavorite(song.id)
+    await removeFavorite(song.id)
   } else {
-    addFavorite(song)
+    await addFavorite(song)
   }
+  // 重新从 IndexedDB 拉取收藏列表，保证按钮状态同步
+  favList.value = await getFavorites()
   favVersion.value++
   favAnim[song.id] = removing ? 'fav-anim-break' : 'fav-anim-love'
   clearTimeout(favAnimTimers[song.id])

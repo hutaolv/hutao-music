@@ -116,8 +116,8 @@ const top3ByPlatform = computed(() => {
 
 onMounted(async () => {
   // 最近播放/我的喜欢不限制数量，显示全部
-  recentPlays.value = getRecentPlays()
-  favoriteSongs.value = getFavorites()
+  recentPlays.value = await getRecentPlays()
+  favoriteSongs.value = await getFavorites()
   for (const platform of platforms) {
     fetchCharts(platform).then(data => {
       if (data?.[0]?.songs?.length) {
@@ -127,10 +127,10 @@ onMounted(async () => {
   }
 })
 
-function refreshFavorites() {
+async function refreshFavorites() {
   // 重新读取全部收藏与最近播放，不做数量截断
-  favoriteSongs.value = getFavorites()
-  recentPlays.value = getRecentPlays()
+  favoriteSongs.value = await getFavorites()
+  recentPlays.value = await getRecentPlays()
 }
 </script>
 

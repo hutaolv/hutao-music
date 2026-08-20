@@ -40,10 +40,15 @@ const props = defineProps({
 
 const emit = defineEmits(['play', 'add', 'fav-changed'])
 
-const isFav = ref(getFavorites().some(s => s.id === props.song.id))
+const isFav = ref(false)
 const platformColor = platformColors[props.song.platform] || '#6366f1'
 const anim = ref('')
 let animTimer = null
+
+// 收藏状态存储在 IndexedDB（异步），挂载后异步获取初始收藏状态
+getFavorites().then(list => {
+  isFav.value = list.some(s => s.id === props.song.id)
+}).catch(() => {})
 
 const favClass = computed(() => {
   const c = { favorited: isFav.value }
@@ -53,18 +58,21 @@ const favClass = computed(() => {
 
 function hideImg(e) { e.target.style.display = 'none' }
 
-function toggleFav() {
-  if (isFav.value) {
-    removeFavorite(props.song.id)
-  } else {
-    addFavorite(props.song)
-  }
+async function toggleFav() {
+  // IndexedDB 写入为异步，先翻转 UI 再落盘，避免等待造成卡顿
   isFav.value = !isFav.value
   anim.value = isFav.value ? 'fav-anim-love' : 'fav-anim-break'
   clearTimeout(animTimer)
   animTimer = setTimeout(() => { anim.value = '' }, 800)
-  // 通知父组件（如"我的喜欢"列表）刷新收藏数据
-  emit('fav-changed')
+  try {
+    if (isFav.value) {
+      await addFavorite(props.song)
+    } else {
+      await removeFavorite(props.song.id)
+    }
+    // 通知父组件（如"我的喜欢"列表）刷新收藏数据
+    emit('fav-changed')
+  } catch { /* 忽略落盘失败，UI 已即时反馈 */ }
 }
 </script>
 
