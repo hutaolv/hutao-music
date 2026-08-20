@@ -12,6 +12,12 @@ const KEYS = {
 // 收藏/最近播放上限
 const MAX_ITEMS = 999
 
+// IndexedDB 结构化克隆无法序列化 Vue 的 reactive Proxy（会抛 DataCloneError），
+// 入库前统一转成纯普通对象
+function toPlain(obj) {
+  return JSON.parse(JSON.stringify(obj))
+}
+
 // ---------- IndexedDB 封装 ----------
 const DB_NAME = 'musichub_db'
 const DB_VERSION = 1
@@ -84,30 +90,43 @@ function deleteRecord(storeName, id) {
 
 // 旧 localStorage 数据一次性迁移到 IndexedDB。
 // 只迁移收藏与最近播放两个 key，保证老用户数据不丢失。
-function migrateLegacyData() {
-  const migrations = [
-    { key: 'musichub_favorites', store: STORE_FAVORITES },
-    { key: 'musichub_recent', store: STORE_RECENT }
-  ]
-  return Promise.all(migrations.map(({ key, store }) => {
-    const legacy = JSON.parse(localStorage.getItem(key) || '[]')
-    if (!legacy.length) return Promise.resolve()
-    // 根据旧数组顺序生成加入时间：靠前（index 小）越新，ts 越大
-    const now = Date.now()
-    const records = legacy.map((song, i) => ({
-      id: song.id,
-      song,
-      ts: now + (legacy.length - i)
-    })).slice(0, MAX_ITEMS)
-    localStorage.removeItem(key)
-    return putRecords(store, records)
-  }))
+// 注意：逐一安全写入，只有写库成功才 removeItem，避免失败时把源数据也清掉。
+async function migrateLegacyData() {
+  const results = await Promise.allSettled([
+    migrateKey('musichub_favorites', STORE_FAVORITES),
+    migrateKey('musichub_recent', STORE_RECENT)
+  ])
+  // 任一迁移失败都不抛出，避免 migratePromise 永久卡死后续全部读写
+  results.forEach(r => { if (r.status === 'rejected') console.warn('IndexedDB 迁移失败:', r.reason) })
 }
 
-// 迁移只执行一次的并发保护
+async function migrateKey(key, storeName) {
+  const legacy = JSON.parse(localStorage.getItem(key) || '[]')
+  if (!Array.isArray(legacy) || !legacy.length) return
+  // 过滤缺失 id 的脏数据（真实浏览器中无效 key 会令写入事务整体失败）
+  const valid = legacy.filter(s => s && s.id != null && s.id !== '')
+  if (!valid.length) return
+  // 根据旧数组顺序生成加入时间：靠前（index 小）越新，ts 越大
+  const now = Date.now()
+  const records = valid.map((song, i) => ({
+    id: song.id,
+    song: toPlain(song),
+    ts: now + (valid.length - i)
+  })).slice(0, MAX_ITEMS)
+  await putRecords(storeName, records)
+  // 写库成功后才删除源数据，失败则不删，下次可重新迁移
+  localStorage.removeItem(key)
+}
+
+// 迁移只执行一次的并发保护；一旦迁移失败重置，下次调用可重新尝试
 let migratePromise = null
 function ensureMigrated() {
-  if (!migratePromise) migratePromise = migrateLegacyData()
+  if (!migratePromise) {
+    migratePromise = migrateLegacyData().catch(err => {
+      console.warn('IndexedDB 首次迁移失败，重置以便重试:', err)
+      migratePromise = null
+    })
+  }
   return migratePromise
 }
 
@@ -123,7 +142,7 @@ async function addSongRecord(storeName, song) {
   await ensureMigrated()
   const records = await getAllRecords(storeName)
   if (records.some(r => r.id === song.id)) return
-  records.push({ id: song.id, song, ts: Date.now() })
+  records.push({ id: song.id, song: toPlain(song), ts: Date.now() })
   records.sort((a, b) => b.ts - a.ts)
   const kept = records.slice(0, MAX_ITEMS)
   await putRecords(storeName, kept)
@@ -133,7 +152,7 @@ async function addSongRecord(storeName, song) {
 async function touchRecent(song) {
   await ensureMigrated()
   const records = (await getAllRecords(STORE_RECENT)).filter(r => r.id !== song.id)
-  records.push({ id: song.id, song, ts: Date.now() })
+  records.push({ id: song.id, song: toPlain(song), ts: Date.now() })
   records.sort((a, b) => b.ts - a.ts)
   const kept = records.slice(0, MAX_ITEMS)
   await putRecords(STORE_RECENT, kept)
