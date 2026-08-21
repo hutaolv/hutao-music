@@ -9,17 +9,23 @@
         <router-link v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" active-class="active">
           {{ item.name }}
         </router-link>
+        <a v-if="!isApp" href="/downloads/胡桃音悦-1.0.4.apk" download class="nav-link download-link">下载安卓版</a>
       </div>
     </div>
   </nav>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 const navItems = [
   { path: '/', name: '首页' },
   { path: '/charts', name: '排行榜' },
   { path: '/search', name: '搜索' }
 ]
+
+// APK 内不显示下载按钮（用户已在用 APK）
+const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor)
 </script>
 
 <style scoped>
@@ -86,6 +92,19 @@ const navItems = [
 .nav-link.active {
   color: var(--accent-light);
   background: rgba(99, 102, 241, 0.1);
+}
+
+.download-link {
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.download-link:hover {
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--accent-light);
 }
 
 /* 手机端（≤767px）：导航栏收紧排版 */

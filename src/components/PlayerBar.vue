@@ -157,7 +157,7 @@
     </transition>
 
     <transition name="fade">
-      <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，5秒后自动跳过</div>
+      <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，2秒后自动跳过</div>
     </transition>
   </div>
 </template>
@@ -353,7 +353,7 @@ let playFailedTimer = null
 let audio = null
 let unregisterMiniSpec = null
 
-// 拿不到真实音频时：提示"无法获取"，5 秒后自动跳下一首
+// 拿不到真实音频时：提示"无法获取"，2 秒后自动跳下一首
 function showPlayFailed() {
   if (playFailedTimer) clearTimeout(playFailedTimer)
   store.isPlaying = false
@@ -361,7 +361,7 @@ function showPlayFailed() {
   playFailedTimer = setTimeout(() => {
     playFailedToast.value = false
     if (store.currentSong) store.playNext()
-  }, 5000)
+  }, 2000)
 }
 
 function initAudio() {
