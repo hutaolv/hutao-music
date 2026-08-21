@@ -7,6 +7,7 @@ import { Readable } from 'stream'
 import chartsRouter from './routes/charts.js'
 import searchRouter from './routes/search.js'
 import songRouter from './routes/song.js'
+import accessLogger from './access-log.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -14,6 +15,14 @@ const PORT = process.env.PORT || 3001
 
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
+
+// 健康检查本身不需要计入访问日志
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() })
+})
+
+// 访问日志：全局记录访问者的 IP/归属地/访问次数/网络状态/设备信息（内部会跳过静态资源与健康检查）
+app.use(accessLogger)
 
 app.use('/api/charts', chartsRouter)
 app.use('/api/search', searchRouter)

@@ -14,11 +14,35 @@ export function toAbsolute(url) {
   return url
 }
 
+// 读取当前网络类型（浏览器/WebView 的 Connection API）：
+// 优先用连接类型（wifi/ethernet/4g...），兜底 effectiveType，尽力给出真实网络状态
+function getNetworkType() {
+  try {
+    const conn = navigator?.connection
+    if (!conn) return ''
+    if (conn.type === 'wifi' || conn.type === 'ethernet') return 'wifi'
+    if (conn.type === 'none') return 'offline'
+    if (conn.effectiveType) {
+      const et = String(conn.effectiveType)
+      if (et === '4g') return '4G'
+      if (et === '3g') return '3G'
+      if (et === '2g' || et === 'slow-2g') return '2G'
+    }
+    return ''
+  } catch { return '' }
+}
+
+// 统一请求封装：自动带上网络类型 header，供服务端访问日志记录真实网络状态
+async function apiFetch(url, options) {
+  const headers = { 'X-Network-Type': getNetworkType(), ...(options?.headers || {}) }
+  return fetch(url, { ...options, headers })
+}
+
 export async function fetchCharts(platform, page) {
   try {
     let url = `${API_BASE}/charts?platform=${encodeURIComponent(platform)}`
     if (page && page > 1) url += `&page=${page}`
-    const res = await fetch(url)
+    const res = await apiFetch(url)
     const json = await res.json()
     if (json.code === 200) {
       // 榜单歌曲封面可能是代理相对路径，APK 里统一转绝对地址
@@ -43,7 +67,7 @@ export async function searchAll(keyword, platform, scope, page) {
   if (scope) url += `&scope=${encodeURIComponent(scope)}`
   if (page && page > 1) url += `&page=${page}`
   try {
-    const res = await fetch(url)
+    const res = await apiFetch(url)
     const json = await res.json()
     if (json.code === 200) {
       const data = json.data
@@ -61,7 +85,7 @@ export async function searchAll(keyword, platform, scope, page) {
 
 export async function searchSongs(keyword) {
   try {
-    const res = await fetch(`${API_BASE}/search?keyword=${encodeURIComponent(keyword)}&type=song`)
+    const res = await apiFetch(`${API_BASE}/search?keyword=${encodeURIComponent(keyword)}&type=song`)
     const json = await res.json()
     if (json.code === 200) return json.data.songs || []
     return []
@@ -73,7 +97,7 @@ export async function searchSongs(keyword) {
 
 export async function searchArtists(keyword) {
   try {
-    const res = await fetch(`${API_BASE}/search?keyword=${encodeURIComponent(keyword)}&type=artist`)
+    const res = await apiFetch(`${API_BASE}/search?keyword=${encodeURIComponent(keyword)}&type=artist`)
     const json = await res.json()
     if (json.code === 200) return json.data.artists || []
     return []
@@ -109,7 +133,7 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
   if (song.musicId) params.set('musicId', song.musicId)
 
   try {
-    const res = await fetch(`${API_BASE}/song/url?${params}`)
+    const res = await apiFetch(`${API_BASE}/song/url?${params}`)
     const json = await res.json()
     if (json.code === 200 && json.data?.url) {
       // 探测时返回对象（含可用音质列表），否则返回 url 字符串，兼容两种调用方式
@@ -133,7 +157,7 @@ export async function getLyrics(song) {
   // 酷狗官方歌词接口需要歌曲时长（毫秒）
   if (platform === '酷狗音乐' && song.durationMs) params.set('timelength', song.durationMs)
   try {
-    const res = await fetch(`${API_BASE}/song/lyrics?${params}`)
+    const res = await apiFetch(`${API_BASE}/song/lyrics?${params}`)
     const json = await res.json()
     if (json.code === 200 && json.data) return json.data
     return { lyrics: '', transLyrics: '' }
@@ -146,7 +170,7 @@ export async function getLyrics(song) {
 // page 用于咪咕分页加载。返回 { songs, hasMore }
 export async function fetchLatestVersion() {
   try {
-    const res = await fetch(`${API_ORIGIN}/api/version`)
+    const res = await apiFetch(`${API_ORIGIN}/api/version`)
     const json = await res.json()
     if (json.code === 200 && json.data?.version) {
       return {
@@ -165,7 +189,7 @@ export async function thirdPartySearch(keyword, platform) {
   let url = `${API_BASE}/search/thirdparty?keyword=${encodeURIComponent(keyword)}`
   if (platform) url += `&platform=${encodeURIComponent(platform)}`
   try {
-    const res = await fetch(url)
+    const res = await apiFetch(url)
     const json = await res.json()
     if (json.code === 200) {
       const data = json.data
@@ -184,7 +208,7 @@ export async function getArtistSongs(platform, artistId, artistName, page = 1) {
   if (artistName) url += `&name=${encodeURIComponent(artistName)}`
   if (page && page > 1) url += `&page=${page}`
   try {
-    const res = await fetch(url)
+    const res = await apiFetch(url)
     const json = await res.json()
     if (json.code === 200) {
       // 歌手歌曲封面可能是代理相对路径，APK 里统一转绝对地址

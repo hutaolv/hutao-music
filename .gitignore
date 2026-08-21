@@ -6,3 +6,6 @@ server/node_modules/
 *.log
 # APK 安装包不入库（体积大），version.json 正常提交
 server/downloads/*.apk
+# 访问日志：仅保留目录占位（.gitkeep），内容不入库
+server/log/*.json
+server/log/history/
