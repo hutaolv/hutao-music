@@ -517,7 +517,7 @@ watch(() => store.currentSong, async (song) => {
     // 直链播放地址（如 B站/抖音）可能是代理相对路径，APK 里需转成绝对地址
     url = toAbsolute(url)
     // 命中预取缓存：后台自动切歌时直接复用，跳过网络探测
-    if (!url && nextUrlCache.id === song.id && nextUrlCache.url) {
+      if (!url && nextUrlCache.id === song.id && nextUrlCache.url) {
       url = nextUrlCache.url
       nextUrlCache.id = null
       nextUrlCache.url = ''
@@ -539,6 +539,7 @@ watch(() => store.currentSong, async (song) => {
       }
     }
     if (url) {
+      audio.pause()
       audio.src = url
       resumeAudio()
       setSpectrumActive(true)
