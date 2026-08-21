@@ -87,17 +87,25 @@ app.get('/api/health', (req, res) => {
 })
 
 // APK 版本检查：读 server/downloads/version.json，返回最新版本与安装包下载地址
+// 支持两种下载方式：
+//   1. 带版本号：/downloads/胡桃音悦-1.0.4.apk（精确版本）
+//   2. 固定URL：/downloads/胡桃音悦.apk（自动重定向到最新版，绕浏览器缓存）
 app.get('/api/version', (req, res) => {
   try {
     const data = JSON.parse(readFileSync(versionJsonPath, 'utf8').replace(/^\uFEFF/, ''))
     if (!data || !data.version || !data.apkFile) {
       return res.status(404).json({ code: 404, message: 'no release' })
     }
+    // 带版本号的精确下载地址
+    const versionedUrl = `/downloads/${encodeURIComponent(data.apkFile)}`
+    // 固定URL：始终指向最新版文件名（带 ?v= 版本号绕浏览器缓存）
+    const fixedUrl = `/downloads/${encodeURIComponent(data.apkFileFixed || '胡桃音悦.apk')}?v=${data.version}`
     res.json({
       code: 200,
       data: {
         version: String(data.version),
-        apkUrl: `/downloads/${encodeURIComponent(data.apkFile)}`,
+        apkUrl: versionedUrl,
+        apkUrlFixed: fixedUrl,
         notes: data.notes || ''
       }
     })
@@ -110,6 +118,17 @@ app.get('/api/version', (req, res) => {
 const downloadsDir = resolve(__dirname, 'downloads')
 const versionJsonPath = resolve(downloadsDir, 'version.json')
 if (existsSync(downloadsDir)) {
+  // 固定URL：/downloads/胡桃音悦.apk 重定向到最新版文件（绕浏览器缓存）
+  app.get('/downloads/%E8%83%A1%E6%A1%83%E9%9F%B3%E6%82%A6.apk', (req, res) => {
+    try {
+      const data = JSON.parse(readFileSync(versionJsonPath, 'utf8').replace(/^\uFEFF/, ''))
+      if (data?.apkFile) {
+        return res.redirect(302, `/downloads/${encodeURIComponent(data.apkFile)}`)
+      }
+    } catch {}
+    // fallback：直接尝试读取固定文件名
+    res.redirect(302, '/downloads/%E8%83%A1%E6%A1%83%E9%9F%B3%E6%82%A6-1.0.4.apk')
+  })
   app.use('/downloads', express.static(downloadsDir, {
     setHeaders: (res) => res.setHeader('Content-Disposition', 'attachment')
   }))

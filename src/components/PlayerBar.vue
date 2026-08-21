@@ -1,6 +1,6 @@
 <template>
   <div v-show="store.currentSong" class="player-bar" @click="onPlayerBarClick">
-    <div class="progress-area" ref="progressRef" @click="seekProgress" @mousedown.prevent="startDrag">
+    <div class="progress-area" ref="progressRef" :class="{ dragging: isDragging }" @click="seekProgress" @mousedown.prevent="startDrag" @touchstart.prevent="startDragTouch">
       <span class="time">{{ formatTime(store.currentTime) }}</span>
       <div class="progress-bar">
         <div class="progress-track">
@@ -633,12 +633,27 @@ function startDrag(e) {
   document.addEventListener('mouseup', stopDrag)
 }
 
+// 手机端触摸拖动：touchstart 时开始拖动，监听全局 touchmove/touchend
+function startDragTouch(e) {
+  if (!progressRef.value || !durationSec.value) return
+  isDragging.value = true
+  updateDrag(e.touches[0])
+  document.addEventListener('touchmove', onDragMoveTouch, { passive: false })
+  document.addEventListener('touchend', stopDragTouch)
+}
+
 function onDragMove(e) {
   if (!isDragging.value) return
   updateDrag(e)
 }
 
-// 更新拖动位置：将鼠标位置转换为播放进度
+function onDragMoveTouch(e) {
+  if (!isDragging.value) return
+  e.preventDefault()
+  updateDrag(e.touches[0])
+}
+
+// 更新拖动位置：将鼠标/触摸位置转换为播放进度
 function updateDrag(e) {
   if (!progressRef.value || !durationSec.value) return
   const rect = progressRef.value.getBoundingClientRect()
@@ -654,6 +669,12 @@ function stopDrag() {
   isDragging.value = false
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', stopDrag)
+}
+
+function stopDragTouch() {
+  isDragging.value = false
+  document.removeEventListener('touchmove', onDragMoveTouch)
+  document.removeEventListener('touchend', stopDragTouch)
 }
 
 function seekVolume(e) {
@@ -713,6 +734,8 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', stopDrag)
+  document.removeEventListener('touchmove', onDragMoveTouch)
+  document.removeEventListener('touchend', stopDragTouch)
   document.removeEventListener('click', onFirstGesture)
   document.removeEventListener('touchstart', onFirstGesture)
   if (audio) {
@@ -756,6 +779,10 @@ onUnmounted(() => {
 .progress-bar:hover .progress-track { height: 5px; }
 .progress-bar:hover .progress-fill { height: 5px; }
 .progress-area:hover .progress-thumb { opacity: 1; }
+/* 手机端拖动时显示进度条圆点和加粗轨道 */
+.progress-area.dragging .progress-thumb { opacity: 1; }
+.progress-area.dragging .progress-track { height: 5px; }
+.progress-area.dragging .progress-fill { height: 5px; }
 
 .player-inner {
   max-width: 1400px;
