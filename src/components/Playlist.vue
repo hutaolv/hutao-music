@@ -7,8 +7,8 @@
         <button class="close-btn" @click="store.closePlaylist" title="关闭">&times;</button>
       </div>
     </div>
-    <div class="playlist-list" v-if="store.playlist.length">
-      <div v-for="(song, idx) in store.playlist" :key="song.id" class="playlist-item" :class="{ active: idx === store.currentIndex }" @click="store.playSong(song)">
+    <div class="playlist-list" ref="listRef" v-if="store.playlist.length">
+      <div v-for="(song, idx) in store.playlist" :key="song.id" :ref="el => { if (idx === store.currentIndex) activeEl = el }" class="playlist-item" :class="{ active: idx === store.currentIndex }" @click="store.playSong(song)">
         <img :src="song.cover" :alt="song.title" class="item-cover" @error="hideImg" />
         <div class="item-info">
           <div class="item-title">{{ song.title }}</div>
@@ -23,12 +23,26 @@
 </template>
 
 <script setup>
+import { ref, watch, nextTick } from 'vue'
 import { usePlayerStore } from '../stores/player'
 const store = usePlayerStore()
+const listRef = ref(null)
+const activeEl = ref(null)
 
 function hideImg(e) {
   e.target.style.display = 'none'
 }
+
+// 打开播放列表时自动滚动到当前播放歌曲位置
+watch(() => store.showPlaylist, (v) => {
+  if (v) {
+    nextTick(() => {
+      if (activeEl.value && listRef.value) {
+        activeEl.value.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+    })
+  }
+})
 </script>
 
 <style scoped>

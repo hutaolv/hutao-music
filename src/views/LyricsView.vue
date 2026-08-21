@@ -2,7 +2,7 @@
   <div class="lyrics-view" v-if="store.currentSong">
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
-    <div class="lyrics-container" :class="playerStyle">
+    <div class="lyrics-container" :class="playerStyle" @touchstart.passive="onTouchStart" @touchend="onTouchEnd" @mousedown.prevent="onMouseDown" @wheel.prevent="onWheel">
       <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
         <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
@@ -219,6 +219,75 @@ function goBack() {
   router.back()
 }
 
+// 手机端上下滑动切歌：记录触摸起点，结束时判断滑动方向
+// 仅在歌词滚动区域外触发切歌，避免与歌词滚动冲突
+let touchStartY = 0
+let touchStartTarget = null
+function onTouchStart(e) {
+  touchStartY = e.touches[0].clientY
+  touchStartTarget = e.target
+}
+function onTouchEnd(e) {
+  // 如果触摸目标在歌词滚动区域内，不触发切歌（交给歌词滚动）
+  if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
+  const dy = e.changedTouches[0].clientY - touchStartY
+  // 滑动距离超过 50px 才触发，避免误触
+  if (Math.abs(dy) < 50) return
+  if (dy > 0) {
+    // 下滑 → 上一首
+    store.playPrev()
+  } else {
+    // 上滑 → 下一首
+    store.playNext()
+  }
+}
+
+// 电脑端鼠标滚轮切歌：滚轮上下滚动切换上一首/下一首
+// 仅在歌词滚动区域外触发，避免与歌词滚动冲突
+let wheelTimer = null
+function onWheel(e) {
+  if (e.target.closest('.lyrics-scroll')) return
+  if (wheelTimer) return
+  wheelTimer = setTimeout(() => { wheelTimer = null }, 600)
+  if (e.deltaY > 0) {
+    store.playNext()
+  } else {
+    store.playPrev()
+  }
+}
+
+// 电脑端鼠标拖拽切歌：按下拖动后松开判断方向
+let mouseStartY = 0
+let mouseStartTarget = null
+function onMouseDown(e) {
+  mouseStartY = e.clientY
+  mouseStartTarget = e.target
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+function onMouseMove(e) {
+  // 拖拽时给出视觉反馈：歌词容器跟随鼠标轻微移动
+  const dy = e.clientY - mouseStartY
+  const el = document.querySelector('.lyrics-container')
+  if (el) el.style.transform = `translateY(${dy * 0.3}px)`
+}
+function onMouseUp(e) {
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+  // 恢复歌词容器位置
+  const el = document.querySelector('.lyrics-container')
+  if (el) el.style.transform = ''
+  // 如果起点在歌词滚动区域内，不触发切歌
+  if (mouseStartTarget && mouseStartTarget.closest('.lyrics-scroll')) return
+  const dy = e.clientY - mouseStartY
+  if (Math.abs(dy) < 50) return
+  if (dy > 0) {
+    store.playPrev()
+  } else {
+    store.playNext()
+  }
+}
+
 onMounted(() => {
   if (showSpectrum.value) {
     registerRingSpec()
@@ -227,6 +296,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (unregisterRingSpec) unregisterRingSpec()
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
 })
 
 // 彩虹配色：青→蓝→紫→粉→橙
