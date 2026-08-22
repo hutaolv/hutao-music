@@ -117,7 +117,7 @@ const hasMore = ref(false) // 是否还有下一页
 const loadingMore = ref(false)
 const loading = ref(false) // 搜索请求进行中，展示胡桃加载动画
 const playingAll = ref(false)
-const allPlatforms = platforms
+const allPlatforms = platforms.filter(p => p !== '抖音')
 let debounceTimer = null
 
 const filteredSongs = computed(() => {
