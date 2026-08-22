@@ -8,7 +8,12 @@
     </div>
 
     <div v-if="sublists.length > 1" class="sublist-tabs">
-      <button v-for="(list, i) in sublists" :key="i" class="sublist-tab" :class="{ active: activeSubList === i }" @click="activeSubList = i">{{ list.name }}</button>
+      <button v-for="(list, i) in sublists" :key="i" class="sublist-tab" :class="{ active: activeSubList === i }" @click="activeSubList = i; hoyoSort = 2">{{ list.name }}</button>
+    </div>
+
+    <div v-if="currentSubList?.name === 'HOYO-MiX'" class="hoyo-sort">
+      <button class="hoyo-sort-btn" :class="{ active: hoyoSort === 1 }" @click="switchHoyoSort(1)">&#x1F525; 最热</button>
+      <button class="hoyo-sort-btn" :class="{ active: hoyoSort === 2 }" @click="switchHoyoSort(2)">&#x23F0; 最新</button>
     </div>
 
     <div v-if="currentSongs.length" class="vip-filter">
@@ -55,10 +60,11 @@
           <button class="action-btn fav-btn" :class="favClass(song.id)" @click="toggleFav(song)" title="收藏"><span class="fav-heart">&#x2665;</span></button>
         </span>
       </div>
-      <button v-if="chartHasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
-        {{ loadingMore ? '加载中...' : '加载更多' }}
-      </button>
     </div>
+
+    <button v-if="chartHasMore && !loading" class="load-more" :disabled="loadingMore" @click="loadMore">
+      {{ loadingMore ? '加载中...' : '加载更多' }}
+    </button>
   </div>
 </template>
 
@@ -67,7 +73,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
-import { fetchCharts } from '../services/api'
+import { fetchCharts, fetchChartsMore } from '../services/api'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import HutaoLoading from '../components/HutaoLoading.vue'
 
@@ -79,12 +85,15 @@ const store = usePlayerStore()
 // 默认展示网易云音乐排行榜（保持平台标签原有顺序）
 const DEFAULT_PLATFORM = '网易云音乐'
 const PLATFORM_STORAGE_KEY = 'hutao:charts-platform'
+const SUBLIST_KEY = 'hutao:charts-sublist'
+const HOYO_SORT_KEY = 'hutao:charts-hoyo-sort'
 // 优先用路由参数（明确导航意图），否则恢复上次选中的平台，都没有才回退默认
 const lastPlatform = localStorage.getItem(PLATFORM_STORAGE_KEY)
 const activePlatform = ref(route.query.platform && platforms.includes(route.query.platform)
   ? route.query.platform
   : (lastPlatform && platforms.includes(lastPlatform) ? lastPlatform : DEFAULT_PLATFORM))
-const activeSubList = ref(0)
+const activeSubList = ref(Number(localStorage.getItem(SUBLIST_KEY)) || 0)
+const hoyoSort = ref(Number(localStorage.getItem(HOYO_SORT_KEY)) || 1) // 1=最热, 2=最新
 
 const liveData = ref({})
 const loading = ref(false)
@@ -102,6 +111,14 @@ function playAllFx(songs) {
 // 点击胡桃跳转搜索页，携带歌曲名和平台参数
 function goSearch(title) {
   router.push({ path: '/search', query: { q: title, platform: activePlatform.value } })
+}
+
+// HOYO-MiX 排序切换
+function switchHoyoSort(order) {
+  if (hoyoSort.value === order) return
+  hoyoSort.value = order
+  liveData.value['QQ音乐'] = null
+  loadPlatform(activePlatform.value)
 }
 
 const sublists = computed(() => {
@@ -138,17 +155,12 @@ async function loadMore() {
   if (!list || loadingMore.value || !list.hasMore) return
   loadingMore.value = true
   try {
-    const data = await fetchCharts(platform, (list.page || 1) + 1)
-    if (data?.length) {
-      // 按榜单名匹配下一页数据（fetchCharts 返回当前页所有榜单）
-      const next = data.find(l => l.name === list.name)
-      if (next?.songs?.length) {
-        list.page = (list.page || 1) + 1
-        list.songs = list.songs.concat(next.songs)
-        list.hasMore = next.hasMore
-      } else {
-        list.hasMore = false
-      }
+    const nextPage = (list.page || 1) + 1
+    const result = await fetchChartsMore(platform, list.name, nextPage, list.name === 'HOYO-MiX' ? hoyoSort.value : undefined)
+    if (result.songs.length) {
+      list.page = nextPage
+      list.songs = list.songs.concat(result.songs)
+      list.hasMore = result.hasMore
     } else {
       list.hasMore = false
     }
@@ -162,6 +174,7 @@ async function loadMore() {
 function switchPlatform(p) {
   activePlatform.value = p
   activeSubList.value = 0
+  localStorage.setItem(SUBLIST_KEY, 0)
   vipFilter.value = 'all'
   localStorage.setItem(PLATFORM_STORAGE_KEY, p)
 }
@@ -169,9 +182,15 @@ function switchPlatform(p) {
 async function loadPlatform(platform) {
   loading.value = true
   try {
-    const data = await fetchCharts(platform)
+    const order = platform === 'QQ音乐' ? hoyoSort.value : undefined
+    const data = await fetchCharts(platform, 1, order)
     if (data?.length) {
       liveData.value[platform] = data
+      // 校验 sublist 范围，避免索引越界
+      if (activeSubList.value >= data.length) {
+        activeSubList.value = 0
+        localStorage.setItem(SUBLIST_KEY, 0)
+      }
     }
   } catch (e) {
   } finally {
@@ -183,8 +202,13 @@ watch(activePlatform, (p) => {
   if (!liveData.value[p]) loadPlatform(p)
 })
 
-watch(activeSubList, () => {
+watch(activeSubList, (v) => {
   vipFilter.value = 'all'
+  localStorage.setItem(SUBLIST_KEY, v)
+})
+
+watch(hoyoSort, (v) => {
+  localStorage.setItem(HOYO_SORT_KEY, v)
 })
 
 // 路由平台参数变化时（如再次从首页进入）同步切换当前平台
@@ -321,6 +345,36 @@ async function toggleFav(song) {
 }
 
 .vip-filter-btn.active {
+  color: var(--accent-light);
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+/* HOYO-MiX 排序按钮 */
+.hoyo-sort {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding-left: 4px;
+}
+
+.hoyo-sort-btn {
+  padding: 5px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.hoyo-sort-btn:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-muted);
+}
+
+.hoyo-sort-btn.active {
   color: var(--accent-light);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.08);

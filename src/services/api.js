@@ -38,10 +38,11 @@ async function apiFetch(url, options) {
   return fetch(url, { ...options, headers })
 }
 
-export async function fetchCharts(platform, page) {
+export async function fetchCharts(platform, page, order) {
   try {
     let url = `${API_BASE}/charts?platform=${encodeURIComponent(platform)}`
     if (page && page > 1) url += `&page=${page}`
+    if (order) url += `&order=${order}`
     const res = await apiFetch(url)
     const json = await res.json()
     if (json.code === 200) {
@@ -58,6 +59,24 @@ export async function fetchCharts(platform, page) {
   } catch (e) {
     console.warn(`Fetch ${platform} charts failed:`, e.message)
     return null
+  }
+}
+
+// 加载更多：分页榜单（如 HOYO-MiX）
+export async function fetchChartsMore(platform, name, page, order) {
+  try {
+    let url = `${API_BASE}/charts/more?platform=${encodeURIComponent(platform)}&name=${encodeURIComponent(name)}&page=${page || 2}`
+    if (order) url += `&order=${order}`
+    const res = await apiFetch(url)
+    const json = await res.json()
+    if (json.code === 200 && json.data) {
+      const songs = json.data.songs || []
+      songs.forEach(s => { if (s) s.cover = toAbsolute(s.cover) })
+      return { songs, hasMore: json.data.hasMore }
+    }
+    return { songs: [], hasMore: false }
+  } catch {
+    return { songs: [], hasMore: false }
   }
 }
 

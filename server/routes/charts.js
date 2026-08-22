@@ -38,21 +38,40 @@ router.get('/', async (req, res) => {
     return res.json({ code: 400, message: 'Invalid platform', platforms: Object.keys(services) })
   }
   const page = Number(req.query.page) || 1
+  const order = Number(req.query.order) || 1
 
-  // 缓存 key 带上页码：只有第一页才做缓存（首页展示），翻页加载更多不阻塞
-  const cached = page === 1 ? getCached(platform) : null
+  // 缓存 key 带上页码和排序：只有第一页才做缓存（首页展示），翻页加载更多不阻塞
+  const cacheKey = platform === 'QQ音乐' ? `${platform}:${order}` : platform
+  const cached = page === 1 ? getCached(cacheKey) : null
   if (cached) return res.json({ code: 200, data: cached })
 
   try {
-    const result = await services[platform].getToplist(page)
+    const result = await services[platform].getToplist(order)
     if (result) {
-      if (page === 1) setCache(platform, result)
+      if (page === 1) setCache(cacheKey, result)
       res.json({ code: 200, data: result })
     } else {
       res.json({ code: 200, data: null, message: `${platform} toplist fetch failed, using fallback` })
     }
   } catch (e) {
     res.json({ code: 200, data: null, message: e.message })
+  }
+})
+
+// 加载更多：支持 HOYO-MiX 等分页榜单
+router.get('/more', async (req, res) => {
+  const { platform, name, page, order } = req.query
+  if (!platform || !name || platform !== 'QQ音乐') {
+    return res.json({ code: 400, message: 'Unsupported platform' })
+  }
+  try {
+    if (name === 'HOYO-MiX') {
+      const result = await qqmusic.getArtistSongs('001uz8tl04tdL8', 'HOYO-MiX', Number(page) || 2, Number(order) || 1)
+      return res.json({ code: 200, data: { songs: result?.songs || [], hasMore: result?.hasMore || false } })
+    }
+    res.json({ code: 200, data: { songs: [], hasMore: false } })
+  } catch (e) {
+    res.json({ code: 200, data: { songs: [], hasMore: false } })
   }
 })
 

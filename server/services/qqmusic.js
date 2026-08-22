@@ -8,7 +8,7 @@ const headers = {
   'Origin': 'https://y.qq.com'
 }
 
-export async function getToplist() {
+export async function getToplist(order) {
   try {
     const { data } = await axios.get(BASE, {
       headers,
@@ -38,7 +38,7 @@ export async function getToplist() {
     const targets = targetIds.map(id => allToplists.find(t => t.topId === id)).filter(Boolean)
     // 改为并行请求榜单详情 + HOYO-MiX 歌手歌曲
     const details = await Promise.allSettled(targets.map(t => getToplistDetail(t.topId)))
-    const hoyoResult = await getArtistSongs('001uz8tl04tdL8', 'HOYO-MiX').catch(() => null)
+    const hoyoResult = await getArtistSongs('001uz8tl04tdL8', 'HOYO-MiX', 1, order || 2).catch(() => null)
     const result = []
     for (let i = 0; i < targets.length; i++) {
       const r = details[i]
@@ -48,7 +48,7 @@ export async function getToplist() {
     }
     // 添加 HOYO-MiX 歌手歌曲作为特殊榜单
     if (hoyoResult?.songs?.length) {
-      result.push({ name: 'HOYO-MiX', cover: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000003uz8tl04tdL8.jpg', songs: hoyoResult.songs })
+      result.push({ name: 'HOYO-MiX', cover: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000003uz8tl04tdL8.jpg', songs: hoyoResult.songs, hasMore: hoyoResult.hasMore })
     }
     return result.length ? result : null
   } catch (e) {
@@ -207,8 +207,8 @@ export async function searchArtists(keyword, limit = 20) {
 // 获取歌手的热门歌曲。原 fcg_v8_singer_track_cp.fcg 接口已失效（返回 404），
 // 改用 musichall.song_list_server 模块的 GetSingerSongList 接口。
 // 获取 QQ音乐歌手歌曲：GetSingerSongList 支持 begin 偏移分页，每页 50 首，
-// 接口返回 totalNum 用于判断是否还有下一页
-export async function getArtistSongs(artistMid, artistName, page = 1) {
+// order: 1=最热, 2=最新（QQ 接口默认1=最热）
+export async function getArtistSongs(artistMid, artistName, page = 1, order = 1) {
   try {
     const begin = (page - 1) * 50
     const { data } = await axios.get(BASE, {
@@ -220,7 +220,7 @@ export async function getArtistSongs(artistMid, artistName, page = 1) {
           singerTrack: {
             module: 'musichall.song_list_server',
             method: 'GetSingerSongList',
-            param: { singerMid: artistMid, begin, num: 50, order: 2 }
+            param: { singerMid: artistMid, begin, num: 50, order }
           }
         })
       }
