@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
 const store = usePlayerStore()
 const listRef = ref(null)
@@ -35,8 +35,13 @@ function hideImg(e) {
 
 // 自定义平滑滚动：ease-out cubic 缓动，比原生 behavior: 'smooth' 更丝滑
 function smoothScrollTo(container, target, duration = 400) {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  // 目标相对容器顶部的偏移量
+  const offset = targetRect.top - containerRect.top + container.scrollTop
+  // 居中显示
+  const end = offset - (container.clientHeight / 2) + (target.clientHeight / 2)
   const start = container.scrollTop
-  const end = target.offsetTop - container.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2)
   const distance = end - start
   if (Math.abs(distance) < 1) return
   const startTime = performance.now()
@@ -51,15 +56,23 @@ function smoothScrollTo(container, target, duration = 400) {
   requestAnimationFrame(step)
 }
 
-// 打开播放列表时自动滚动到当前播放歌曲位置
-watch(() => store.showPlaylist, (v) => {
-  if (v) {
-    nextTick(() => {
+// 滚动到当前歌曲
+function scrollToCurrent() {
+  nextTick(() => {
+    setTimeout(() => {
       if (activeEl.value && listRef.value) {
         smoothScrollTo(listRef.value, activeEl.value, 400)
       }
-    })
-  }
+    }, 50)
+  })
+}
+
+// 组件挂载时（v-if 首次渲染）自动滚动
+onMounted(scrollToCurrent)
+
+// 打开播放列表时自动滚动到当前播放歌曲位置
+watch(() => store.showPlaylist, (v) => {
+  if (v) scrollToCurrent()
 })
 </script>
 

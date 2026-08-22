@@ -2,7 +2,7 @@
   <div class="lyrics-view" v-if="store.currentSong">
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
-    <div class="lyrics-container" :class="[playerStyle, { 'page-exit-up': pageAnim === 'exit-up', 'page-exit-down': pageAnim === 'exit-down', 'page-enter': pageAnim === 'enter' }]" @touchstart.passive="onTouchStart" @touchend="onTouchEnd" @mousedown.prevent="onMouseDown" @wheel.prevent="onWheel">
+    <div class="lyrics-container" :class="[playerStyle, { 'page-exit-up': pageAnim === 'exit-up', 'page-exit-down': pageAnim === 'exit-down', 'page-enter': pageAnim === 'enter' }]" @touchstart.passive="onTouchStart" @touchend="onTouchEnd" @mousedown="onMouseDown" @wheel="onWheel">
       <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
         <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
@@ -207,8 +207,11 @@ const parsedLyrics = computed(() => {
 
 // 自定义平滑滚动：ease-out cubic 缓动，比原生 behavior: 'smooth' 更丝滑
 function smoothScrollTo(container, target, duration = 400) {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const offset = targetRect.top - containerRect.top + container.scrollTop
+  const end = offset - (container.clientHeight / 2) + (target.clientHeight / 2)
   const start = container.scrollTop
-  const end = target.offsetTop - container.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2)
   const distance = end - start
   if (Math.abs(distance) < 1) return
   const startTime = performance.now()
@@ -282,7 +285,9 @@ function onTouchEnd(e) {
 // 仅在歌词滚动区域外触发，避免与歌词滚动冲突
 let wheelTimer = null
 function onWheel(e) {
+  // 歌词滚动区域内：不拦截，让浏览器处理默认滚动
   if (e.target.closest('.lyrics-scroll')) return
+  e.preventDefault()
   if (wheelTimer || pageAnim.value) return
   wheelTimer = setTimeout(() => { wheelTimer = null }, 600)
   if (e.deltaY > 0) {
@@ -296,6 +301,8 @@ function onWheel(e) {
 let mouseStartY = 0
 let mouseStartTarget = null
 function onMouseDown(e) {
+  // 如果点击在歌词滚动区域内，不拦截，让浏览器处理默认滚动
+  if (e.target.closest('.lyrics-scroll')) return
   mouseStartY = e.clientY
   mouseStartTarget = e.target
   document.addEventListener('mousemove', onMouseMove)

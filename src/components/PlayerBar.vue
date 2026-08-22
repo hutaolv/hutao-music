@@ -116,11 +116,16 @@
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
         </button>
-        <button class="ctrl-btn" @click="toggleMute">&#x1F50A;</button>
-        <div class="volume-bar" ref="volumeRef" @click="seekVolume">
-          <div class="volume-track">
-            <div class="volume-fill" :style="{ height: store.volume * 100 + '%' }"></div>
-          </div>
+        <div class="volume-wrap" ref="volumeWrapRef">
+          <button class="ctrl-btn" @click.stop="toggleVolumePopup" @mouseenter="showVolumePopup = true">&#x1F50A;</button>
+          <transition name="fade">
+            <div v-if="showVolumePopup" class="volume-popup" @mouseenter="showVolumePopup = true" @mouseleave="showVolumePopup = false" @click.stop>
+              <div class="volume-popup-track" ref="volumeRef" @mousedown.prevent="startVolumeDrag" @touchstart.prevent="startVolumeDragTouch">
+                <div class="volume-popup-fill" :style="{ height: store.volume * 100 + '%' }"></div>
+                <div class="volume-popup-thumb" :style="{ bottom: store.volume * 100 + '%' }"></div>
+              </div>
+            </div>
+          </transition>
         </div>
       </div>
     </div>
@@ -257,6 +262,13 @@ const qualityOptions = [
 const quality = ref(localStorage.getItem('playQuality') || 'standard')
 const showQualityMenu = ref(false)
 const qualityWrap = ref(null)
+// 音量弹出面板
+const showVolumePopup = ref(false)
+const volumeWrapRef = ref(null)
+
+function toggleVolumePopup() {
+  showVolumePopup.value = !showVolumePopup.value
+}
 // 当前歌曲实际可用的音质档位（播放时探测得到），没有的音质不显示在菜单里
 const availableQualities = ref(['standard'])
 
@@ -277,6 +289,7 @@ function toggleQualityMenu() {
 // 点击音质菜单外部时关闭菜单
 function onDocClick(e) {
   if (qualityWrap.value && !qualityWrap.value.contains(e.target)) showQualityMenu.value = false
+  if (volumeWrapRef.value && !volumeWrapRef.value.contains(e.target)) showVolumePopup.value = false
 }
 
 // 切换音质：保存偏好，若正在播放则重新获取当前歌曲的对应音质地址并保持进度
@@ -711,6 +724,40 @@ function seekVolume(e) {
   store.setVolume(pct)
 }
 
+// 音量条拖动
+let isVolumeDragging = false
+function onVolumeDrag(e) {
+  if (!isVolumeDragging) return
+  seekVolume(e)
+}
+function onVolumeDragEnd() {
+  isVolumeDragging = false
+  document.removeEventListener('mousemove', onVolumeDrag)
+  document.removeEventListener('mouseup', onVolumeDragEnd)
+}
+function startVolumeDrag(e) {
+  isVolumeDragging = true
+  seekVolume(e)
+  document.addEventListener('mousemove', onVolumeDrag)
+  document.addEventListener('mouseup', onVolumeDragEnd)
+}
+function onVolumeDragTouch(e) {
+  if (!isVolumeDragging) return
+  e.preventDefault()
+  seekVolume(e.touches[0])
+}
+function onVolumeDragTouchEnd() {
+  isVolumeDragging = false
+  document.removeEventListener('touchmove', onVolumeDragTouch)
+  document.removeEventListener('touchend', onVolumeDragTouchEnd)
+}
+function startVolumeDragTouch(e) {
+  isVolumeDragging = true
+  seekVolume(e.touches[0])
+  document.addEventListener('touchmove', onVolumeDragTouch, { passive: false })
+  document.addEventListener('touchend', onVolumeDragTouchEnd)
+}
+
 function toggleMute() {
   store.setVolume(store.volume > 0 ? 0 : 0.7)
 }
@@ -970,9 +1017,34 @@ onUnmounted(() => {
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
-.volume-bar { width: 20px; height: 80px; display: flex; align-items: center; justify-content: flex-end; cursor: pointer; }
-.volume-track { width: 4px; height: 100%; background: var(--border-color); border-radius: 2px; position: relative; overflow: hidden; }
-.volume-fill { width: 100%; background: var(--accent-light); border-radius: 2px; position: absolute; bottom: 0; }
+.volume-wrap { position: relative; }
+.volume-popup {
+  position: absolute;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18, 18, 26, 0.95);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px 10px;
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.volume-popup::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: rgba(18, 18, 26, 0.95);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+.volume-popup-track { width: 6px; height: 100px; background: rgba(255,255,255,0.15); border-radius: 3px; position: relative; cursor: pointer; }
+.volume-popup-fill { width: 100%; background: white; border-radius: 3px; position: absolute; bottom: 0; }
+.volume-popup-thumb { position: absolute; left: 50%; width: 14px; height: 14px; background: white; border-radius: 50%; transform: translate(-50%, 50%); box-shadow: 0 1px 4px rgba(0,0,0,0.4); pointer-events: none; }
 
 .lyrics-panel {
   position: absolute;
