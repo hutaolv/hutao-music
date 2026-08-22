@@ -57,13 +57,15 @@
           <rect x="19" y="2" width="3" height="18" rx="1"/>
         </svg>
       </button>
-      <span class="switch-sep"></span>
-      <button class="color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
-        <span class="color-dot rainbow"></span>
-      </button>
-      <button class="color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
-        <span class="color-dot amber"></span>
-      </button>
+      <template v-if="showSpectrum">
+        <span class="switch-sep"></span>
+        <button class="color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
+          <span class="color-dot rainbow"></span>
+        </button>
+        <button class="color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
+          <span class="color-dot amber"></span>
+        </button>
+      </template>
     </div>
     <!-- 手机端播放器设置按钮（齿轮）：点击弹出设置面板调整样式/频谱/颜色，仅手机端显示 -->
     <button class="mobile-settings-btn" @click="mobileSettingsOpen = true" title="播放器设置">
@@ -95,7 +97,7 @@
               </button>
             </div>
           </div>
-          <div class="ms-group">
+          <div v-if="showSpectrum" class="ms-group">
             <div class="ms-label">频谱颜色</div>
             <div class="ms-options">
               <button class="ms-option" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')">
@@ -654,7 +656,7 @@ watch(ringSpecRef, (el) => {
   transition: all 0.2s;
 }
 
-.style-switch button.active { color: #fff; background: var(--accent-light); }
+.style-switch button.active { color: var(--text-primary); background: rgba(255,255,255,0.12); }
 
 /* 频谱开关按钮分隔线 */
 .switch-sep {
@@ -827,7 +829,7 @@ watch(ringSpecRef, (el) => {
     border: 1px solid var(--border-color);
     transition: all 0.2s;
   }
-  .ms-option.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .ms-option.active { color: var(--text-primary); background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
   .ms-color-dot {
     width: 12px;
     height: 12px;

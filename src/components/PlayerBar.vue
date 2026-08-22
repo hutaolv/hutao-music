@@ -4,8 +4,8 @@
       <span class="time">{{ formatTime(store.currentTime) }}</span>
       <div class="progress-bar">
         <div class="progress-track">
-          <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
-          <div class="progress-thumb" :style="{ left: progressPercent + '%' }"></div>
+          <div class="progress-fill" :style="{ width: displayPercent + '%' }"></div>
+          <div class="progress-thumb" :style="{ left: displayPercent + '%' }"></div>
         </div>
       </div>
       <span class="time">{{ formatTime(durationSec) }}</span>
@@ -37,9 +37,23 @@
       <div class="player-center">
         <div class="controls">
           <button class="ctrl-btn" @click="store.togglePlayMode" :title="playModeText">
-            <span v-if="store.playMode === 'sequence'">&#x1F503;</span>
-            <span v-else-if="store.playMode === 'loop'">&#x1F501;</span>
-            <span v-else>&#x1F500;</span>
+            <!-- 顺序播放：列表+播放箭头 -->
+            <svg v-if="store.playMode === 'sequence'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+              <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+            </svg>
+            <!-- 单曲循环：圆形箭头+1 -->
+            <svg v-else-if="store.playMode === 'loop'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+              <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+              <text x="12" y="15" font-size="8" text-anchor="middle" fill="currentColor" stroke="none" font-weight="bold">1</text>
+            </svg>
+            <!-- 随机播放：交叉箭头 -->
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+              <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+              <line x1="4" y1="4" x2="9" y2="9"/>
+            </svg>
           </button>
           <button class="ctrl-btn" @click="store.playPrev">&#x23EE;</button>
           <button class="ctrl-btn play-btn" @click="store.togglePlay">
@@ -55,23 +69,25 @@
               <rect x="19" y="2" width="3" height="18" rx="1"/>
             </svg>
           </button>
-          <button class="ctrl-btn style-btn" :class="{ active: spectrumStyle === 'waveform' }" @click="setSpectrumStyle('waveform')" title="波形频谱">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M2 12h2l2-6 3 12 3-8 2 4h2l2-2 2 4h2"/>
-            </svg>
-          </button>
-          <button class="ctrl-btn style-btn" :class="{ active: spectrumStyle === 'circle' }" @click="setSpectrumStyle('circle')" title="环形频谱">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="8"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-          </button>
-          <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
-            <span class="color-dot rainbow"></span>
-          </button>
-          <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
-            <span class="color-dot amber"></span>
-          </button>
+          <template v-if="showSpectrum">
+            <button class="ctrl-btn style-btn" :class="{ active: spectrumStyle === 'waveform' }" @click="setSpectrumStyle('waveform')" title="波形频谱">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M2 12h2l2-6 3 12 3-8 2 4h2l2-2 2 4h2"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn style-btn" :class="{ active: spectrumStyle === 'circle' }" @click="setSpectrumStyle('circle')" title="环形频谱">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="8"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+            <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')" title="彩虹色">
+              <span class="color-dot rainbow"></span>
+            </button>
+            <button class="ctrl-btn color-btn" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')" title="琥珀色">
+              <span class="color-dot amber"></span>
+            </button>
+          </template>
           <button class="ctrl-btn playlist-toggle-btn" @click="store.togglePlaylist" :class="{ active: store.showPlaylist }">&#x2630;</button>
         </div>
       </div>
@@ -103,7 +119,7 @@
         <button class="ctrl-btn" @click="toggleMute">&#x1F50A;</button>
         <div class="volume-bar" ref="volumeRef" @click="seekVolume">
           <div class="volume-track">
-            <div class="volume-fill" :style="{ width: store.volume * 100 + '%' }"></div>
+            <div class="volume-fill" :style="{ height: store.volume * 100 + '%' }"></div>
           </div>
         </div>
       </div>
@@ -183,6 +199,8 @@ const miniSpecRef = ref(null)
 const isFav = ref(false)
 const downloadUrl = ref('')
 const anim = ref('')
+// 拖动时的进度百分比（独立于 store.currentTime，避免 timeupdate 覆盖拖动位置）
+const dragPercent = ref(0)
 // 播放条LED频谱开关，持久化到 localStorage
 const showSpectrum = ref(localStorage.getItem('playerSpectrum') !== 'off')
 // 播放条频谱颜色，持久化到 localStorage
@@ -338,6 +356,9 @@ const progressPercent = computed(() => {
   if (durationSec.value === 0) return 0
   return (store.currentTime / durationSec.value) * 100
 })
+
+// 进度条显示值：拖动时用 dragPercent，否则用 progressPercent
+const displayPercent = computed(() => isDragging.value ? dragPercent.value : progressPercent.value)
 
 const playModeText = computed(() => {
   switch (store.playMode) {
@@ -654,26 +675,30 @@ function onDragMoveTouch(e) {
   updateDrag(e.touches[0])
 }
 
-// 更新拖动位置：将鼠标/触摸位置转换为播放进度
+// 更新拖动位置：将鼠标/触摸位置转换为播放进度（仅更新拖动百分比，不立即跳转音频）
 function updateDrag(e) {
   if (!progressRef.value || !durationSec.value) return
   const rect = progressRef.value.getBoundingClientRect()
   const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  dragPercent.value = pct * 100
   store.currentTime = pct * durationSec.value
+}
+
+// 停止拖动：移除全局事件监听，并跳转音频到拖动位置
+function stopDrag() {
+  isDragging.value = false
   if (audio && audio.src) {
     audio.currentTime = store.currentTime
   }
-}
-
-// 停止拖动：移除全局事件监听
-function stopDrag() {
-  isDragging.value = false
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', stopDrag)
 }
 
 function stopDragTouch() {
   isDragging.value = false
+  if (audio && audio.src) {
+    audio.currentTime = store.currentTime
+  }
   document.removeEventListener('touchmove', onDragMoveTouch)
   document.removeEventListener('touchend', stopDragTouch)
 }
@@ -681,7 +706,8 @@ function stopDragTouch() {
 function seekVolume(e) {
   if (!volumeRef.value) return
   const rect = volumeRef.value.getBoundingClientRect()
-  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  // 垂直音量条：从下往上计算（底部0，顶部1）
+  const pct = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height))
   store.setVolume(pct)
 }
 
@@ -773,7 +799,7 @@ onUnmounted(() => {
 }
 .progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
 .progress-track { width: 100%; height: 3px; background: var(--border-color); border-radius: 2px; position: relative; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.1s linear; }
+.progress-fill { height: 100%; background: white; border-radius: 2px; transition: width 0.1s linear; }
 .progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; }
 .progress-bar:hover .progress-thumb { opacity: 1; }
 .progress-bar:active .progress-thumb { cursor: grabbing; }
@@ -827,9 +853,9 @@ onUnmounted(() => {
 .player-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .controls { display: flex; align-items: center; gap: 16px; }
 
-.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; }
+.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; background: transparent; }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
-.ctrl-btn.active { color: var(--accent-light); }
+.ctrl-btn.active { color: var(--accent-light); background: transparent; }
 
 /* 颜色选择按钮 */
 .color-btn { padding: 0; }
@@ -859,8 +885,8 @@ onUnmounted(() => {
   color: var(--accent-light);
 }
 
-.play-btn { width: 40px; height: 40px; background: var(--accent); color: white; font-size: 16px; }
-.play-btn:hover { background: var(--accent-light); color: white; }
+.play-btn { width: 40px; height: 40px; color: var(--text-primary); font-size: 16px; }
+.play-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 
 /* 音质选择：按钮 + 上浮菜单（强调视觉） */
 .quality-wrap { position: relative; }
@@ -944,9 +970,9 @@ onUnmounted(() => {
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
-.volume-bar { width: 100px; height: 20px; display: flex; align-items: center; cursor: pointer; }
-.volume-track { width: 100%; height: 4px; background: var(--border-color); border-radius: 2px; }
-.volume-fill { height: 100%; background: var(--accent-light); border-radius: 2px; }
+.volume-bar { width: 20px; height: 80px; display: flex; align-items: center; justify-content: flex-end; cursor: pointer; }
+.volume-track { width: 4px; height: 100%; background: var(--border-color); border-radius: 2px; position: relative; overflow: hidden; }
+.volume-fill { width: 100%; background: var(--accent-light); border-radius: 2px; position: absolute; bottom: 0; }
 
 .lyrics-panel {
   position: absolute;
