@@ -15,9 +15,6 @@
       <button class="vip-filter-btn" :class="{ active: vipFilter === 'all' }" @click="vipFilter = 'all'">全部 ({{ currentSongs.length }})</button>
       <button class="vip-filter-btn" :class="{ active: vipFilter === 'free' }" @click="vipFilter = 'free'">免费 ({{ freeCount }})</button>
       <button class="vip-filter-btn" :class="{ active: vipFilter === 'vip' }" @click="vipFilter = 'vip'">VIP ({{ vipCount }})</button>
-      <button class="vip-filter-btn hutao" :class="{ active: vipFilter === 'hutao' }" @click="searchHutaoVip" :disabled="hutaoSearching">
-        🍑 胡桃 ({{ hutaoSearching ? '...' : hutaoVipSongs.length || vipCount }})
-      </button>
     </div>
 
     <HutaoLoading v-if="loading" text="胡桃正在全力加载中" />
@@ -69,7 +66,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
-import { fetchCharts, thirdPartySearch } from '../services/api'
+import { fetchCharts } from '../services/api'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import HutaoLoading from '../components/HutaoLoading.vue'
 
@@ -114,38 +111,13 @@ const currentSongs = computed(() => {
   return currentSubList.value?.songs || []
 })
 
-// VIP 筛选：all=全部，free=免费，vip=VIP，hutao=胡桃搜VIP
+// VIP 筛选：all=全部，free=免费，vip=VIP
 const vipFilter = ref('all')
 const freeCount = computed(() => currentSongs.value.filter(s => !s.vip).length)
 const vipCount = computed(() => currentSongs.value.filter(s => s.vip).length)
-
-// 胡桃搜 VIP 歌曲
-const hutaoVipSongs = ref([])
-const hutaoSearching = ref(false)
-
-async function searchHutaoVip() {
-  if (hutaoVipSongs.value.length) {
-    // 已有数据，直接切换
-    vipFilter.value = 'hutao'
-    return
-  }
-  hutaoSearching.value = true
-  vipFilter.value = 'hutao'
-  try {
-    const keyword = currentSubList.value?.name || '热歌'
-    const result = await thirdPartySearch(keyword, activePlatform.value)
-    hutaoVipSongs.value = result?.songs || []
-  } catch {
-    hutaoVipSongs.value = []
-  } finally {
-    hutaoSearching.value = false
-  }
-}
-
 const filteredSongs = computed(() => {
   if (vipFilter.value === 'free') return currentSongs.value.filter(s => !s.vip)
   if (vipFilter.value === 'vip') return currentSongs.value.filter(s => s.vip)
-  if (vipFilter.value === 'hutao') return hutaoVipSongs.value
   return currentSongs.value
 })
 
@@ -345,17 +317,6 @@ async function toggleFav(song) {
   color: var(--accent-light);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.08);
-}
-
-.vip-filter-btn.hutao {
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-.vip-filter-btn.hutao.active {
-  color: #f59e0b;
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.08);
 }
 
 .chart-header-row, .chart-row {
