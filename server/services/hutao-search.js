@@ -102,22 +102,18 @@ export const thirdPartySearchApis = [
 // 返回：包含 title、artist、album、duration、platformId（官方ID，用于歌词）、isThirdParty 标识的歌曲数组
 export async function searchWithThirdParty(keyword, platform) {
   // 根据平台调整搜索 API 优先级：选择哪个平台就优先用那个平台的搜索接口
-  let apis = [...thirdPartySearchApis]
-  if (platform === 'QQ音乐') {
-    // QQ音乐优先：qq-official → netease-meting → kuwo
-    apis = apis.sort((a, b) => {
-      const order = { 'qq-official': 0, 'netease-meting': 1, 'kuwo': 2 }
-      return (order[a.name] ?? 9) - (order[b.name] ?? 9)
-    })
-  } else if (platform === '网易云音乐') {
-    // 网易云优先：netease-meting → qq-official → kuwo
-    apis = apis.sort((a, b) => {
-      const order = { 'netease-meting': 0, 'qq-official': 1, 'kuwo': 2 }
-      return (order[a.name] ?? 9) - (order[b.name] ?? 9)
-    })
+  const apiMap = {
+    'QQ音乐': ['qq-official', 'netease-meting', 'kuwo'],
+    '网易云音乐': ['netease-meting', 'qq-official', 'kuwo']
   }
-  // 其他平台（酷我、酷狗、咪咕等）默认用 kuwo 搜索
+  const order = apiMap[platform] || ['kuwo', 'qq-official', 'netease-meting']
+  // 按平台指定的顺序排列 API
+  const apis = order.map(name => thirdPartySearchApis.find(a => a.name === name)).filter(Boolean)
+  // 补充未在 order 中列出的 API
   for (const api of thirdPartySearchApis) {
+    if (!apis.includes(api)) apis.push(api)
+  }
+  for (const api of apis) {
     try {
       const result = await Promise.race([
         api.search(keyword, platform),
