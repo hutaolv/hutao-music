@@ -1,5 +1,6 @@
 import axios from 'axios'
-import { neteaseThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
+import { neteaseThirdPartyApis } from './hutao-netease.js'
+import { fetchWithFallback } from './thirdPartyApis.js'
 
 const BASE = 'https://music.163.com/api'
 

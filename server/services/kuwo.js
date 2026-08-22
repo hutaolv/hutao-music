@@ -1,6 +1,7 @@
 import axios from 'axios'
 import vm from 'node:vm'
-import { kuwoThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
+import { kuwoThirdPartyApis } from './hutao-kuwo.js'
+import { fetchWithFallback } from './thirdPartyApis.js'
 
 // 酷我音乐 API 配置
 const headers = {

@@ -7,7 +7,11 @@ import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
 import * as kugou from '../services/kugou.js'
 import * as kuwo from '../services/kuwo.js'
-import { neteaseThirdPartyApis, qqThirdPartyApis, kuwoThirdPartyApis, kugouThirdPartyApis, fetchWithFallback } from '../services/thirdPartyApis.js'
+import { neteaseThirdPartyApis } from '../services/hutao-netease.js'
+import { qqThirdPartyApis } from '../services/hutao-qq.js'
+import { kuwoThirdPartyApis } from '../services/hutao-kuwo.js'
+import { kugouThirdPartyApis } from '../services/hutao-kugou.js'
+import { fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
 

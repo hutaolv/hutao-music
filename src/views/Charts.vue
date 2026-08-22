@@ -11,15 +11,21 @@
       <button v-for="(list, i) in sublists" :key="i" class="sublist-tab" :class="{ active: activeSubList === i }" @click="activeSubList = i">{{ list.name }}</button>
     </div>
 
+    <div v-if="currentSongs.length" class="vip-filter">
+      <button class="vip-filter-btn" :class="{ active: vipFilter === 'all' }" @click="vipFilter = 'all'">全部 ({{ currentSongs.length }})</button>
+      <button class="vip-filter-btn" :class="{ active: vipFilter === 'free' }" @click="vipFilter = 'free'">免费 ({{ freeCount }})</button>
+      <button class="vip-filter-btn" :class="{ active: vipFilter === 'vip' }" @click="vipFilter = 'vip'">VIP ({{ vipCount }})</button>
+    </div>
+
     <HutaoLoading v-if="loading" text="胡桃正在全力加载中" />
     <div v-if="!loading && !currentSongs.length" class="no-result">暂无榜单数据</div>
 
     <div v-if="currentSongs.length" class="chart-toolbar">
-      <span class="chart-toolbar-info">共 {{ currentSongs.length }} 首</span>
-      <button class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx(currentSongs)">&#x25B6; 播放全部</button>
+      <span class="chart-toolbar-info">共 {{ filteredSongs.length }} 首</span>
+      <button class="play-all-btn" :class="{ playing: playingAll }" @click="playAllFx(filteredSongs)">&#x25B6; 播放全部</button>
     </div>
 
-    <div v-if="currentSongs.length" class="chart-header-row">
+    <div v-if="filteredSongs.length" class="chart-header-row">
       <span class="col-rank">#</span>
       <span class="col-cover"></span>
       <span class="col-title">歌曲</span>
@@ -28,8 +34,8 @@
       <span class="col-action">操作</span>
     </div>
 
-    <div v-if="currentSongs.length" class="chart-list">
-      <div v-for="(song, idx) in currentSongs" :key="song.id" class="chart-row" @dblclick="store.playSong(song)">
+    <div v-if="filteredSongs.length" class="chart-list">
+      <div v-for="(song, idx) in filteredSongs" :key="song.id" class="chart-row" @dblclick="store.playSong(song)">
         <span class="col-rank">
           <span class="rank-badge" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
         </span>
@@ -105,6 +111,16 @@ const currentSongs = computed(() => {
   return currentSubList.value?.songs || []
 })
 
+// VIP 筛选：all=全部，free=免费，vip=VIP
+const vipFilter = ref('all')
+const freeCount = computed(() => currentSongs.value.filter(s => !s.vip).length)
+const vipCount = computed(() => currentSongs.value.filter(s => s.vip).length)
+const filteredSongs = computed(() => {
+  if (vipFilter.value === 'free') return currentSongs.value.filter(s => !s.vip)
+  if (vipFilter.value === 'vip') return currentSongs.value.filter(s => s.vip)
+  return currentSongs.value
+})
+
 const loadingMore = ref(false)
 const chartHasMore = computed(() => !!currentSubList.value?.hasMore)
 
@@ -139,6 +155,7 @@ async function loadMore() {
 function switchPlatform(p) {
   activePlatform.value = p
   activeSubList.value = 0
+  vipFilter.value = 'all'
   localStorage.setItem(PLATFORM_STORAGE_KEY, p)
 }
 
@@ -157,6 +174,10 @@ async function loadPlatform(platform) {
 
 watch(activePlatform, (p) => {
   if (!liveData.value[p]) loadPlatform(p)
+})
+
+watch(activeSubList, () => {
+  vipFilter.value = 'all'
 })
 
 // 路由平台参数变化时（如再次从首页进入）同步切换当前平台
@@ -268,6 +289,36 @@ async function toggleFav(song) {
   background: rgba(99, 102, 241, 0.08);
 }
 
+/* VIP 筛选标签 */
+.vip-filter {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding-left: 4px;
+}
+
+.vip-filter-btn {
+  padding: 5px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.vip-filter-btn:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-muted);
+}
+
+.vip-filter-btn.active {
+  color: var(--accent-light);
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.08);
+}
+
 .chart-header-row, .chart-row {
   display: flex;
   align-items: center;
@@ -365,7 +416,7 @@ async function toggleFav(song) {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   color: white;
   font-weight: 700;
   margin-left: 6px;

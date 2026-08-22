@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { qqThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
 
 const BASE = 'https://u.y.qq.com/cgi-bin/musicu.fcg'
 
@@ -300,10 +299,9 @@ export async function getSongUrl(mid, mediaMid, quality = 'standard') {
     console.error('QQ official API error:', e.message)
   }
 
-  // 2. 官方 API 失败时，使用第三方 API
-  console.log(`[QQ] Official API failed for ${mid}, trying third-party APIs...`)
-  const result = await fetchWithFallback(qqThirdPartyApis, useMid, quality)
-  return result?.url || null
+  // 官方 API 失败时不再自动降级第三方 API，仅返回空地址
+  console.log(`[QQ] Official API failed for ${mid}, no fallback`)
+  return null
 }
 
 // 探测歌曲可用音质：按各音质文件名请求，能拿到 purl 才算该音质可用
@@ -342,23 +340,7 @@ export async function detectQualities(mid, mediaMid) {
   } catch (e) {
     console.error('QQ detect qualities error:', e.message)
   }
-  if (result.length >= 2) return result
-  // 官方 API 探测结果不足时，用第三方 API 补充探测
-  const thirdPartyProbes = [
-    { q: 'lossless', quality: 'lossless' },
-    { q: 'high', quality: 'high' },
-    { q: 'standard', quality: 'standard' }
-  ]
-  for (const p of thirdPartyProbes) {
-    if (result.includes(p.q)) continue
-    try {
-      const probeResult = await Promise.race([
-        fetchWithFallback(qqThirdPartyApis, useMid, p.quality),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-      ])
-      if (probeResult?.url) result.push(p.q)
-    } catch {}
-  }
+  // 官方 API 探测结果不足时，不再自动降级第三方 API
   return result.length ? result : ['standard']
 }
 

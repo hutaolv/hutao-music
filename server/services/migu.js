@@ -1,5 +1,6 @@
 import axios from 'axios'
-import { miguThirdPartyApis, fetchWithFallback } from './thirdPartyApis.js'
+import { miguThirdPartyApis } from './hutao-migu.js'
+import { fetchWithFallback } from './thirdPartyApis.js'
 
 const BASE = 'https://app.c.nf.migu.cn'
 const SEARCH_BASE = 'http://app.c.nf.migu.cn'

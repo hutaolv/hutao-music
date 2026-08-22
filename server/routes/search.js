@@ -6,7 +6,7 @@ import * as douyin from '../services/douyin.js'
 import * as migu from '../services/migu.js'
 import * as kuwo from '../services/kuwo.js'
 import * as kugou from '../services/kugou.js'
-import { searchWithThirdParty } from '../services/thirdPartyApis.js'
+import { searchWithThirdParty } from '../services/hutao-search.js'
 
 const router = Router()
 
