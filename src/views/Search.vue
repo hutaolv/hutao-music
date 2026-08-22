@@ -120,6 +120,13 @@ const playingAll = ref(false)
 const allPlatforms = platforms.filter(p => p !== '抖音')
 let debounceTimer = null
 
+function updateRouteQuery() {
+  const kw = keyword.value.trim()
+  if (kw) {
+    router.replace({ query: { q: kw, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
+  }
+}
+
 const filteredSongs = computed(() => {
   return allSongs.value.filter(s => s.platform === selectedPlatform.value)
 })
@@ -137,12 +144,14 @@ function selectPlatform(p) {
   selectedPlatform.value = p
   useThirdParty.value = false
   localStorage.setItem(SEARCH_PLATFORM_STORAGE_KEY, p)
+  updateRouteQuery()
   if (keyword.value.trim()) doSearch()
 }
 
 // 切换胡桃搜开关：启用时使用第三方 API 搜索，关闭时使用官方 API 搜索
 function toggleThirdParty() {
   useThirdParty.value = !useThirdParty.value
+  updateRouteQuery()
   if (keyword.value.trim()) doSearch()
 }
 
@@ -186,7 +195,7 @@ async function doSearch() {
     allSongs.value = cached.songs
     artistResults.value = cached.artists
     hasMore.value = cached.hasMore
-    router.replace({ query: { q: kw } })
+    router.replace({ query: { q: kw, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
     return
   }
 
@@ -216,7 +225,7 @@ async function doSearch() {
   } finally {
     loading.value = false
   }
-  router.replace({ query: { q: kw } })
+  router.replace({ query: { q: kw, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
 }
 
 // B站"加载更多"：翻一页追加到结果列表
@@ -256,6 +265,10 @@ onMounted(() => {
     // 从排行榜跳转过来时携带平台参数，自动切换到对应平台并启用胡桃搜
     if (route.query.platform && platforms.includes(route.query.platform)) {
       selectedPlatform.value = route.query.platform
+      useThirdParty.value = true
+    }
+    // 恢复胡桃搜状态（路由返回时保持）
+    if (route.query.thirdparty === '1') {
       useThirdParty.value = true
     }
     doSearch()
