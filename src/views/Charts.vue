@@ -13,8 +13,8 @@
 
     <div v-if="currentSongs.length" class="vip-filter">
       <button class="vip-filter-btn" :class="{ active: vipFilter === 'all' }" @click="vipFilter = 'all'">全部 ({{ currentSongs.length }})</button>
-      <button class="vip-filter-btn" :class="{ active: vipFilter === 'free' }" @click="vipFilter = 'free'">免费 ({{ freeCount }})</button>
-      <button class="vip-filter-btn" :class="{ active: vipFilter === 'vip' }" @click="vipFilter = 'vip'">VIP ({{ vipCount }})</button>
+      <button v-if="vipCount" class="vip-filter-btn" :class="{ active: vipFilter === 'free' }" @click="vipFilter = 'free'">免费 ({{ freeCount }})</button>
+      <button v-if="vipCount" class="vip-filter-btn" :class="{ active: vipFilter === 'vip' }" @click="vipFilter = 'vip'">VIP ({{ vipCount }})</button>
     </div>
 
     <HutaoLoading v-if="loading" text="胡桃正在全力加载中" />
