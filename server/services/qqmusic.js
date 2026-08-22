@@ -33,20 +33,22 @@ export async function getToplist() {
         allToplists.push(t)
       }
     }
-    const hotIdx = allToplists.findIndex(t => t.topId === 26)
-    if (hotIdx > 0) {
-      const hot = allToplists.splice(hotIdx, 1)[0]
-      allToplists.unshift(hot)
-    }
-    const targets = allToplists.slice(0, 3)
-    // 改为并行请求3个榜单详情，代替原来串行
+    // 展示指定的热门榜单
+    const targetIds = [26, 27, 4, 62, 28, 60, 17, 72]
+    const targets = targetIds.map(id => allToplists.find(t => t.topId === id)).filter(Boolean)
+    // 改为并行请求榜单详情 + HOYO-MiX 歌手歌曲
     const details = await Promise.allSettled(targets.map(t => getToplistDetail(t.topId)))
+    const hoyoResult = await getArtistSongs('001uz8tl04tdL8', 'HOYO-MiX').catch(() => null)
     const result = []
     for (let i = 0; i < targets.length; i++) {
       const r = details[i]
       if (r.status === 'fulfilled' && r.value) {
         result.push({ name: targets[i].title, cover: targets[i].headPicUrl || targets[i].frontPicUrl, songs: r.value })
       }
+    }
+    // 添加 HOYO-MiX 歌手歌曲作为特殊榜单
+    if (hoyoResult?.songs?.length) {
+      result.push({ name: 'HOYO-MiX', cover: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000003uz8tl04tdL8.jpg', songs: hoyoResult.songs })
     }
     return result.length ? result : null
   } catch (e) {
