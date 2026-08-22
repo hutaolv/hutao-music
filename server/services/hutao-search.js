@@ -71,7 +71,7 @@ export const thirdPartySearchApis = [
         album: item.album?.name || '',
         duration: formatDuration(item.interval || 0),
         platform: 'QQ音乐',
-        cover: item.album?.pic ? `https://y.qq.com/music/photo_new/T002R300x300M000${item.album.pic}.jpg` : ''
+        cover: item.album?.mid ? `https://y.qq.com/music/photo_new/T002R300x300M000${item.album.mid}.jpg` : ''
       }))
     }
   },

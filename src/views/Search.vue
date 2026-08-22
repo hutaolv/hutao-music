@@ -253,6 +253,11 @@ onMounted(() => {
   searchHistory.value = getSearchHistory()
   if (route.query.q) {
     keyword.value = route.query.q
+    // 从排行榜跳转过来时携带平台参数，自动切换到对应平台并启用胡桃搜
+    if (route.query.platform && platforms.includes(route.query.platform)) {
+      selectedPlatform.value = route.query.platform
+      useThirdParty.value = true
+    }
     doSearch()
   }
 })

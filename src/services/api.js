@@ -110,8 +110,6 @@ export async function searchArtists(keyword) {
 // 获取播放地址。quality: standard/high/lossless（音质档位，由播放器选择并持久化）。
 // detect=true 时后端同时探测该歌曲可用音质，返回 { url, availableQualities }
 export async function getSongUrl(song, quality = 'standard', detect = false) {
-  // 第三方搜索的歌曲：id 是第三方 ID，platformId 是官方 ID（用于歌词）
-  // 播放时需要告诉后端使用第三方 API，但播放地址需要用官方 ID 获取
   const isThirdParty = song.isThirdParty
   // 第三方歌曲播放用 platformId（官方ID），官方歌曲播放用 platformId 或 id
   const songId = isThirdParty ? (song.platformId || song.id) : (song.platformId || song.id)
@@ -122,6 +120,8 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
     id: songId
   })
   if (isThirdParty) params.set('source', 'thirdparty')
+  if (isThirdParty && song.title) params.set('title', song.title)
+  if (isThirdParty && song.artist) params.set('artist', song.artist)
   if (quality && quality !== 'standard') params.set('quality', quality)
   if (detect) params.set('detect', '1')
   if (song.bvid) params.set('bvid', song.bvid)

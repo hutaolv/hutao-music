@@ -31,6 +31,7 @@ function sanitizeLyricsText(text) {
 
 router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source } = req.query
+  console.log('[SongURL]', { platform, id, source, quality })
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
@@ -44,32 +45,57 @@ router.get('/url', async (req, res) => {
 
     // 第三方搜索的歌曲：直接使用第三方 API
     if (source === 'thirdparty') {
-      const thirdPartyApis = platform === 'QQ音乐' ? qqThirdPartyApis : platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
-      if (detect === '1') {
-        // 探测第三方 API 支持的音质
-        availableQualities = []
-        const probes = [
-          { q: 'lossless', quality: 'lossless' },
-          { q: 'high', quality: 'high' },
-          { q: 'standard', quality: 'standard' }
-        ]
-        for (const p of probes) {
+      // QQ音乐第三方播放 API 已失效，直接用酷我搜索+播放
+      if (platform === 'QQ音乐') {
+        const title = req.query.title
+        const artist = req.query.artist || ''
+        if (title) {
           try {
-            const result = await Promise.race([
-              fetchWithFallback(thirdPartyApis, id, p.quality),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-            ])
-            if (result?.url) availableQualities.push(p.q)
+            const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
+            const { data } = await axios.get('http://search.kuwo.cn/r.s', {
+              params: { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' },
+              headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
+            })
+            const hit = data?.abslist?.[0]
+            if (hit) {
+              const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
+              console.log('[ThirdParty] QQ fallback to kuwo, id:', kuwoId)
+              const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
+              url = result?.url || null
+              if (!url && q !== 'standard') {
+                const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard')
+                url = fb?.url || null
+              }
+            }
           } catch {}
         }
-        if (!availableQualities.length) availableQualities = ['standard']
-      }
-      // 获取播放地址
-      const result = await fetchWithFallback(thirdPartyApis, id, q)
-      url = result?.url || null
-      if (!url && q !== 'standard') {
-        const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard')
-        url = fallback?.url || null
+        if (!url && detect === '1') availableQualities = ['standard']
+      } else {
+        const thirdPartyApis = platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
+        if (detect === '1') {
+          availableQualities = []
+          const probes = [
+            { q: 'lossless', quality: 'lossless' },
+            { q: 'high', quality: 'high' },
+            { q: 'standard', quality: 'standard' }
+          ]
+          for (const p of probes) {
+            try {
+              const result = await Promise.race([
+                fetchWithFallback(thirdPartyApis, id, p.quality),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+              ])
+              if (result?.url) availableQualities.push(p.q)
+            } catch {}
+          }
+          if (!availableQualities.length) availableQualities = ['standard']
+        }
+        const result = await fetchWithFallback(thirdPartyApis, id, q)
+        url = result?.url || null
+        if (!url && q !== 'standard') {
+          const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard')
+          url = fallback?.url || null
+        }
       }
     } else {
       // 官方搜索的歌曲：使用官方 API

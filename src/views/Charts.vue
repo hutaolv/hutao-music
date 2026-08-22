@@ -45,6 +45,7 @@
           <span class="col-title">
             <span class="row-title">{{ song.title }}</span>
             <span v-if="song.vip" class="chart-vip">VIP</span>
+            <span v-if="song.vip" class="chart-hutao" @click.stop="goSearch(song.title)">🍑</span>
           </span>
         <span class="col-artist">{{ song.artist }}</span>
         <span class="col-duration">{{ song.duration }}</span>
@@ -63,7 +64,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
@@ -71,6 +72,7 @@ import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import HutaoLoading from '../components/HutaoLoading.vue'
 
 const route = useRoute()
+const router = useRouter()
 const store = usePlayerStore()
 
 // 支持从首页"查看全部"带平台参数进入，如 /charts?platform=网易云音乐
@@ -95,6 +97,11 @@ function playAllFx(songs) {
   playingAll.value = true
   store.playAll(songs)
   setTimeout(() => { playingAll.value = false }, 350)
+}
+
+// 点击胡桃跳转搜索页，携带歌曲名和平台参数
+function goSearch(title) {
+  router.push({ path: '/search', query: { q: title, platform: activePlatform.value } })
 }
 
 const sublists = computed(() => {
@@ -421,6 +428,17 @@ async function toggleFav(song) {
   font-weight: 700;
   margin-left: 6px;
   letter-spacing: 0.5px;
+}
+
+.chart-hutao {
+  font-size: 12px;
+  margin-left: 4px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.chart-hutao:hover {
+  transform: scale(1.3);
 }
 
 .action-btn {
