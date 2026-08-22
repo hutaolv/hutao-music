@@ -2,7 +2,7 @@
   <div class="lyrics-view" v-if="store.currentSong">
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
-    <div class="lyrics-container" :class="playerStyle" @touchstart.passive="onTouchStart" @touchend="onTouchEnd" @mousedown.prevent="onMouseDown" @wheel.prevent="onWheel">
+    <div class="lyrics-container" :class="[playerStyle, { 'page-exit-up': pageAnim === 'exit-up', 'page-exit-down': pageAnim === 'exit-down', 'page-enter': pageAnim === 'enter' }]" @touchstart.passive="onTouchStart" @touchend="onTouchEnd" @mousedown.prevent="onMouseDown" @wheel.prevent="onWheel">
       <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
         <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
@@ -135,6 +135,8 @@ const coverBroken = ref(false)
 const showSpectrum = ref(localStorage.getItem('lyricsSpectrum') !== 'off')
 // 手机端播放器设置面板展开状态（仅手机端通过齿轮按钮打开）
 const mobileSettingsOpen = ref(false)
+// 翻页动画状态：null / 'exit-up' / 'exit-down' / 'enter'
+const pageAnim = ref(null)
 
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {
@@ -201,9 +203,28 @@ const parsedLyrics = computed(() => {
   return result.sort((a, b) => a.time - b.time)
 })
 
+// 自定义平滑滚动：ease-out cubic 缓动，比原生 behavior: 'smooth' 更丝滑
+function smoothScrollTo(container, target, duration = 400) {
+  const start = container.scrollTop
+  const end = target.offsetTop - container.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2)
+  const distance = end - start
+  if (Math.abs(distance) < 1) return
+  const startTime = performance.now()
+  function step(now) {
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    const ease = 1 - Math.pow(1 - progress, 3)
+    container.scrollTop = start + distance * ease
+    if (progress < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+}
+
 watch(() => store.currentLyricIndex, () => {
   nextTick(() => {
-    lyricActiveEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (lyricActiveEl.value && lyricsRef.value) {
+      smoothScrollTo(lyricsRef.value, lyricActiveEl.value, 400)
+    }
   })
 })
 
@@ -217,6 +238,19 @@ function seekTo(time) {
 
 function goBack() {
   router.back()
+}
+
+// 翻页动画：direction='up'=下滑切上一首，'down'=上滑切下一首
+// 先播放退出动画 → 切歌 → 播放进入动画
+function pageTransition(direction) {
+  if (pageAnim.value) return
+  pageAnim.value = direction === 'up' ? 'exit-down' : 'exit-up'
+  setTimeout(() => {
+    if (direction === 'up') store.playPrev()
+    else store.playNext()
+    pageAnim.value = 'enter'
+    setTimeout(() => { pageAnim.value = null }, 450)
+  }, 450)
 }
 
 // 手机端上下滑动切歌：记录触摸起点，结束时判断滑动方向
@@ -235,10 +269,10 @@ function onTouchEnd(e) {
   if (Math.abs(dy) < 50) return
   if (dy > 0) {
     // 下滑 → 上一首
-    store.playPrev()
+    pageTransition('up')
   } else {
     // 上滑 → 下一首
-    store.playNext()
+    pageTransition('down')
   }
 }
 
@@ -247,12 +281,12 @@ function onTouchEnd(e) {
 let wheelTimer = null
 function onWheel(e) {
   if (e.target.closest('.lyrics-scroll')) return
-  if (wheelTimer) return
+  if (wheelTimer || pageAnim.value) return
   wheelTimer = setTimeout(() => { wheelTimer = null }, 600)
   if (e.deltaY > 0) {
-    store.playNext()
+    pageTransition('down')
   } else {
-    store.playPrev()
+    pageTransition('up')
   }
 }
 
@@ -282,9 +316,9 @@ function onMouseUp(e) {
   const dy = e.clientY - mouseStartY
   if (Math.abs(dy) < 50) return
   if (dy > 0) {
-    store.playPrev()
+    pageTransition('up')
   } else {
-    store.playNext()
+    pageTransition('down')
   }
 }
 
@@ -528,7 +562,6 @@ watch(ringSpecRef, (el) => {
   width: 100%;
   max-height: 68vh;
   overflow-y: auto;
-  scroll-behavior: smooth;
   padding: 20px 0;
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
 }
@@ -806,5 +839,28 @@ watch(ringSpecRef, (el) => {
   /* 面板淡入淡出 */
   .fade-enter-active, .fade-leave-active { transition: opacity 0.25s; }
   .fade-enter-from, .fade-leave-to { opacity: 0; }
+}
+
+/* 翻页动画：退出 + 进入，模拟真实翻页感 */
+@keyframes page-exit-up {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-60px) scale(0.96); opacity: 0; }
+}
+@keyframes page-exit-down {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(60px) scale(0.96); opacity: 0; }
+}
+@keyframes page-enter {
+  0% { transform: translateY(0) scale(0.96); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.lyrics-container.page-exit-up {
+  animation: page-exit-up 0.45s ease-in forwards;
+}
+.lyrics-container.page-exit-down {
+  animation: page-exit-down 0.45s ease-in forwards;
+}
+.lyrics-container.page-enter {
+  animation: page-enter 0.45s ease-out forwards;
 }
 </style>

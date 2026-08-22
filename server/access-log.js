@@ -142,26 +142,26 @@ function isExternalIPv4(ip) {
   return true
 }
 
-// 在线解析 IP 归属地：优先国内接口（IP查询，返回 GBK 需解码），失败回退 ip-api。
+// 在线解析 IP 归属地：优先 ipinfo.io（精度高），失败回退 ip-api.com。
 // 内网/本机地址已在上游标注，无需在线解析（这里只处理外网 IPv4）
 async function resolveGeo(ip, s) {
   if (!isExternalIPv4(ip)) return
-  // 接口一：pconline（国内快，GBK 编码）
+  // 接口一：ipinfo.io（精度高，包含 ASN/运营商信息）
   try {
-    const res = await fetch(`https://whois.pconline.com.cn/ipJson.jsp?ip=${ip}&json=true`, {
+    const res = await fetch(`https://ipinfo.io/${ip}/json`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(GEO_TIMEOUT)
     })
-    const buf = await res.arrayBuffer()
-    // pconline 返回 GBK 编码，Node 的 TextDecoder 支持 gbk 解码
-    const json = JSON.parse(new TextDecoder('gbk').decode(buf))
-    if (json?.addr) {
-      s.geo = json.addr
-      s.isp = json.pro || ''
+    const json = await res.json()
+    if (json?.city) {
+      // 拼接为 "国家 省份 城市" 格式
+      s.geo = [json.country, json.region, json.city].filter(Boolean).join(' ')
+      // 从 org 字段提取运营商（格式：ASxxxx 运营商名）
+      s.isp = (json.org || '').replace(/^AS\d+\s+/, '') || ''
       return
     }
   } catch { /* 该接口失败则继续尝试下一个 */ }
-  // 接口二：ip-api.com（UTF-8，国际可访问）
+  // 接口二：ip-api.com（UTF-8，国际可访问，兜底）
   try {
     const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`, {
       signal: AbortSignal.timeout(GEO_TIMEOUT)

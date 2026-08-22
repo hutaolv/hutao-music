@@ -33,12 +33,30 @@ function hideImg(e) {
   e.target.style.display = 'none'
 }
 
+// 自定义平滑滚动：ease-out cubic 缓动，比原生 behavior: 'smooth' 更丝滑
+function smoothScrollTo(container, target, duration = 400) {
+  const start = container.scrollTop
+  const end = target.offsetTop - container.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2)
+  const distance = end - start
+  if (Math.abs(distance) < 1) return
+  const startTime = performance.now()
+  function step(now) {
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    // ease-out cubic: 先快后慢
+    const ease = 1 - Math.pow(1 - progress, 3)
+    container.scrollTop = start + distance * ease
+    if (progress < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+}
+
 // 打开播放列表时自动滚动到当前播放歌曲位置
 watch(() => store.showPlaylist, (v) => {
   if (v) {
     nextTick(() => {
       if (activeEl.value && listRef.value) {
-        activeEl.value.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        smoothScrollTo(listRef.value, activeEl.value, 400)
       }
     })
   }
