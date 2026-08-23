@@ -201,67 +201,73 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
 const BR_MAP = { standard: 128000, high: 320000, lossless: 999000 }
 
 export async function getSongUrl(id, quality = 'standard') {
-  // 1. 先尝试官方 API
-  try {
-    const { data } = await axios.get(`https://music.163.com/api/song/enhance/player/url`, {
-      headers: cookieHeaders,
-      params: { ids: `[${id}]`, br: BR_MAP[quality] || 128000 },
-      timeout: 8000
-    })
-    if (data.code === 200 && data.data?.[0]?.url) {
-      return data.data[0].url
-    }
-  } catch (e) {
-    console.error('NetEase official API error:', e.message)
-  }
+  // 官方 API + 第三方 API 同时发起，第一个返回有效URL的立即胜出
+  const officialPromise = axios.get(`https://music.163.com/api/song/enhance/player/url`, {
+    headers: cookieHeaders,
+    params: { ids: `[${id}]`, br: BR_MAP[quality] || 128000 },
+    timeout: 5000
+  }).then(({ data }) => {
+    if (data.code === 200 && data.data?.[0]?.url) return data.data[0].url
+    return null
+  }).catch(() => null)
 
-  // 2. 官方 API 失败时，使用第三方 API
-  console.log(`[NetEase] Official API failed for ${id}, trying third-party APIs...`)
-  const result = await fetchWithFallback(neteaseThirdPartyApis, id, quality)
-  return result?.url || null
+  const thirdPartyPromise = fetchWithFallback(neteaseThirdPartyApis, id, quality).then(r => r?.url || null)
+
+  return new Promise(resolve => {
+    let settled = false
+    let officialDone = false, thirdDone = false, officialUrl = null, thirdUrl = null
+    const check = () => {
+      if (settled) return
+      if (officialUrl) { settled = true; resolve(officialUrl) }
+      else if (thirdUrl) { settled = true; resolve(thirdUrl) }
+      else if (officialDone && thirdDone) { settled = true; resolve(null) }
+    }
+    officialPromise.then(u => { officialUrl = u; officialDone = true; check() })
+    thirdPartyPromise.then(u => { thirdUrl = u; thirdDone = true; check() })
+  })
 }
 
 // 探测歌曲实际可用的音质档位：无损需接口返回 level 为 lossless/hires，
 // 否则 999000 只是回落到高音质，不视为有真无损
 export async function detectQualities(id) {
-  const result = []
-  try {
-    const probes = [
-      { q: 'lossless', br: 999000, needLevel: ['lossless', 'hires', 'jyeffect', 'jymaster'] },
-      { q: 'high', br: 320000 },
-      { q: 'standard', br: 128000 }
-    ]
-    for (const p of probes) {
-      const { data } = await axios.get(`https://music.163.com/api/song/enhance/player/url`, {
-        headers: cookieHeaders,
-        params: { ids: `[${id}]`, br: p.br },
-        timeout: 8000
-      })
+  const probes = [
+    { q: 'lossless', br: 999000, needLevel: ['lossless', 'hires', 'jyeffect', 'jymaster'] },
+    { q: 'high', br: 320000 },
+    { q: 'standard', br: 128000 }
+  ]
+
+  // 官方 API 并行探测
+  const officialResults = await Promise.allSettled(probes.map(p =>
+    axios.get(`https://music.163.com/api/song/enhance/player/url`, {
+      headers: cookieHeaders,
+      params: { ids: `[${id}]`, br: p.br },
+      timeout: 5000
+    }).then(({ data }) => {
       const u = data?.data?.[0]
-      if (u?.url && (!p.needLevel || p.needLevel.includes(u.level))) {
-        result.push(p.q)
-      }
-    }
-  } catch (e) {
-    console.error('NetEase detect qualities error:', e.message)
-  }
+      return { q: p.q, ok: u?.url && (!p.needLevel || p.needLevel.includes(u.level)) }
+    }).catch(() => ({ q: p.q, ok: false }))
+  ))
+  const result = officialResults.map(r => r.value).filter(r => r.ok).map(r => r.q)
+
   if (result.length >= 2) return result
-  // 官方 API 探测结果不足时，用第三方 API 补充探测
+
+  // 官方 API 探测结果不足时，用第三方 API 补充探测（并行）
   const thirdPartyProbes = [
     { q: 'lossless', level: 'lossless' },
     { q: 'high', level: 'exhigh' },
     { q: 'standard', level: 'standard' }
-  ]
-  for (const p of thirdPartyProbes) {
-    if (result.includes(p.q)) continue
-    try {
-      const probeResult = await Promise.race([
+  ].filter(p => !result.includes(p.q))
+
+  if (thirdPartyProbes.length) {
+    const tpResults = await Promise.allSettled(thirdPartyProbes.map(p =>
+      Promise.race([
         fetchWithFallback(neteaseThirdPartyApis, id, p.level),
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-      ])
-      if (probeResult?.url) result.push(p.q)
-    } catch {}
+      ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
+    ))
+    result.push(...tpResults.map(r => r.value).filter(r => r.ok).map(r => r.q))
   }
+
   return result.length ? result : ['standard']
 }
 

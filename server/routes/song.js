@@ -15,6 +15,24 @@ import { fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
 
+// 播放地址缓存：同一首歌5分钟内不重复请求
+const urlCache = new Map()
+const URL_CACHE_TTL = 5 * 60 * 1000
+function getCachedUrl(key) {
+  const entry = urlCache.get(key)
+  if (entry && Date.now() - entry.ts < URL_CACHE_TTL) return entry.url
+  urlCache.delete(key)
+  return null
+}
+function setCachedUrl(key, url) {
+  if (url) urlCache.set(key, { url, ts: Date.now() })
+  // 限制缓存大小
+  if (urlCache.size > 200) {
+    const oldest = urlCache.keys().next().value
+    urlCache.delete(oldest)
+  }
+}
+
 // 清洗歌词文本里的 HTML 实体（如 &nbsp; &amp; &lt; &#39;），避免原样显示
 function sanitizeLyricsText(text) {
   if (!text) return text
@@ -34,6 +52,16 @@ router.get('/url', async (req, res) => {
   console.log('[SongURL]', { platform, id, source, quality, mid, mediaMid, title: req.query.title })
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
+  }
+
+  // 非探测请求直接查缓存
+  const cacheKey = `${platform}:${id}:${quality || 'standard'}`
+  if (detect !== '1') {
+    const cached = getCachedUrl(cacheKey)
+    if (cached) {
+      console.log('[SongURL] cache hit', cacheKey)
+      return res.json({ code: 200, data: { url: cached } })
+    }
   }
 
   try {
@@ -62,21 +90,18 @@ router.get('/url', async (req, res) => {
               console.log('[ThirdParty] QQ fallback to kuwo, id:', kuwoId)
               // detect=1 时探测该歌曲在酷我上可用的音质档位
               if (detect === '1') {
-                availableQualities = []
                 const probes = [
                   { q: 'lossless', quality: 'lossless' },
                   { q: 'high', quality: 'high' },
                   { q: 'standard', quality: 'standard' }
                 ]
-                for (const p of probes) {
-                  try {
-                    const probeResult = await Promise.race([
-                      fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
-                      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-                    ])
-                    if (probeResult?.url) availableQualities.push(p.q)
-                  } catch {}
-                }
+                const results = await Promise.allSettled(probes.map(p =>
+                  Promise.race([
+                    fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+                  ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
+                ))
+                availableQualities = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
                 if (!availableQualities.length) availableQualities = ['standard']
               }
               const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
@@ -92,21 +117,18 @@ router.get('/url', async (req, res) => {
       } else {
         const thirdPartyApis = platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
         if (detect === '1') {
-          availableQualities = []
           const probes = [
             { q: 'lossless', quality: 'lossless' },
             { q: 'high', quality: 'high' },
             { q: 'standard', quality: 'standard' }
           ]
-          for (const p of probes) {
-            try {
-              const result = await Promise.race([
-                fetchWithFallback(thirdPartyApis, id, p.quality),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-              ])
-              if (result?.url) availableQualities.push(p.q)
-            } catch {}
-          }
+          const results = await Promise.allSettled(probes.map(p =>
+            Promise.race([
+              fetchWithFallback(thirdPartyApis, id, p.quality),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+            ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
+          ))
+          availableQualities = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
           if (!availableQualities.length) availableQualities = ['standard']
         }
         const result = await fetchWithFallback(thirdPartyApis, id, q)
@@ -151,15 +173,13 @@ router.get('/url', async (req, res) => {
                       { q: 'high', quality: 'high' },
                       { q: 'standard', quality: 'standard' }
                     ]
-                    for (const p of probes) {
-                      try {
-                        const probeResult = await Promise.race([
-                          fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
-                          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-                        ])
-                        if (probeResult?.url) availableQualities.push(p.q)
-                      } catch {}
-                    }
+                    const results = await Promise.allSettled(probes.map(p =>
+                      Promise.race([
+                        fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+                      ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
+                    ))
+                    availableQualities = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
                     if (!availableQualities.length) availableQualities = ['standard']
                   }
                   const kwResult = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
@@ -228,6 +248,7 @@ router.get('/url', async (req, res) => {
       url = `/api/proxy/audio?url=${encodeURIComponent(url)}`
     }
     // 拿不到真实音频时不返回 demo，前端据此提示"无法获取"并跳过，url 保持为 null
+    if (url && detect !== '1') setCachedUrl(cacheKey, url)
     res.json({ code: 200, data: { url, availableQualities } })
   } catch (e) {
     res.json({ code: 200, data: { url: null, availableQualities: null } })

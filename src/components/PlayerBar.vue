@@ -583,20 +583,25 @@ watch(() => store.currentSong, async (song) => {
       nextUrlCache.url = ''
     }
     if (!url) {
-      // 探测该歌曲可用音质，并确保使用实际可用的音质（用户偏好不可用时回退到可用最高档）
-      const res = await getSongUrl(song, quality.value, true)
-      availableQualities.value = res.availableQualities || ['standard']
-      if (!availableQualities.value.includes(quality.value)) {
-        const prefer = ['lossless', 'high', 'standard'].find(q => availableQualities.value.includes(q))
-        if (prefer && prefer !== quality.value) {
-          quality.value = prefer
-          url = await getSongUrl(song, prefer)
-        } else {
-          url = res.url
+      // 先快速获取当前音质的播放地址，不等音质探测
+      url = await getSongUrl(song, quality.value)
+      // 音质探测放后台，不阻塞播放
+      getSongUrl(song, quality.value, true).then(res => {
+        availableQualities.value = res.availableQualities || ['standard']
+        // 若当前音质不可用，自动切到可用最高档
+        if (!availableQualities.value.includes(quality.value)) {
+          const prefer = ['lossless', 'high', 'standard'].find(q => availableQualities.value.includes(q))
+          if (prefer && prefer !== quality.value) {
+            quality.value = prefer
+            getSongUrl(song, prefer).then(fallbackUrl => {
+              if (fallbackUrl && audio) {
+                audio.src = fallbackUrl
+                downloadUrl.value = fallbackUrl
+              }
+            })
+          }
         }
-      } else {
-        url = res.url
-      }
+      }).catch(() => {})
     }
     if (url) {
       audio.pause()
@@ -606,12 +611,14 @@ watch(() => store.currentSong, async (song) => {
       setSpectrumActive(true)
       audio.play().catch(() => {})
       store.isPlaying = true
+      // 预取下一首 + 加载歌词并行，不阻塞播放
       prefetchNextUrl()
-      const lrc = await getLyrics(song)
-      if (lrc) {
-        store.rawLyrics = lrc.lyrics || ''
-        store.rawTransLyrics = lrc.transLyrics || ''
-      }
+      getLyrics(song).then(lrc => {
+        if (lrc) {
+          store.rawLyrics = lrc.lyrics || ''
+          store.rawTransLyrics = lrc.transLyrics || ''
+        }
+      }).catch(() => {})
     } else {
       // 拿不到真实音频：提示并 5 秒后自动跳下一首
       showPlayFailed()
