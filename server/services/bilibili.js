@@ -43,7 +43,10 @@ function buildBiliHeaders(referer) {
 const menus = [
   { sid: 10627, name: '热歌榜' },
   { sid: 10624, name: '新曲推荐' },
-  { sid: 10628, name: '原创榜' }
+  { sid: 10628, name: '原创榜' },
+  { sid: 109568, name: '入站曲' },
+  { sid: 48955, name: '日语歌' },
+  { sid: 87556, name: '流行曲' }
 ]
 
 function formatDuration(seconds) {

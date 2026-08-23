@@ -207,7 +207,7 @@ const anim = ref('')
 // 拖动时的进度百分比（独立于 store.currentTime，避免 timeupdate 覆盖拖动位置）
 const dragPercent = ref(0)
 // 播放条LED频谱开关，持久化到 localStorage
-const showSpectrum = ref(localStorage.getItem('playerSpectrum') !== 'off')
+const showSpectrum = ref(localStorage.getItem('playerSpectrum') === 'on')
 // 播放条频谱颜色，持久化到 localStorage
 const spectrumColor = ref(localStorage.getItem('playerSpectrumColor') || 'rainbow')
 // 播放条频谱样式：waveform=波形线条，circle=环形LED，持久化到 localStorage
