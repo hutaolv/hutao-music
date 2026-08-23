@@ -124,7 +124,7 @@ let debounceTimer = null
 function updateRouteQuery() {
   const kw = keyword.value.trim()
   if (kw) {
-    router.replace({ query: { q: kw, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
+    router.replace({ query: { q: kw, platform: selectedPlatform.value, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
   }
 }
 
@@ -196,7 +196,7 @@ async function doSearch() {
     allSongs.value = cached.songs
     artistResults.value = cached.artists
     hasMore.value = cached.hasMore
-    router.replace({ query: { q: kw, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
+    router.replace({ query: { q: kw, platform: selectedPlatform.value, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
     return
   }
 
@@ -226,7 +226,7 @@ async function doSearch() {
   } finally {
     loading.value = false
   }
-  router.replace({ query: { q: kw, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
+  router.replace({ query: { q: kw, platform: selectedPlatform.value, ...(useThirdParty.value ? { thirdparty: '1' } : {}) } })
 }
 
 // B站"加载更多"：翻一页追加到结果列表
