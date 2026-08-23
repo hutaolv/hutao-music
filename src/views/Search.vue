@@ -128,6 +128,7 @@ function updateRouteQuery() {
 }
 
 const filteredSongs = computed(() => {
+  if (useThirdParty.value) return allSongs.value
   return allSongs.value.filter(s => s.platform === selectedPlatform.value)
 })
 
