@@ -149,7 +149,7 @@ async function toggleFav() {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   color: white;
   font-weight: 700;
   flex-shrink: 0;
