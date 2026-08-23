@@ -950,8 +950,9 @@ onUnmounted(() => {
   color: var(--accent-light);
 }
 
-.play-btn { width: 40px; height: 40px; color: var(--text-primary); font-size: 16px; }
+.play-btn { width: 40px; height: 40px; color: var(--text-primary); font-size: 16px; background: transparent; }
 .play-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.play-btn:active { background: transparent; }
 
 /* 音质选择：按钮 + 上浮菜单 */
 .quality-wrap { position: relative; }
@@ -1226,7 +1227,9 @@ onUnmounted(() => {
   .play-btn {
     width: 34px;
     height: 34px;
+    background: transparent;
   }
+  .play-btn:active { background: transparent; }
 
   .style-btn {
     display: none;

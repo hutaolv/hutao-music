@@ -101,8 +101,9 @@ const activeSection = ref('favorites')
 const recentPlays = ref([])
 const favoriteSongs = ref([])
 const liveCharts = ref({})
-// 首页榜单速览：隐藏抖音/酷我，酷狗置顶
-const homePlatforms = ['酷狗音乐', 'QQ音乐', '网易云音乐', 'B站', '咪咕音乐']
+const isMobile = window.innerWidth <= 768
+// 首页榜单速览：移动端只保留网易云，PC端全平台
+const homePlatforms = isMobile ? ['网易云音乐'] : ['酷狗音乐', 'QQ音乐', '网易云音乐', 'B站', '咪咕音乐']
 // 播放全部按钮的弹跳动画状态，触发后短暂点亮再复位
 const playingAll = ref(false)
 
