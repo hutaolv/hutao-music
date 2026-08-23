@@ -24,7 +24,7 @@
             <div class="title">{{ store.currentSong.title }}</div>
             <div class="artist" :title="store.currentSong.artist">{{ store.currentSong.artist }}</div>
           </div>
-          <button class="fav-btn" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
+          <button class="fav-btn desktop-only" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
         </div>
         <div v-else class="song-info empty">
           <div class="text">
@@ -93,6 +93,7 @@
       </div>
 
       <div class="player-right">
+        <button class="fav-btn mobile-only" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
         <div class="quality-wrap" ref="qualityWrap">
           <button class="ctrl-btn quality-btn" :class="{ boosted: quality !== 'standard' }" @click.stop="toggleQualityMenu" title="音质">{{ qualityLabel }} <span class="quality-caret">&#x25BE;</span></button>
           <transition name="fade">
@@ -105,11 +106,11 @@
             </div>
           </transition>
         </div>
-        <button class="ctrl-btn" :class="{ active: store.showLyricsPanel }" @click="store.showLyricsPanel = !store.showLyricsPanel" title="歌词面板">&#x1F3B5;</button>
-        <button class="ctrl-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
+        <button class="ctrl-btn lyrics-btn" :class="{ active: store.showLyricsPanel }" @click="store.showLyricsPanel = !store.showLyricsPanel" title="歌词面板">&#x1F3B5;</button>
+        <button class="ctrl-btn desktop-lyrics-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
         </button>
-        <button v-if="downloadUrl" class="ctrl-btn" @click="downloadSong" title="下载歌曲">
+        <button v-if="downloadUrl" class="ctrl-btn download-btn" @click="downloadSong" title="下载歌曲">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
@@ -1017,6 +1018,8 @@ onUnmounted(() => {
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
+.mobile-only { display: none; }
+
 .volume-wrap { position: relative; }
 .volume-popup {
   position: absolute;
@@ -1150,8 +1153,7 @@ onUnmounted(() => {
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
-/* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息+收藏，第二行控制按钮。
-   播放进度条位于播放条顶部，全宽横条 */
+/* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息，第二行控制按钮+音质+下载+收藏 */
 @media (max-width: 767px) {
   .player-inner {
     flex-wrap: wrap;
@@ -1165,21 +1167,24 @@ onUnmounted(() => {
     width: 100%;
   }
 
-  /* 第二行：控制按钮占满整行 */
+  /* 第二行：控制按钮+右侧控件 */
   .player-center {
-    width: 100%;
+    width: auto;
+    flex: 1;
     gap: 2px;
   }
 
-  /* 手机上隐藏右侧不常用控件（音质、歌词面板、桌面歌词、下载、静音、音量），
-     避免内容溢出；播放列表按钮在控制区仍可用 */
+  /* 手机上显示右侧音质、下载、收藏按钮，隐藏歌词/音量 */
   .player-right {
-    display: none;
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .controls {
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
   }
 
@@ -1194,13 +1199,39 @@ onUnmounted(() => {
     height: 34px;
   }
 
-  /* 手机端不显示频谱样式切换按钮（频谱设置整体见上方的 spectrum-btn/style-btn/color-btn 隐藏规则） */
   .style-btn {
     display: none;
   }
 
   .progress-area {
     padding: 0 12px;
+  }
+
+  /* 桌面端的收藏按钮在手机端隐藏（移到右侧控件区） */
+  .desktop-only {
+    display: none;
+  }
+
+  .volume-wrap,
+  .lyrics-btn,
+  .desktop-lyrics-btn {
+    display: none;
+  }
+
+  .quality-btn {
+    font-size: 11px;
+    min-width: 44px;
+    height: 26px;
+    padding: 0 6px;
+  }
+
+  .fav-btn {
+    font-size: 16px;
+    margin-left: 0;
+  }
+
+  .mobile-only {
+    display: block;
   }
 }
 </style>
