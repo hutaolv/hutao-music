@@ -70,14 +70,23 @@ async function getPlaylist(id) {
   }
 }
 
-export async function getToplist() {
+export async function getToplist(order, sublistIndex) {
   try {
-    // 改为并行请求4个榜单，代替原来串行
-    const results = await Promise.allSettled(KNOWN_LISTS.map(list =>
-      getPlaylist(list.id).then(songs => songs?.length ? { name: list.name, cover: songs[0]?.cover || '', songs } : null)
-    ))
-    const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
-    return result.length ? result : null
+    // 无 sublistIndex：只返回元数据，不拉歌曲
+    if (sublistIndex == null) {
+      return KNOWN_LISTS.map(l => ({ name: l.name, cover: '', songs: [] }))
+    }
+
+    // 有 sublistIndex：只拉该子榜单的歌曲
+    const idx = Math.min(sublistIndex, KNOWN_LISTS.length - 1)
+    const list = KNOWN_LISTS[idx]
+    const songs = await getPlaylist(list.id)
+    const result = KNOWN_LISTS.map(l => ({ name: l.name, cover: '', songs: [] }))
+    if (songs?.length) {
+      result[idx].songs = songs
+      result[idx].cover = songs[0]?.cover || ''
+    }
+    return result
   } catch (e) {
     console.error('NetEase toplist error:', e.message)
     return null

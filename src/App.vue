@@ -3,7 +3,9 @@
   <main class="page-container">
     <router-view v-slot="{ Component }">
       <transition name="fade" mode="out-in">
-        <component :is="Component" />
+        <keep-alive :max="5">
+          <component :is="Component" />
+        </keep-alive>
       </transition>
     </router-view>
   </main>

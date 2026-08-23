@@ -8,49 +8,69 @@ const headers = {
   'Origin': 'https://y.qq.com'
 }
 
-export async function getToplist(order) {
+const QQ_TOP_IDS = [26, 27, 4, 62, 28, 60, 17, 72]
+
+// 获取榜单元数据（名称+封面），只调1次API，不拉歌曲
+async function getToplistMeta(order) {
+  const { data } = await axios.get(BASE, {
+    headers,
+    params: {
+      format: 'json',
+      data: JSON.stringify({
+        comm: { ct: 24, cv: 0 },
+        toplist: {
+          module: 'musicToplist.ToplistInfoServer',
+          method: 'GetAll',
+          param: {}
+        }
+      })
+    }
+  })
+  if (!data?.toplist?.data?.group) return null
+  const allToplists = []
+  for (const group of data.toplist.data.group) {
+    for (const t of group.toplist || []) {
+      allToplists.push(t)
+    }
+  }
+  const targets = QQ_TOP_IDS.map(id => allToplists.find(t => t.topId === id)).filter(Boolean)
+  const meta = targets.map(t => ({
+    name: t.title,
+    cover: t.headPicUrl || t.frontPicUrl,
+    topId: t.topId,
+    songs: []
+  }))
+  // HOYO-MiX 固定追加
+  meta.push({ name: 'HOYO-MiX', cover: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000003uz8tl04tdL8.jpg', topId: 'hoyo', songs: [] })
+  return meta
+}
+
+// 按索引拉取单个子榜单的歌曲
+async function getToplistSongs(metaItem, index, order) {
+  if (metaItem.topId === 'hoyo') {
+    const r = await getArtistSongs('001uz8tl04tdL8', 'HOYO-MiX', 1, order || 2).catch(() => null)
+    return { songs: r?.songs || [], hasMore: r?.hasMore || false }
+  }
+  const songs = await getToplistDetail(metaItem.topId)
+  return { songs: songs || [], hasMore: false }
+}
+
+export async function getToplist(order, sublistIndex) {
   try {
-    const { data } = await axios.get(BASE, {
-      headers,
-      params: {
-        format: 'json',
-        data: JSON.stringify({
-          comm: { ct: 24, cv: 0 },
-          toplist: {
-            module: 'musicToplist.ToplistInfoServer',
-            method: 'GetAll',
-            param: {}
-          }
-        })
-      }
-    })
+    const meta = await getToplistMeta(order)
+    if (!meta?.length) return null
 
-    if (!data?.toplist?.data?.group) return null
+    // 无 sublistIndex：只返回元数据，不拉任何歌曲
+    if (sublistIndex == null) {
+      return meta
+    }
 
-    const allToplists = []
-    for (const group of data.toplist.data.group) {
-      for (const t of group.toplist || []) {
-        allToplists.push(t)
-      }
-    }
-    // 展示指定的热门榜单
-    const targetIds = [26, 27, 4, 62, 28, 60, 17, 72]
-    const targets = targetIds.map(id => allToplists.find(t => t.topId === id)).filter(Boolean)
-    // 改为并行请求榜单详情 + HOYO-MiX 歌手歌曲
-    const details = await Promise.allSettled(targets.map(t => getToplistDetail(t.topId)))
-    const hoyoResult = await getArtistSongs('001uz8tl04tdL8', 'HOYO-MiX', 1, order || 2).catch(() => null)
-    const result = []
-    for (let i = 0; i < targets.length; i++) {
-      const r = details[i]
-      if (r.status === 'fulfilled' && r.value) {
-        result.push({ name: targets[i].title, cover: targets[i].headPicUrl || targets[i].frontPicUrl, songs: r.value })
-      }
-    }
-    // 添加 HOYO-MiX 歌手歌曲作为特殊榜单
-    if (hoyoResult?.songs?.length) {
-      result.push({ name: 'HOYO-MiX', cover: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000003uz8tl04tdL8.jpg', songs: hoyoResult.songs, hasMore: hoyoResult.hasMore })
-    }
-    return result.length ? result : null
+    // 有 sublistIndex：只拉该子榜单的歌曲
+    const idx = Math.min(sublistIndex, meta.length - 1)
+    const detail = await getToplistSongs(meta[idx], idx, order)
+    meta[idx].songs = detail.songs
+    meta[idx].hasMore = detail.hasMore
+    return meta
   } catch (e) {
     console.error('QQ toplist error:', e.message)
     return null
