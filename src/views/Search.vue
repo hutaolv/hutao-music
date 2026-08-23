@@ -446,8 +446,8 @@ onMounted(() => {
 .play-all-btn {
   font-size: 12px;
   font-weight: 500;
-  color: #fff;
-  background: var(--accent-light);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
   padding: 6px 12px;
   border-radius: 999px;
   transition: opacity 0.2s, transform 0.2s;

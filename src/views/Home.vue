@@ -91,6 +91,8 @@ const activeSection = ref('favorites')
 const recentPlays = ref([])
 const favoriteSongs = ref([])
 const liveCharts = ref({})
+// 首页榜单速览：隐藏抖音/酷我，酷狗置顶
+const homePlatforms = ['酷狗音乐', 'QQ音乐', '网易云音乐', 'B站', '咪咕音乐']
 // 播放全部按钮的弹跳动画状态，触发后短暂点亮再复位
 const playingAll = ref(false)
 
@@ -104,10 +106,9 @@ function playAllFx(songs) {
 
 const top3ByPlatform = computed(() => {
   const result = {}
-  for (const platform of platforms) {
+  for (const platform of homePlatforms) {
     const live = liveCharts.value[platform]
     if (live?.songs?.length) {
-      // 首页每个平台显示前5首
       result[platform] = live.songs.slice(0, 5)
     }
   }
@@ -115,10 +116,9 @@ const top3ByPlatform = computed(() => {
 })
 
 onMounted(async () => {
-  // 最近播放/我的喜欢不限制数量，显示全部
   recentPlays.value = await getRecentPlays()
   favoriteSongs.value = await getFavorites()
-  for (const platform of platforms) {
+  for (const platform of homePlatforms) {
     fetchCharts(platform).then(data => {
       if (data?.[0]?.songs?.length) {
         liveCharts.value[platform] = data[0]
@@ -188,8 +188,8 @@ watch(() => store.favVersion, async () => {
 .play-all-btn {
   font-size: 12px;
   font-weight: 500;
-  color: #fff;
-  background: var(--accent-light);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
   padding: 4px 10px;
   border-radius: 999px;
   transition: opacity 0.2s, transform 0.2s;

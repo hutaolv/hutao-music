@@ -138,12 +138,12 @@ function playAll() {
   border-radius: 20px;
   font-size: 14px;
   font-weight: 600;
-  color: white;
-  background: var(--accent);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
   transition: background 0.2s;
 }
 
-.play-all-btn:hover { background: var(--accent-light); }
+.play-all-btn:hover { background: rgba(255, 255, 255, 0.12); }
 
 .song-list {
   background: var(--bg-card);
