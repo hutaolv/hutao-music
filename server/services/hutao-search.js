@@ -103,7 +103,7 @@ export const thirdPartySearchApis = [
 export async function searchWithThirdParty(keyword, platform) {
   // 根据平台调整搜索 API 优先级：选择哪个平台就优先用那个平台的搜索接口
   const apiMap = {
-    'QQ音乐': ['qq-official', 'netease-meting', 'kuwo'],
+    'QQ音乐': ['qq-official', 'kuwo', 'netease-meting'],
     '网易云音乐': ['netease-meting', 'qq-official', 'kuwo']
   }
   const order = apiMap[platform] || ['kuwo', 'qq-official', 'netease-meting']
@@ -131,8 +131,8 @@ export async function searchWithThirdParty(keyword, platform) {
           const officialId = officialIds[idx]
           return {
             ...song,
-            // platform 保留目标平台标签用于前端过滤显示
-            platform: song.platform,
+            // platform 统一设为目标平台标签，确保前端过滤正确
+            platform: platform || song.platform,
             // realPlatform 记录真实资源来源，前端请求播放/歌词时使用
             realPlatform: officialId ? officialPlatform : sourcePlatform,
             platformId: officialId || song.id,
