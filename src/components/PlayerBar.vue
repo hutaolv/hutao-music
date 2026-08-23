@@ -553,6 +553,11 @@ watch(() => store.currentSong, async (song) => {
   store.rawLyrics = ''
   store.rawTransLyrics = ''
   store.currentLyricIndex = -1
+  // 切歌时立即暂停旧歌曲，避免新URL加载期间旧歌继续播放
+  if (audio && !audio.paused) {
+    audio.pause()
+    store.isPlaying = false
+  }
   if (song) {
     // VIP 歌曲拦截：显示提示，不尝试播放
     if (song.vip) {
