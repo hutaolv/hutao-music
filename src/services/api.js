@@ -38,11 +38,12 @@ async function apiFetch(url, options) {
   return fetch(url, { ...options, headers })
 }
 
-export async function fetchCharts(platform, page, order) {
+export async function fetchCharts(platform, page, order, sublist) {
   try {
     let url = `${API_BASE}/charts?platform=${encodeURIComponent(platform)}`
     if (page && page > 1) url += `&page=${page}`
     if (order) url += `&order=${order}`
+    if (sublist != null) url += `&sublist=${sublist}`
     const res = await apiFetch(url)
     const json = await res.json()
     if (json.code === 200) {

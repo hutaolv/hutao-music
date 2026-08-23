@@ -39,17 +39,22 @@ router.get('/', async (req, res) => {
   }
   const page = Number(req.query.page) || 1
   const order = Number(req.query.order) || 1
+  const sublist = req.query.sublist != null ? Number(req.query.sublist) : null
 
   // 缓存 key 带上页码和排序：只有第一页才做缓存（首页展示），翻页加载更多不阻塞
   const cacheKey = platform === 'QQ音乐' ? `${platform}:${order}` : platform
   const cached = page === 1 ? getCached(cacheKey) : null
-  if (cached) return res.json({ code: 200, data: cached })
+
+  if (cached) {
+    // 有缓存时，按 sublist 过滤返回
+    return res.json({ code: 200, data: filterSublist(cached, sublist) })
+  }
 
   try {
     const result = await services[platform].getToplist(order)
     if (result) {
       if (page === 1) setCache(cacheKey, result)
-      res.json({ code: 200, data: result })
+      res.json({ code: 200, data: filterSublist(result, sublist) })
     } else {
       res.json({ code: 200, data: null, message: `${platform} toplist fetch failed, using fallback` })
     }
@@ -57,6 +62,15 @@ router.get('/', async (req, res) => {
     res.json({ code: 200, data: null, message: e.message })
   }
 })
+
+// 过滤子榜单：只返回选中子榜单的歌曲，其他子榜单只返回元数据（name/cover）
+function filterSublist(data, sublistIndex) {
+  if (!Array.isArray(data) || sublistIndex == null) return data
+  return data.map((item, i) => {
+    if (i === sublistIndex) return item
+    return { name: item.name, cover: item.cover, songs: [], hasMore: item.hasMore || false }
+  })
+}
 
 // 加载更多：支持 HOYO-MiX 等分页榜单
 router.get('/more', async (req, res) => {

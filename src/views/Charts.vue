@@ -98,6 +98,7 @@ const activeSubList = ref(Number(localStorage.getItem(SUBLIST_KEY)) || 0)
 const hoyoSort = ref(Number(localStorage.getItem(HOYO_SORT_KEY)) || 1) // 1=最热, 2=最新
 
 const liveData = ref({})
+const loadedSublists = ref({})
 const loading = ref(false)
 // 播放全部按钮的弹跳动画状态，触发后短暂点亮再复位
 const playingAll = ref(false)
@@ -120,7 +121,8 @@ function switchHoyoSort(order) {
   if (hoyoSort.value === order) return
   hoyoSort.value = order
   liveData.value['QQ音乐'] = null
-  loadPlatform(activePlatform.value)
+  loadedSublists.value['QQ音乐'] = {}
+  loadPlatform(activePlatform.value, 0)
 }
 
 const sublists = computed(() => {
@@ -181,14 +183,15 @@ function switchPlatform(p) {
   localStorage.setItem(PLATFORM_STORAGE_KEY, p)
 }
 
-async function loadPlatform(platform) {
+async function loadPlatform(platform, sublistIndex = 0) {
   loading.value = true
   try {
     const order = platform === 'QQ音乐' ? hoyoSort.value : undefined
-    const data = await fetchCharts(platform, 1, order)
+    const data = await fetchCharts(platform, 1, order, sublistIndex)
     if (data?.length) {
       liveData.value[platform] = data
-      // 校验 sublist 范围，避免索引越界
+      if (!loadedSublists.value[platform]) loadedSublists.value[platform] = {}
+      loadedSublists.value[platform][sublistIndex] = true
       if (activeSubList.value >= data.length) {
         activeSubList.value = 0
         localStorage.setItem(SUBLIST_KEY, 0)
@@ -201,12 +204,33 @@ async function loadPlatform(platform) {
 }
 
 watch(activePlatform, (p) => {
-  if (!liveData.value[p]) loadPlatform(p)
+  if (!liveData.value[p]) loadPlatform(p, activeSubList.value)
 })
+
+async function loadSublistIfNeeded(platform, index) {
+  if (loadedSublists.value[platform]?.[index]) return
+  loading.value = true
+  try {
+    const order = platform === 'QQ音乐' ? hoyoSort.value : undefined
+    const data = await fetchCharts(platform, 1, order, index)
+    if (data?.[index]?.songs) {
+      if (liveData.value[platform]?.[index]) {
+        liveData.value[platform][index].songs = data[index].songs
+        liveData.value[platform][index].hasMore = data[index].hasMore || false
+      }
+      if (!loadedSublists.value[platform]) loadedSublists.value[platform] = {}
+      loadedSublists.value[platform][index] = true
+    }
+  } catch (e) {
+  } finally {
+    loading.value = false
+  }
+}
 
 watch(activeSubList, (v) => {
   vipFilter.value = 'all'
   localStorage.setItem(SUBLIST_KEY, v)
+  loadSublistIfNeeded(activePlatform.value, v)
 })
 
 watch(hoyoSort, (v) => {
@@ -221,7 +245,7 @@ watch(() => route.query.platform, (p) => {
 })
 
 onMounted(() => {
-  loadPlatform(activePlatform.value)
+  loadPlatform(activePlatform.value, activeSubList.value)
   // 异步加载已收藏列表，初始化收藏按钮状态
   getFavorites().then(list => { favList.value = list }).catch(() => {})
 })
