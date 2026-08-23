@@ -31,7 +31,7 @@ function sanitizeLyricsText(text) {
 
 router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source } = req.query
-  console.log('[SongURL]', { platform, id, source, quality })
+  console.log('[SongURL]', { platform, id, source, quality, mid, mediaMid, title: req.query.title })
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
@@ -109,6 +109,31 @@ router.get('/url', async (req, res) => {
           if (detect === '1') availableQualities = await qqmusic.detectQualities(mid || id, mediaMid)
           url = await qqmusic.getSongUrl(mid || id, mediaMid, q)
           if (!url && q !== 'standard') url = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
+          // 官方 API 失败时回退酷我搜索+播放
+          if (!url) {
+            const title = req.query.title || ''
+            const artist = req.query.artist || ''
+            if (title) {
+              try {
+                const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
+                const { data: kwData } = await axios.get('http://search.kuwo.cn/r.s', {
+                  params: { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' },
+                  headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
+                })
+                const hit = kwData?.abslist?.[0]
+                if (hit) {
+                  const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
+                  console.log(`[QQ] Official failed, fallback to kuwo for: ${title}, kuwoId: ${kuwoId}`)
+                  const kwResult = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
+                  url = kwResult?.url || null
+                  if (!url && q !== 'standard') {
+                    const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard')
+                    url = fb?.url || null
+                  }
+                }
+              } catch {}
+            }
+          }
           break
         case 'B站':
           // 音频馆歌曲走 auid；搜索到的音乐视频按 bvid 取真实的视频音频流

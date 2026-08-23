@@ -139,8 +139,8 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
     id: songId
   })
   if (isThirdParty) params.set('source', 'thirdparty')
-  if (isThirdParty && song.title) params.set('title', song.title)
-  if (isThirdParty && song.artist) params.set('artist', song.artist)
+  if (song.title) params.set('title', song.title)
+  if (song.artist) params.set('artist', song.artist)
   if (quality && quality !== 'standard') params.set('quality', quality)
   if (detect) params.set('detect', '1')
   if (song.bvid) params.set('bvid', song.bvid)

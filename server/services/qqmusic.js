@@ -74,22 +74,26 @@ async function getToplistDetail(topId) {
       }
     })
     const songList = data?.detail?.data?.songInfoList || []
-    return songList.map((track, i) => ({
-      id: `qqmusic_${track.id || track.mid}`,
-      platformId: String(track.mid || track.id),
-      title: track.title || track.name,
-      artist: (track.singer || []).map(s => s.name).join(' / '),
-      artistId: track.singer?.[0]?.mid ? `qqmusic_artist_${track.singer[0].mid}` : '',
-      album: track.album?.name || track.album?.title || '',
-      cover: `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.album?.mid || ''}.jpg`,
-      duration: formatDuration(track.interval),
-      durationMs: (track.interval || 0) * 1000,
-      platform: 'QQ音乐',
-      audioUrl: '',
-      vip: track.pay?.pay_play === 1 || track.pay?.pay_status === 1,
-      platformSongMid: track.mid || track.id,
-      platformMediaMid: track.file?.media_mid || track.mid
-    }))
+    return songList.map((track, i) => {
+      const pay = track.pay || {}
+      const isVip = pay.pay_play === 1 || pay.pay_status === 1 || pay.pay_download === 1 || pay.vip === 1 || track.pay === 1
+      return {
+        id: `qqmusic_${track.id || track.mid}`,
+        platformId: String(track.mid || track.id),
+        title: track.title || track.name,
+        artist: (track.singer || []).map(s => s.name).join(' / '),
+        artistId: track.singer?.[0]?.mid ? `qqmusic_artist_${track.singer[0].mid}` : '',
+        album: track.album?.name || track.album?.title || '',
+        cover: `https://y.gtimg.cn/music/photo_new/T002R300x300M000${track.album?.mid || ''}.jpg`,
+        duration: formatDuration(track.interval),
+        durationMs: (track.interval || 0) * 1000,
+        platform: 'QQ音乐',
+        audioUrl: '',
+        vip: isVip,
+        platformSongMid: track.mid || track.id,
+        platformMediaMid: track.file?.media_mid || track.mid
+      }
+    })
   } catch (e) {
     return null
   }
@@ -301,8 +305,8 @@ export async function getSongUrl(mid, mediaMid, quality = 'standard') {
     console.error('QQ official API error:', e.message)
   }
 
-  // 官方 API 失败时不再自动降级第三方 API，仅返回空地址
-  console.log(`[QQ] Official API failed for ${mid}, no fallback`)
+  // 官方 API 失败时回退到酷我第三方 API 搜索+播放
+  console.log(`[QQ] Official API failed for ${mid}, trying kuwo fallback`)
   return null
 }
 
