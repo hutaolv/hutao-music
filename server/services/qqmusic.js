@@ -301,6 +301,7 @@ export async function getSongUrl(mid, mediaMid, quality = 'standard') {
       const sip = (urlData?.sip?.[0] || 'https://dl.stream.qqmusic.qq.com/').replace(/^http:\/\//, 'https://').replace(/\/$/, '')
       return `${sip}${urlInfo.purl.startsWith('/') ? '' : '/'}${urlInfo.purl}`
     }
+    console.log(`[QQ] Official API no purl for ${mid}, response:`, JSON.stringify({ purl: urlInfo?.purl, ret: urlInfo?.ret, sip: urlData?.sip?.[0] }))
   } catch (e) {
     console.error('QQ official API error:', e.message)
   }
