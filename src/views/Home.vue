@@ -137,7 +137,7 @@ onMounted(async () => {
   recentPlays.value = await getRecentPlays()
   favoriteSongs.value = await getFavorites()
   for (const platform of homePlatforms) {
-    fetchCharts(platform).then(data => {
+    fetchCharts(platform, 1, undefined, 0).then(data => {
       if (data?.[0]?.songs?.length) {
         liveCharts.value[platform] = data[0]
       }
