@@ -38,21 +38,30 @@ function mapSong(item) {
   }
 }
 
-export async function getToplist() {
-  // 改为并行请求3个排行榜，代替原来串行
-  const results = await Promise.allSettled(RANK_IDS.map(rank =>
-    axios.get(`${SEARCH_BASE}/bmw/rank/rank-info/v1.0`, {
+export async function getToplist(order, sublistIndex) {
+  // 无 sublistIndex：只返回元数据
+  if (sublistIndex == null) {
+    return RANK_IDS.map(r => ({ name: r.name, cover: '', songs: [] }))
+  }
+
+  // 有 sublistIndex：只拉该榜单的歌曲
+  const idx = Math.min(sublistIndex, RANK_IDS.length - 1)
+  const rank = RANK_IDS[idx]
+  const result = RANK_IDS.map(r => ({ name: r.name, cover: '', songs: [] }))
+
+  try {
+    const { data } = await axios.get(`${SEARCH_BASE}/bmw/rank/rank-info/v1.0`, {
       headers, params: { pageNo: 1, rankId: rank.id, pageSize: 50 }, timeout: 10000
-    }).then(({ data }) => {
-      if (data?.code === '000000' && data?.data?.contents?.length) {
-        const songs = data.data.contents.map(mapSong)
-        return { name: rank.name, cover: data.data.contents[0]?.img || songs[0]?.cover || '', songs }
-      }
-      return null
-    }).catch(e => { console.error(`MiGu rank ${rank.name} error:`, e.message); return null })
-  ))
-  const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
-  return result.length ? result : null
+    })
+    if (data?.code === '000000' && data?.data?.contents?.length) {
+      const songs = data.data.contents.map(mapSong)
+      result[idx].songs = songs
+      result[idx].cover = data.data.contents[0]?.img || songs[0]?.cover || ''
+    }
+  } catch (e) {
+    console.error(`MiGu rank ${rank.name} error:`, e.message)
+  }
+  return result
 }
 
 export async function searchSongs(keyword, limit = 50) {

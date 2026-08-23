@@ -110,45 +110,41 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const LONG_TTL = 6 * 3600_000
 let longCache = { time: 0, data: null }
 
-export async function getToplist() {
-  if (Date.now() - longCache.time < LONG_TTL && longCache.data) return longCache.data
+export async function getToplist(order, sublistIndex) {
+  // 无 sublistIndex：只返回元数据
+  if (sublistIndex == null) {
+    return FALLBACK_CHARTS.map(c => ({ name: c.name, cover: '', songs: [] }))
+  }
 
-  const result = []
-  for (const chart of FALLBACK_CHARTS) {
-    try {
-      const allSongs = []
-      const seen = new Set()
-      // 使用第三方酷我搜索 API（不再调用官方 API）
-      const searchResults = await Promise.allSettled(
-        chart.keywords.map(kw => thirdPartyKuwo.search(kw, '酷我音乐'))
-      )
-      for (const r of searchResults) {
-        if (r.status === 'fulfilled') {
-          for (const song of r.value) {
-            if (!seen.has(song.id)) {
-              seen.add(song.id)
-              allSongs.push({
-                ...song,
-                platform: '酷我音乐',
-                audioUrl: '',
-                sourceUrl: ''
-              })
-            }
+  // 有 sublistIndex：只拉该榜单的歌曲
+  const idx = Math.min(sublistIndex, FALLBACK_CHARTS.length - 1)
+  const chart = FALLBACK_CHARTS[idx]
+  const result = FALLBACK_CHARTS.map(c => ({ name: c.name, cover: '', songs: [] }))
+
+  try {
+    const allSongs = []
+    const seen = new Set()
+    const searchResults = await Promise.allSettled(
+      chart.keywords.map(kw => thirdPartyKuwo.search(kw, '酷我音乐'))
+    )
+    for (const r of searchResults) {
+      if (r.status === 'fulfilled') {
+        for (const song of r.value) {
+          if (!seen.has(song.id)) {
+            seen.add(song.id)
+            allSongs.push({ ...song, platform: '酷我音乐', audioUrl: '', sourceUrl: '' })
           }
         }
       }
-      if (allSongs.length) {
-        result.push({ name: chart.name, cover: allSongs[0]?.cover || '', songs: allSongs.slice(0, 50) })
-      }
-    } catch (e) {
-      console.error(`Kuwo third-party chart ${chart.name} error:`, e.message)
     }
+    if (allSongs.length) {
+      result[idx].songs = allSongs.slice(0, 50)
+      result[idx].cover = allSongs[0]?.cover || ''
+    }
+  } catch (e) {
+    console.error(`Kuwo chart ${chart.name} error:`, e.message)
   }
-  if (result.length) {
-    longCache = { time: Date.now(), data: result }
-    return result
-  }
-  return null
+  return result
 }
 
 // 搜索热门关键词模拟榜单（真实接口被风控时的兜底）

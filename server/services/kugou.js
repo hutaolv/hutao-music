@@ -137,19 +137,46 @@ async function fetchRankBatch(rank, offset) {
   }
 }
 
-// 获取酷狗音乐排行榜（每批 50 首）
-export async function getToplist(page = 1) {
+// 所有酷狗榜单配置（统一列表，用于返回元数据）
+const ALL_KUGOU_RANKS = [
+  ...RANK_IDS.map(r => ({ ...r, type: 'mobile' })),
+  ...PC_RANK_IDS.map(r => ({ ...r, type: 'pc' }))
+]
+
+// 获取酷狗音乐排行榜
+// sublistIndex=null 只返回榜单名+封面（元数据），指定索才拉歌曲
+export async function getToplist(page = 1, sublistIndex) {
   const offset = (page - 1) * RANK_PAGE_SIZE
-  const results = await Promise.allSettled([
-    ...RANK_IDS.map(rank => fetchRankBatch(rank, offset)),
-    ...PC_RANK_IDS.map(rank =>
-      fetchRankPage(rank.id).then(songs => songs
-        ? { name: rank.name, cover: songs[0]?.cover || '', songs, hasMore: false }
-        : null)
-    )
-  ])
-  const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
-  return result.length ? result : null
+
+  // 无 sublistIndex：只返回元数据
+  if (sublistIndex == null) {
+    return ALL_KUGOU_RANKS.map(r => ({ name: r.name, cover: '', songs: [] }))
+  }
+
+  // 有 sublistIndex：只拉该榜单的歌曲
+  const idx = Math.min(sublistIndex, ALL_KUGOU_RANKS.length - 1)
+  const rank = ALL_KUGOU_RANKS[idx]
+  const result = ALL_KUGOU_RANKS.map(r => ({ name: r.name, cover: '', songs: [] }))
+
+  try {
+    if (rank.type === 'pc') {
+      const songs = await fetchRankPage(rank.id)
+      if (songs) {
+        result[idx].songs = songs
+        result[idx].cover = songs[0]?.cover || ''
+      }
+    } else {
+      const data = await fetchRankBatch(rank, offset)
+      if (data) {
+        result[idx].songs = data.songs
+        result[idx].cover = data.cover || ''
+        result[idx].hasMore = data.hasMore
+      }
+    }
+  } catch (e) {
+    console.error(`KuGou rank ${rank.name} error:`, e.message)
+  }
+  return result
 }
 
 // 酷狗音乐搜索（mobilecdn 新版搜索接口：带真实封面 union_cover 和付费标识 pay_type，

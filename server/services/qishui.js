@@ -35,27 +35,31 @@ function mapSong(item) {
   }
 }
 
-export async function getToplist() {
-  const result = []
-  for (const chart of charts) {
-    try {
-      const { data } = await axios.get(CHART_API, {
-        headers,
-        params: { chart_id: chart.id, count: 100, cursor: 0, aid: 1128 },
-        timeout: 10000
-      })
-      if (data?.status_code === 0 && data?.music_list?.length) {
-        result.push({
-          name: chart.name,
-          cover: data.music_list[0]?.music_info?.cover_large?.url_list?.[0] || '',
-          songs: data.music_list.map(mapSong)
-        })
-      }
-    } catch (e) {
-      console.error(`Qishui chart ${chart.name} error:`, e.message)
-    }
+export async function getToplist(order, sublistIndex) {
+  // 无 sublistIndex：只返回元数据
+  if (sublistIndex == null) {
+    return charts.map(c => ({ name: c.name, cover: '', songs: [] }))
   }
-  return result.length ? result : null
+
+  // 有 sublistIndex：只拉该榜单的歌曲
+  const idx = Math.min(sublistIndex, charts.length - 1)
+  const chart = charts[idx]
+  const result = charts.map(c => ({ name: c.name, cover: '', songs: [] }))
+
+  try {
+    const { data } = await axios.get(CHART_API, {
+      headers,
+      params: { chart_id: chart.id, count: 100, cursor: 0, aid: 1128 },
+      timeout: 10000
+    })
+    if (data?.status_code === 0 && data?.music_list?.length) {
+      result[idx].songs = data.music_list.map(mapSong)
+      result[idx].cover = data.music_list[0]?.music_info?.cover_large?.url_list?.[0] || ''
+    }
+  } catch (e) {
+    console.error(`Qishui chart ${chart.name} error:`, e.message)
+  }
+  return result
 }
 
 export async function searchSongs(keyword, limit = 50) {

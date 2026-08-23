@@ -41,36 +41,36 @@ router.get('/', async (req, res) => {
   const order = Number(req.query.order) || 1
   const sublist = req.query.sublist != null ? Number(req.query.sublist) : null
 
-  // 缓存 key 带上页码和排序：只有第一页才做缓存（首页展示），翻页加载更多不阻塞
+  // 缓存 key：元数据请求和歌曲请求分开缓存
   const cacheKey = platform === 'QQ音乐' ? `${platform}:${order}` : platform
-  const cached = page === 1 ? getCached(cacheKey) : null
+  const sublistKey = sublist != null ? `${cacheKey}:s${sublist}` : null
 
-  if (cached) {
-    // 有缓存时，按 sublist 过滤返回
-    return res.json({ code: 200, data: filterSublist(cached, sublist) })
+  // 有 sublist 时查子榜单缓存
+  if (sublistKey) {
+    const cached = getCached(sublistKey)
+    if (cached) return res.json({ code: 200, data: cached })
+  }
+
+  // 无 sublist 时查元数据缓存
+  if (sublist == null) {
+    const cached = getCached(cacheKey)
+    if (cached) return res.json({ code: 200, data: cached })
   }
 
   try {
-    const result = await services[platform].getToplist(order)
+    const result = await services[platform].getToplist(order, sublist)
     if (result) {
-      if (page === 1) setCache(cacheKey, result)
-      res.json({ code: 200, data: filterSublist(result, sublist) })
+      // 缓存结果
+      if (sublist != null && sublistKey) setCache(sublistKey, result)
+      else if (sublist == null) setCache(cacheKey, result)
+      res.json({ code: 200, data: result })
     } else {
-      res.json({ code: 200, data: null, message: `${platform} toplist fetch failed, using fallback` })
+      res.json({ code: 200, data: null, message: `${platform} toplist fetch failed` })
     }
   } catch (e) {
     res.json({ code: 200, data: null, message: e.message })
   }
 })
-
-// 过滤子榜单：只返回选中子榜单的歌曲，其他子榜单只返回元数据（name/cover）
-function filterSublist(data, sublistIndex) {
-  if (!Array.isArray(data) || sublistIndex == null) return data
-  return data.map((item, i) => {
-    if (i === sublistIndex) return item
-    return { name: item.name, cover: item.cover, songs: [], hasMore: item.hasMore || false }
-  })
-}
 
 // 加载更多：支持 HOYO-MiX 等分页榜单
 router.get('/more', async (req, res) => {

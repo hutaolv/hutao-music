@@ -104,16 +104,27 @@ async function fetchAudioMenu(sid, name) {
   }))
 }
 
-export async function getToplist() {
-  // 改为并行请求3个音频菜单，代替原来串行
-  const results = await Promise.allSettled(menus.map(m =>
-    fetchAudioMenu(m.sid, m.name).then(songs => songs ? { name: m.name, cover: songs[0]?.cover || '', songs } : null)
-  ))
-  const result = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value)
+export async function getToplist(order, sublistIndex) {
+  // 无 sublistIndex：只返回元数据
+  if (sublistIndex == null) {
+    return [...menus.map(m => ({ name: m.name, cover: '', songs: [] })), { name: 'B站排行榜', cover: '', songs: [] }]
+  }
 
-  if (!result.length) {
-    console.log('Bilibili audio menus all failed, trying video ranking fallback...')
-    try {
+  // 有 sublistIndex：只拉该菜单的歌曲
+  const allMenus = [...menus, { sid: null, name: 'B站排行榜' }]
+  const idx = Math.min(sublistIndex, allMenus.length - 1)
+  const menu = allMenus[idx]
+  const result = allMenus.map(m => ({ name: m.name, cover: '', songs: [] }))
+
+  try {
+    if (menu.sid) {
+      const songs = await fetchAudioMenu(menu.sid, menu.name)
+      if (songs) {
+        result[idx].songs = songs
+        result[idx].cover = songs[0]?.cover || ''
+      }
+    } else {
+      // B站排行榜（视频排行兜底）
       const { data } = await axios.get('https://api.bilibili.com/x/web-interface/ranking/v2', {
         headers: buildBiliHeaders('https://www.bilibili.com/'),
         params: { type: 3 },
@@ -121,8 +132,7 @@ export async function getToplist() {
       })
       const items = data?.data?.list || []
       if (items.length) {
-        console.log(`Bilibili video ranking fallback OK: ${items.length} songs`)
-        const songs = items.map(v => ({
+        result[idx].songs = items.map(v => ({
           id: `bilibili_${v.bvid}`,
           platformId: v.bvid,
           title: v.title.replace(/<[^>]*>/g, ''),
@@ -138,13 +148,13 @@ export async function getToplist() {
           bvid: v.bvid,
           aid: v.aid
         }))
-        result.push({ name: 'B站排行榜', cover: songs[0]?.cover || '', songs })
+        result[idx].cover = result[idx].songs[0]?.cover || ''
       }
-    } catch (e) {
-      console.error('Bilibili video ranking fallback:', e.message)
     }
+  } catch (e) {
+    console.error(`Bilibili menu ${menu.name} error:`, e.message)
   }
-  return result.length ? result : null
+  return result
 }
 
 // 搜索 B 站 UP 主作为"歌手"（bili_user 类型），头像经 /api/proxy/image 代理加载
