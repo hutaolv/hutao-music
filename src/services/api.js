@@ -150,6 +150,8 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
   if (song.platformMediaMid) params.set('mediaMid', song.platformMediaMid)
   if (song.sourceUrl) params.set('sourceUrl', song.sourceUrl)
   if (song.musicId) params.set('musicId', song.musicId)
+  if (song.contentId) params.set('contentId', song.contentId)
+  if (song.copyrightId) params.set('copyrightId', song.copyrightId)
 
   try {
     const res = await apiFetch(`${API_BASE}/song/url?${params}`)

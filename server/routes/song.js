@@ -183,9 +183,15 @@ router.get('/url', async (req, res) => {
           url = req.query.sourceUrl || null
           break
         case '咪咕音乐':
-          if (detect === '1') availableQualities = await migu.detectQualities(contentId || id, copyrightId)
-          url = await migu.getSongUrl(contentId || id, copyrightId, q)
-          if (!url && q !== 'standard') url = await migu.getSongUrl(contentId || id, copyrightId, 'standard')
+          {
+            const miguContentId = contentId || (id.startsWith('migu_') ? id.replace('migu_', '') : id)
+            const miguCopyrightId = copyrightId || miguContentId
+            if (detect === '1') {
+              availableQualities = await migu.detectQualities(miguContentId, miguCopyrightId)
+            }
+            url = await migu.getSongUrl(miguContentId, miguCopyrightId, q)
+            if (!url && q !== 'standard') url = await migu.getSongUrl(miguContentId, miguCopyrightId, 'standard')
+          }
           break
         case '酷我音乐':
           // 酷我音乐官方播放 API 需要加密，暂时使用第三方 API

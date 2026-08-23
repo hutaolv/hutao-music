@@ -94,9 +94,28 @@
 
       <div class="player-right">
         <button class="fav-btn mobile-only" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
+        <div class="quality-wrap desktop-only" ref="qualityWrap">
+          <button class="ctrl-btn quality-btn" :class="{ boosted: quality !== 'standard' }" @click.stop="toggleQualityMenu" title="音质">{{ qualityLabel }} <span class="quality-caret">&#x25BE;</span></button>
+          <transition name="fade">
+            <div v-if="showQualityMenu" class="quality-menu">
+              <div class="quality-menu-title">音质选择</div>
+              <div v-for="o in menuOptions" :key="o.value" class="quality-option" :class="{ active: o.value === quality }" @click="setQuality(o.value)">
+                <span class="quality-check">{{ o.value === quality ? '&#x2713;' : '' }}</span>
+                {{ o.label }}
+              </div>
+            </div>
+          </transition>
+        </div>
         <button class="ctrl-btn lyrics-btn" :class="{ active: store.showLyricsPanel }" @click="store.showLyricsPanel = !store.showLyricsPanel" title="歌词面板">&#x1F3B5;</button>
         <button class="ctrl-btn desktop-lyrics-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
+        </button>
+        <button v-if="downloadUrl" class="ctrl-btn download-btn desktop-only" @click="downloadSong" title="下载歌曲">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
         </button>
         <div class="volume-wrap" ref="volumeWrapRef">
           <button class="ctrl-btn" @click.stop="toggleVolumePopup" @mouseenter="showVolumePopup = true">&#x1F50A;</button>
@@ -238,6 +257,67 @@ const favClass = computed(() => {
 const quality = ref(localStorage.getItem('playQuality') || 'standard')
 // 当前歌曲实际可用的音质档位（播放时探测得到），用于选择最佳音质
 const availableQualities = ref(['standard'])
+// 音质选项和菜单状态
+const qualityOptions = [
+  { value: 'standard', label: '标准' },
+  { value: 'high', label: '高音质' },
+  { value: 'lossless', label: '无损' }
+]
+const showQualityMenu = ref(false)
+const qualityWrap = ref(null)
+const downloadUrl = ref('')
+
+const qualityLabel = computed(() => {
+  const o = qualityOptions.find(o => o.value === quality.value)
+  return o ? o.label : '标准'
+})
+
+const menuOptions = computed(() => {
+  return qualityOptions.filter(o => availableQualities.value.includes(o.value))
+})
+
+function toggleQualityMenu() {
+  showQualityMenu.value = !showQualityMenu.value
+}
+
+// 音质切换：保存偏好，立即切换当前播放
+async function setQuality(q) {
+  showQualityMenu.value = false
+  if (q === quality.value) return
+  quality.value = q
+  localStorage.setItem('playQuality', q)
+  // 通知 PlayerBar 立即切换音质
+  store.touchQualitySwitch()
+}
+
+// 下载歌曲
+async function downloadSong() {
+  if (!store.currentSong) return
+  const url = downloadUrl.value
+  if (!url) return
+  try {
+    const res = await fetch(url)
+    const blob = await res.blob()
+    const ext = blob.type.includes('mpeg') ? '.mp3' : blob.type.includes('aac') ? '.aac' : '.mp3'
+    const filename = `${store.currentSong.title} - ${store.currentSong.artist}${ext}`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(a.href)
+  } catch (e) {
+    console.warn('Download failed:', e.message)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+}
+
 // 音量弹出面板
 const showVolumePopup = ref(false)
 const volumeWrapRef = ref(null)
@@ -248,6 +328,7 @@ function toggleVolumePopup() {
 
 // 点击外部时关闭菜单
 function onDocClick(e) {
+  if (qualityWrap.value && !qualityWrap.value.contains(e.target)) showQualityMenu.value = false
   if (volumeWrapRef.value && !volumeWrapRef.value.contains(e.target)) showVolumePopup.value = false
 }
 
@@ -513,6 +594,7 @@ watch(() => store.currentSong, async (song) => {
     if (url) {
       audio.pause()
       audio.src = url
+      downloadUrl.value = url
       resumeAudio()
       setSpectrumActive(true)
       audio.play().catch(() => {})
@@ -570,6 +652,7 @@ watch(() => store.qualityVersion, async () => {
   if (url) {
     audio.src = url
     audio.currentTime = t
+    downloadUrl.value = url
     if (wasPlaying) audio.play().catch(() => {})
   }
 })
@@ -861,12 +944,88 @@ onUnmounted(() => {
 .play-btn { width: 40px; height: 40px; color: var(--text-primary); font-size: 16px; }
 .play-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 
+/* 音质选择：按钮 + 上浮菜单 */
+.quality-wrap { position: relative; }
+.quality-btn {
+  font-size: 12px;
+  width: auto;
+  min-width: 52px;
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.quality-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.quality-btn.boosted { border-color: var(--accent); color: var(--accent-light); }
+.quality-caret { font-size: 9px; opacity: 0.75; }
+
+.quality-menu {
+  position: absolute;
+  bottom: 44px;
+  right: -8px;
+  background: #181830;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 124px;
+  z-index: 100;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+}
+.quality-menu::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 20px;
+  width: 10px;
+  height: 10px;
+  background: #181830;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  transform: rotate(45deg);
+}
+.quality-menu-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 10px 6px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+}
+.quality-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.quality-check {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+.quality-option:hover { background: rgba(99, 102, 241, 0.15); color: var(--text-primary); }
+.quality-option.active { color: var(--accent-light); font-weight: 600; }
+
 .progress-area { width: 100%; cursor: pointer; }
 .time { font-size: 11px; color: var(--text-muted); min-width: 35px; text-align: center; font-variant-numeric: tabular-nums; }
 
 .player-right { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
 .mobile-only { display: none; }
+.desktop-only { display: flex; }
 
 .volume-wrap { position: relative; }
 .volume-popup {

@@ -209,7 +209,6 @@ async function setQuality(q) {
   if (q === quality.value) return
   quality.value = q
   localStorage.setItem('playQuality', q)
-  // 通知 PlayerBar 立即切换音质
   store.touchQualitySwitch()
 }
 
@@ -254,6 +253,16 @@ watch(() => store.currentSong, async (song) => {
     downloadUrl.value = res.url
   }
 }, { immediate: true })
+
+// 监听音质变化（PlayerBar 或其他地方切换），更新下载地址
+watch(() => store.qualityVersion, async () => {
+  const song = store.currentSong
+  if (!song) return
+  const q = localStorage.getItem('playQuality') || 'standard'
+  quality.value = q
+  const url = await getSongUrl(song, q, false)
+  if (url) downloadUrl.value = url
+})
 
 // 封面加载失败或换歌后重置失败标记
 function onImgError() {
