@@ -60,6 +60,25 @@ router.get('/url', async (req, res) => {
             if (hit) {
               const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
               console.log('[ThirdParty] QQ fallback to kuwo, id:', kuwoId)
+              // detect=1 时探测该歌曲在酷我上可用的音质档位
+              if (detect === '1') {
+                availableQualities = []
+                const probes = [
+                  { q: 'lossless', quality: 'lossless' },
+                  { q: 'high', quality: 'high' },
+                  { q: 'standard', quality: 'standard' }
+                ]
+                for (const p of probes) {
+                  try {
+                    const probeResult = await Promise.race([
+                      fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
+                      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+                    ])
+                    if (probeResult?.url) availableQualities.push(p.q)
+                  } catch {}
+                }
+                if (!availableQualities.length) availableQualities = ['standard']
+              }
               const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
               url = result?.url || null
               if (!url && q !== 'standard') {
@@ -124,6 +143,25 @@ router.get('/url', async (req, res) => {
                 if (hit) {
                   const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
                   console.log(`[QQ] Official failed, fallback to kuwo for: ${title}, kuwoId: ${kuwoId}`)
+                  // detect=1 时探测该歌曲在酷我上可用的音质档位
+                  if (detect === '1' && !availableQualities) {
+                    availableQualities = []
+                    const probes = [
+                      { q: 'lossless', quality: 'lossless' },
+                      { q: 'high', quality: 'high' },
+                      { q: 'standard', quality: 'standard' }
+                    ]
+                    for (const p of probes) {
+                      try {
+                        const probeResult = await Promise.race([
+                          fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
+                          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+                        ])
+                        if (probeResult?.url) availableQualities.push(p.q)
+                      } catch {}
+                    }
+                    if (!availableQualities.length) availableQualities = ['standard']
+                  }
                   const kwResult = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
                   url = kwResult?.url || null
                   if (!url && q !== 'standard') {
