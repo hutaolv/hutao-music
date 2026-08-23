@@ -47,7 +47,7 @@
         </div>
         <HutaoLoading v-if="loading" text="胡桃正在全力搜索中" />
         <div v-if="filteredSongs.length" class="result-list">
-          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" @play="store.playSong" @add="store.addToPlaylist" />
+          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" :show-play="true" @play="store.playSong" @add="store.addToPlaylist" />
         </div>
         <p v-if="!loading && !filteredSongs.length" class="no-result">未找到相关歌曲</p>
         <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
