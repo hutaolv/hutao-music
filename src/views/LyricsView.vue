@@ -108,6 +108,29 @@
               </button>
             </div>
           </div>
+          <div class="ms-group">
+            <div class="ms-label">音质选择</div>
+            <div class="ms-options">
+              <button v-for="o in menuOptions" :key="o.value"
+                class="ms-option" :class="{ active: o.value === quality }"
+                @click="setQuality(o.value)">
+                {{ o.label }}
+              </button>
+            </div>
+          </div>
+          <div class="ms-group">
+            <div class="ms-label">下载歌曲</div>
+            <div class="ms-options">
+              <button class="ms-option download-option" :disabled="!downloadUrl" @click="downloadSong">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                {{ downloadUrl ? '点击下载' : '加载中...' }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </transition>
@@ -121,6 +144,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
+import { getSongUrl } from '../services/api'
 import { registerCanvas, setSpectrumActive } from '../utils/spectrum'
 
 const store = usePlayerStore()
@@ -140,6 +164,28 @@ const mobileSettingsOpen = ref(false)
 // 翻页动画状态：null / 'exit-up' / 'exit-down' / 'enter'
 const pageAnim = ref(null)
 
+// 音质选择：standard=标准 high=高音质 lossless=无损（本地持久化）
+const qualityOptions = [
+  { value: 'standard', label: '标准' },
+  { value: 'high', label: '高音质' },
+  { value: 'lossless', label: '无损' }
+]
+const quality = ref(localStorage.getItem('playQuality') || 'standard')
+const availableQualities = ref(['standard'])
+
+const qualityLabel = computed(() => {
+  const o = qualityOptions.find(o => o.value === quality.value)
+  return o ? o.label : '标准'
+})
+
+// 当前歌曲实际可用的音质菜单
+const menuOptions = computed(() => {
+  return qualityOptions.filter(o => availableQualities.value.includes(o.value))
+})
+
+// 下载地址
+const downloadUrl = ref('')
+
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {
   playerStyle.value = style
@@ -157,6 +203,57 @@ function toggleSpectrum() {
     unregisterRingSpec = null
   }
 }
+
+// 切换音质：保存偏好，立即切换当前播放
+async function setQuality(q) {
+  if (q === quality.value) return
+  quality.value = q
+  localStorage.setItem('playQuality', q)
+  // 通知 PlayerBar 立即切换音质
+  store.touchQualitySwitch()
+}
+
+// 下载歌曲
+async function downloadSong() {
+  if (!store.currentSong) return
+  const url = downloadUrl.value
+  if (!url) return
+  try {
+    const res = await fetch(url)
+    const blob = await res.blob()
+    const ext = blob.type.includes('mpeg') ? '.mp3' : blob.type.includes('aac') ? '.aac' : '.mp3'
+    const filename = `${store.currentSong.title} - ${store.currentSong.artist}${ext}`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(a.href)
+  } catch (e) {
+    console.warn('Download failed:', e.message)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+}
+
+// 监听歌曲变化，探测可用音质并更新下载地址
+watch(() => store.currentSong, async (song) => {
+  if (!song) return
+  downloadUrl.value = ''
+  availableQualities.value = ['standard']
+  const res = await getSongUrl(song, quality.value, true)
+  if (res?.availableQualities) {
+    availableQualities.value = res.availableQualities
+  }
+  if (res?.url) {
+    downloadUrl.value = res.url
+  }
+}, { immediate: true })
 
 // 封面加载失败或换歌后重置失败标记
 function onImgError() {
@@ -845,6 +942,15 @@ watch(ringSpecRef, (el) => {
   }
   .ms-color-dot.rainbow { background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6); }
   .ms-color-dot.amber { background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706); }
+  .download-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .download-option:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   /* 面板淡入淡出 */
   .fade-enter-active, .fade-leave-active { transition: opacity 0.25s; }
   .fade-enter-from, .fade-leave-to { opacity: 0; }

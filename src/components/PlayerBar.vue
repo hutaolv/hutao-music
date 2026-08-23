@@ -94,28 +94,9 @@
 
       <div class="player-right">
         <button class="fav-btn mobile-only" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
-        <div class="quality-wrap" ref="qualityWrap">
-          <button class="ctrl-btn quality-btn" :class="{ boosted: quality !== 'standard' }" @click.stop="toggleQualityMenu" title="音质">{{ qualityLabel }} <span class="quality-caret">&#x25BE;</span></button>
-          <transition name="fade">
-            <div v-if="showQualityMenu" class="quality-menu">
-              <div class="quality-menu-title">音质选择</div>
-              <div v-for="o in menuOptions" :key="o.value" class="quality-option" :class="{ active: o.value === quality }" @click="setQuality(o.value)">
-                <span class="quality-check">{{ o.value === quality ? '&#x2713;' : '' }}</span>
-                {{ o.label }}
-              </div>
-            </div>
-          </transition>
-        </div>
         <button class="ctrl-btn lyrics-btn" :class="{ active: store.showLyricsPanel }" @click="store.showLyricsPanel = !store.showLyricsPanel" title="歌词面板">&#x1F3B5;</button>
         <button class="ctrl-btn desktop-lyrics-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
-        </button>
-        <button v-if="downloadUrl" class="ctrl-btn download-btn" @click="downloadSong" title="下载歌曲">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
         </button>
         <div class="volume-wrap" ref="volumeWrapRef">
           <button class="ctrl-btn" @click.stop="toggleVolumePopup" @mouseenter="showVolumePopup = true">&#x1F50A;</button>
@@ -203,7 +184,6 @@ const lyricsRef = ref(null)
 const lyricActiveEl = ref(null)
 const miniSpecRef = ref(null)
 const isFav = ref(false)
-const downloadUrl = ref('')
 const anim = ref('')
 // 拖动时的进度百分比（独立于 store.currentTime，避免 timeupdate 覆盖拖动位置）
 const dragPercent = ref(0)
@@ -254,15 +234,10 @@ const favClass = computed(() => {
   return c
 })
 
-// 音质档位：standard=标准 high=高音质 lossless=无损（本地持久化，切换时重新获取播放地址）
-const qualityOptions = [
-  { value: 'standard', label: '标准' },
-  { value: 'high', label: '高音质' },
-  { value: 'lossless', label: '无损' }
-]
+// 音质档位（本地持久化，供切换时使用）
 const quality = ref(localStorage.getItem('playQuality') || 'standard')
-const showQualityMenu = ref(false)
-const qualityWrap = ref(null)
+// 当前歌曲实际可用的音质档位（播放时探测得到），用于选择最佳音质
+const availableQualities = ref(['standard'])
 // 音量弹出面板
 const showVolumePopup = ref(false)
 const volumeWrapRef = ref(null)
@@ -270,47 +245,10 @@ const volumeWrapRef = ref(null)
 function toggleVolumePopup() {
   showVolumePopup.value = !showVolumePopup.value
 }
-// 当前歌曲实际可用的音质档位（播放时探测得到），没有的音质不显示在菜单里
-const availableQualities = ref(['standard'])
 
-const qualityLabel = computed(() => {
-  const o = qualityOptions.find(o => o.value === quality.value)
-  return o ? o.label : '标准'
-})
-
-// 菜单只展示当前歌曲实际可用的音质
-const menuOptions = computed(() => {
-  return qualityOptions.filter(o => availableQualities.value.includes(o.value))
-})
-
-function toggleQualityMenu() {
-  showQualityMenu.value = !showQualityMenu.value
-}
-
-// 点击音质菜单外部时关闭菜单
+// 点击外部时关闭菜单
 function onDocClick(e) {
-  if (qualityWrap.value && !qualityWrap.value.contains(e.target)) showQualityMenu.value = false
   if (volumeWrapRef.value && !volumeWrapRef.value.contains(e.target)) showVolumePopup.value = false
-}
-
-// 切换音质：保存偏好，若正在播放则重新获取当前歌曲的对应音质地址并保持进度
-async function setQuality(q) {
-  showQualityMenu.value = false
-  if (q === quality.value) return
-  quality.value = q
-  localStorage.setItem('playQuality', q)
-  const song = store.currentSong
-  if (song && audio && audio.src) {
-    const t = audio.currentTime
-    const wasPlaying = store.isPlaying
-    const url = await getSongUrl(song, q)
-    if (url) {
-      audio.src = url
-      audio.currentTime = t
-      downloadUrl.value = url
-      if (wasPlaying) audio.play().catch(() => {})
-    }
-  }
 }
 
 const parsedLyrics = computed(() => {
@@ -540,7 +478,6 @@ watch(() => store.currentSong, async (song) => {
   store.rawLyrics = ''
   store.rawTransLyrics = ''
   store.currentLyricIndex = -1
-  downloadUrl.value = ''
   if (song) {
     // 收藏状态从 IndexedDB 异步读取（同步读取已不适用）
     getFavorites().then(list => {
@@ -580,7 +517,6 @@ watch(() => store.currentSong, async (song) => {
       setSpectrumActive(true)
       audio.play().catch(() => {})
       store.isPlaying = true
-      downloadUrl.value = url
       prefetchNextUrl()
       const lrc = await getLyrics(song)
       if (lrc) {
@@ -623,31 +559,20 @@ watch(() => store.seekTime, (t) => {
   }
 })
 
-async function downloadSong() {
-  if (!store.currentSong) return
-  if (!downloadUrl.value) return
-  try {
-    const res = await fetch(downloadUrl.value)
-    const blob = await res.blob()
-    const ext = blob.type.includes('mpeg') ? '.mp3' : blob.type.includes('aac') ? '.aac' : '.mp3'
-    const filename = `${store.currentSong.title} - ${store.currentSong.artist}${ext}`
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(a.href)
-  } catch (e) {
-    console.warn('Download failed:', e.message)
-    const a = document.createElement('a')
-    a.href = downloadUrl.value
-    a.download = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+// 监听音质切换信号：歌词页切换音质后立即重新获取播放地址并切换
+watch(() => store.qualityVersion, async () => {
+  const song = store.currentSong
+  if (!song || !audio || !audio.src) return
+  const q = localStorage.getItem('playQuality') || 'standard'
+  const t = audio.currentTime
+  const wasPlaying = store.isPlaying
+  const url = await getSongUrl(song, q)
+  if (url) {
+    audio.src = url
+    audio.currentTime = t
+    if (wasPlaying) audio.play().catch(() => {})
   }
-}
+})
 
 // 进度条点击跳转：点击位置转换为播放进度
 function seekProgress(e) {
@@ -823,7 +748,7 @@ onUnmounted(() => {
 <style scoped>
 .player-bar {
   position: fixed;
-  bottom: 0;
+  bottom: env(safe-area-inset-bottom, 0px);
   left: 0;
   right: 0;
   height: var(--player-height);
@@ -935,83 +860,6 @@ onUnmounted(() => {
 
 .play-btn { width: 40px; height: 40px; color: var(--text-primary); font-size: 16px; }
 .play-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
-
-/* 音质选择：按钮 + 上浮菜单（强调视觉） */
-.quality-wrap { position: relative; }
-.quality-btn {
-  font-size: 12px;
-  width: auto;
-  min-width: 52px;
-  height: 28px;
-  padding: 0 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: all 0.2s;
-}
-.quality-btn:hover { border-color: var(--accent); color: var(--text-primary); }
-/* 非标准音质时按钮高亮，提示当前正在用高音质/无损 */
-.quality-btn.boosted { border-color: var(--accent); color: var(--accent-light); }
-.quality-caret { font-size: 9px; opacity: 0.75; }
-
-.quality-menu {
-  position: absolute;
-  bottom: 44px;
-  right: -8px;
-  background: #181830;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  padding: 6px;
-  min-width: 124px;
-  z-index: 100;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
-}
-/* 指向按钮的小箭头 */
-.quality-menu::before {
-  content: '';
-  position: absolute;
-  top: -5px;
-  right: 20px;
-  width: 10px;
-  height: 10px;
-  background: #181830;
-  border-top: 1px solid rgba(255, 255, 255, 0.14);
-  border-left: 1px solid rgba(255, 255, 255, 0.14);
-  transform: rotate(45deg);
-}
-.quality-menu-title {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 4px 10px 6px;
-  border-bottom: 1px solid var(--border-color);
-  margin-bottom: 4px;
-}
-.quality-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 6px;
-  white-space: nowrap;
-  transition: all 0.2s;
-}
-.quality-check {
-  display: inline-block;
-  width: 14px;
-  text-align: center;
-  font-weight: 700;
-}
-.quality-option:hover { background: rgba(99, 102, 241, 0.15); color: var(--text-primary); }
-.quality-option.active { color: var(--accent-light); font-weight: 600; }
 
 .progress-area { width: 100%; cursor: pointer; }
 .time { font-size: 11px; color: var(--text-muted); min-width: 35px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -1155,6 +1003,10 @@ onUnmounted(() => {
 
 /* 手机端（≤767px）：播放条改双行布局——第一行歌曲信息，第二行控制按钮+音质+下载+收藏 */
 @media (max-width: 767px) {
+  .player-bar {
+    bottom: 12px;
+  }
+
   .player-inner {
     flex-wrap: wrap;
     align-content: center;
@@ -1218,16 +1070,10 @@ onUnmounted(() => {
     display: none;
   }
 
-  .quality-btn {
-    font-size: 11px;
-    min-width: 44px;
-    height: 26px;
-    padding: 0 6px;
-  }
-
   .fav-btn {
-    font-size: 16px;
-    margin-left: 0;
+    font-size: 20px;
+    margin-left: 10px;
+    margin-right: 4px;
   }
 
   .mobile-only {

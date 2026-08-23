@@ -25,6 +25,8 @@ export const usePlayerStore = defineStore('player', () => {
   const seekTime = ref(-1)
   // 收藏变更版本号：任意入口（播放条/榜单/歌曲卡）收藏变动后 +1，首页据此刷新"我的喜欢"列表
   const favVersion = ref(0)
+  // 音质切换信号：歌词页切换音质时 +1，PlayerBar 监听后立即重新获取对应音质的播放地址
+  const qualityVersion = ref(0)
 
   const playModes = ['sequence', 'loop', 'random']
 
@@ -142,11 +144,16 @@ export const usePlayerStore = defineStore('player', () => {
     favVersion.value++
   }
 
+  // 通知音质切换（歌词页切音质后调用，PlayerBar 监听后立即切换播放地址）
+  function touchQualitySwitch() {
+    qualityVersion.value++
+  }
+
   return {
     currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
     playMode,     showPlaylist, playModes, nextMode,
-    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion,
+    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion, qualityVersion,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
-    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll, touchFavVersion
+    clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll, touchFavVersion, touchQualitySwitch
   }
 })
