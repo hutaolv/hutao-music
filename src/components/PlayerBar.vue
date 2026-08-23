@@ -1010,7 +1010,7 @@ onUnmounted(() => {
   font-weight: 700;
 }
 .quality-option:hover { background: rgba(99, 102, 241, 0.15); color: var(--text-primary); }
-.quality-option.active { background: var(--accent); color: #fff; font-weight: 600; }
+.quality-option.active { color: var(--accent-light); font-weight: 600; }
 
 .progress-area { width: 100%; cursor: pointer; }
 .time { font-size: 11px; color: var(--text-muted); min-width: 35px; text-align: center; font-variant-numeric: tabular-nums; }

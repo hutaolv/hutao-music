@@ -144,7 +144,7 @@ router.get('/url', async (req, res) => {
                   const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
                   console.log(`[QQ] Official failed, fallback to kuwo for: ${title}, kuwoId: ${kuwoId}`)
                   // detect=1 时探测该歌曲在酷我上可用的音质档位
-                  if (detect === '1' && !availableQualities) {
+                  if (detect === '1') {
                     availableQualities = []
                     const probes = [
                       { q: 'lossless', quality: 'lossless' },
