@@ -1,6 +1,6 @@
 <template>
   <div v-if="store.desktopLyrics && store.currentSong && parsedLyrics.length" class="desktop-lyrics" ref="containerRef"
-    :style="containerStyle" @mousedown="onMouseDown">
+    :style="containerStyle" @mousedown="onMouseDown" @touchstart.passive="onTouchStart">
     <div class="desktop-header" ref="headerRef">
       <div class="desktop-controls">
         <button class="dl-btn" @click.stop="showColorPicker = !showColorPicker" title="歌词颜色">
@@ -119,10 +119,32 @@ function onMouseDown(e) {
   document.addEventListener('mouseup', onMouseUp)
 }
 
+// 触屏拖拽：手机端不触发 mousedown，需单独监听 touch 事件
+function onTouchStart(e) {
+  // 排除按钮、取色器等可点击区域，避免误触拖拽
+  if (e.target.closest('button') || e.target.closest('.color-picker') || e.target.closest('.resize-handle')) return
+  const touch = e.touches[0]
+  isDragging = true
+  startX = touch.clientX
+  startY = touch.clientY
+  const rect = containerRef.value.getBoundingClientRect()
+  offsetX = rect.left
+  offsetY = rect.top
+  document.addEventListener('touchmove', onTouchMove, { passive: false })
+  document.addEventListener('touchend', onTouchEnd)
+}
+
 function onMouseMove(e) {
   if (!isDragging) return
-  // 只更新响应式位置，避免与 Vue 的 :style 补丁冲突
   winPos.value = { top: offsetY + e.clientY - startY, left: offsetX + e.clientX - startX }
+}
+
+// touchmove 必须 preventDefault 阻止页面滚动，否则拖拽和滚动会冲突
+function onTouchMove(e) {
+  if (!isDragging) return
+  e.preventDefault()
+  const touch = e.touches[0]
+  winPos.value = { top: offsetY + touch.clientY - startY, left: offsetX + touch.clientX - startX }
 }
 
 function onMouseUp() {
@@ -136,9 +158,22 @@ function onMouseUp() {
   document.removeEventListener('mouseup', onMouseUp)
 }
 
+// 触屏松手：保存最终位置，移除监听
+function onTouchEnd() {
+  isDragging = false
+  if (containerRef.value) {
+    const rect = containerRef.value.getBoundingClientRect()
+    setDesktopLyricsPos({ top: rect.top, left: rect.left })
+  }
+  document.removeEventListener('touchmove', onTouchMove)
+  document.removeEventListener('touchend', onTouchEnd)
+}
+
 onUnmounted(() => {
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
+  document.removeEventListener('touchmove', onTouchMove)
+  document.removeEventListener('touchend', onTouchEnd)
 })
 </script>
 
