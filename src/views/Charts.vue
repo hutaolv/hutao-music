@@ -51,10 +51,10 @@
             <span class="row-title">{{ song.title }}</span>
             <div v-if="song.vip" class="meta-row">
               <span class="meta-tag vip">VIP</span>
-              <span class="chart-hutao" @click.stop="goSearch(song.title)">🍑</span>
             </div>
           </span>
         <span class="col-artist">{{ song.artist }}</span>
+        <img src="/icons/hutao-search.jpg" class="col-hutao-avatar" :class="{ 'vip-only': !song.vip }" @click.stop="song.vip && goSearch(song.title)" :title="song.vip ? '搜索此歌曲' : ''" />
         <span class="col-duration">{{ song.duration }}</span>
         <span class="col-action">
           <button class="action-btn play-btn reveal-action" @click="store.playSong(song)" title="播放">&#x25B6;</button>
@@ -526,13 +526,22 @@ async function toggleFav(song) {
   color: #f87171;
 }
 
-.chart-hutao {
-  font-size: 11px;
+.col-hutao-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   cursor: pointer;
-  transition: transform 0.2s;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: all 0.2s;
+  object-fit: cover;
+}
+.col-hutao-avatar.vip-only {
+  opacity: 0;
+  pointer-events: none;
 }
 @media (hover: hover) {
-  .chart-hutao:hover { transform: scale(1.3); }
+  .col-hutao-avatar:hover:not(.vip-only) { opacity: 1; transform: scale(1.15); }
 }
 
 /* ===== Action buttons ===== */
@@ -615,6 +624,7 @@ async function toggleFav(song) {
 /* ===== Mobile ===== */
 @media (max-width: 767px) {
   .col-artist { display: none; }
+  .col-hutao-avatar { display: none; }
   .col-cover { width: 36px; }
   .row-cover { width: 36px; height: 36px; border-radius: 10px; }
   .col-duration { width: 44px; }

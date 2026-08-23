@@ -4,6 +4,7 @@
 
     <div class="search-box glass-card">
       <input v-model="keyword" type="text" placeholder="输入歌曲或歌手名称..." class="search-input" @input="onInput" @keydown.enter="doSearch" />
+      <button v-if="keyword" class="search-clear" @click="keyword = ''; allSongs = []; artistResults = []" title="清空">&#x2715;</button>
       <button class="search-submit" @click="doSearch">&#x1F50D;</button>
     </div>
 
@@ -17,7 +18,7 @@
       <span class="filter-divider">|</span>
       <span class="platform-filter hutao-search"
         :class="{ active: useThirdParty }"
-        @click="toggleThirdParty">&#x1F335; 胡桃搜</span>
+        @click="toggleThirdParty">胡桃搜</span>
     </div>
 
     <div v-if="selectedPlatform === 'B站'" class="scope-filters">
@@ -310,6 +311,22 @@ onMounted(() => {
   color: var(--text-secondary);
   transition: all 0.2s;
 }
+.search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.search-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
 @media (hover: hover) {
   .search-submit:hover { background: var(--bg-hover); color: var(--accent-light); }
 }
@@ -526,6 +543,11 @@ onMounted(() => {
     width: 36px;
     height: 36px;
     font-size: 14px;
+  }
+  .search-clear {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
   }
   .platform-filters {
     gap: 6px;
