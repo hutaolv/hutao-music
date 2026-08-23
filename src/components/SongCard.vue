@@ -16,7 +16,7 @@
       </div>
     </div>
     <span class="duration">{{ song.duration }}</span>
-    <button v-if="showPlay && !showActions" class="action-btn play-btn reveal-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
+    <button v-if="showPlay" class="action-btn play-btn reveal-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
     <template v-if="showActions">
       <button class="action-btn add-btn reveal-btn" @click.stop="$emit('add', song)" title="添加到播放列表">&#x2795;</button>
     </template>

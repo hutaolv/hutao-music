@@ -3,6 +3,10 @@ import vm from 'node:vm'
 import { kuwoThirdPartyApis } from './hutao-kuwo.js'
 import { fetchWithFallback } from './thirdPartyApis.js'
 
+// 第三方酷我搜索 API（从 hutao-search.js 引入，用于排行榜直接调用）
+import { thirdPartySearchApis } from './hutao-search.js'
+const thirdPartyKuwo = thirdPartySearchApis.find(a => a.name === 'kuwo')
+
 // 酷我音乐 API 配置
 const headers = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
@@ -110,25 +114,41 @@ export async function getToplist() {
   if (Date.now() - longCache.time < LONG_TTL && longCache.data) return longCache.data
 
   const result = []
-  for (const chart of CHART_CONFIGS) {
+  for (const chart of FALLBACK_CHARTS) {
     try {
-      const songs = await fetchChart(chart.id)
-      if (songs?.length) result.push({ name: chart.name, cover: songs[0]?.cover || '', songs })
+      const allSongs = []
+      const seen = new Set()
+      // 使用第三方酷我搜索 API（不再调用官方 API）
+      const searchResults = await Promise.allSettled(
+        chart.keywords.map(kw => thirdPartyKuwo.search(kw, '酷我音乐'))
+      )
+      for (const r of searchResults) {
+        if (r.status === 'fulfilled') {
+          for (const song of r.value) {
+            if (!seen.has(song.id)) {
+              seen.add(song.id)
+              allSongs.push({
+                ...song,
+                platform: '酷我音乐',
+                audioUrl: '',
+                sourceUrl: ''
+              })
+            }
+          }
+        }
+      }
+      if (allSongs.length) {
+        result.push({ name: chart.name, cover: allSongs[0]?.cover || '', songs: allSongs.slice(0, 50) })
+      }
     } catch (e) {
-      console.error(`Kuwo chart ${chart.name} error:`, e.message)
+      console.error(`Kuwo third-party chart ${chart.name} error:`, e.message)
     }
-    await sleep(3000)
   }
-
-  if (result.length >= CHART_CONFIGS.length) {
-    // 全部榜单成功，长缓存避免频繁请求触发风控
+  if (result.length) {
     longCache = { time: Date.now(), data: result }
     return result
   }
-
-  // 部分失败：使用搜索模拟榜兜底
-  console.warn(`Kuwo real charts only got ${result.length}/${CHART_CONFIGS.length}, falling back to simulated charts`)
-  return getSimulatedCharts()
+  return null
 }
 
 // 搜索热门关键词模拟榜单（真实接口被风控时的兜底）

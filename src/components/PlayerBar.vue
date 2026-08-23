@@ -293,32 +293,19 @@ async function setQuality(q) {
   store.touchQualitySwitch()
 }
 
-// 下载歌曲
+// 下载歌曲：直接用 <a download> 触发浏览器原生下载，无需等待 blob 转换
 async function downloadSong() {
   if (!store.currentSong) return
   const url = downloadUrl.value
   if (!url) return
-  try {
-    const res = await fetch(url)
-    const blob = await res.blob()
-    const ext = blob.type.includes('mpeg') ? '.mp3' : blob.type.includes('aac') ? '.aac' : '.mp3'
-    const filename = `${store.currentSong.title} - ${store.currentSong.artist}${ext}`
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(a.href)
-  } catch (e) {
-    console.warn('Download failed:', e.message)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }
+  const filename = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 // 音量弹出面板
