@@ -835,9 +835,11 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: var(--player-height);
-  background: rgba(12, 12, 20, 0.98);
-  backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border-color);
+  background: rgba(10, 10, 15, 0.92);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  border-top: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 -4px 24px rgba(0, 0, 0, 0.3);
   z-index: 200;
 }
 
@@ -855,8 +857,8 @@ onUnmounted(() => {
 }
 .progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
 .progress-track { width: 100%; height: 3px; background: var(--border-color); border-radius: 2px; position: relative; }
-.progress-fill { height: 100%; background: white; border-radius: 2px; transition: width 0.1s linear; }
-.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-light)); border-radius: 2px; transition: width 0.1s linear; }
+.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: var(--accent-light); border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; box-shadow: 0 0 8px rgba(129, 140, 248, 0.4); }
 .progress-bar:hover .progress-thumb { opacity: 1; }
 .progress-bar:active .progress-thumb { cursor: grabbing; }
 .progress-bar:hover .progress-track { height: 5px; }
@@ -971,13 +973,15 @@ onUnmounted(() => {
   position: absolute;
   bottom: 44px;
   right: -8px;
-  background: #181830;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
+  background: rgba(18, 18, 30, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
   padding: 6px;
   min-width: 124px;
   z-index: 100;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .quality-menu::before {
   content: '';
@@ -986,9 +990,9 @@ onUnmounted(() => {
   right: 20px;
   width: 10px;
   height: 10px;
-  background: #181830;
-  border-top: 1px solid rgba(255, 255, 255, 0.14);
-  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(18, 18, 30, 0.85);
+  border-top: 1px solid var(--glass-border);
+  border-left: 1px solid var(--glass-border);
   transform: rotate(45deg);
 }
 .quality-menu-title {
@@ -1033,12 +1037,14 @@ onUnmounted(() => {
   bottom: 44px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(18, 18, 26, 0.95);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
+  background: rgba(18, 18, 30, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
   padding: 16px 10px;
   z-index: 100;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .volume-popup::after {
   content: '';
@@ -1048,9 +1054,9 @@ onUnmounted(() => {
   transform: translateX(-50%) rotate(45deg);
   width: 10px;
   height: 10px;
-  background: rgba(18, 18, 26, 0.95);
-  border-right: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
+  background: rgba(18, 18, 30, 0.85);
+  border-right: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
 }
 .volume-popup-track { width: 6px; height: 100px; background: rgba(255,255,255,0.15); border-radius: 3px; position: relative; cursor: pointer; }
 .volume-popup-fill { width: 100%; background: white; border-radius: 3px; position: absolute; bottom: 0; }
@@ -1065,11 +1071,14 @@ onUnmounted(() => {
   max-width: 600px;
   max-height: 300px;
   overflow: hidden;
-  background: rgba(12, 12, 20, 0.96);
-  border: 1px solid var(--border-color);
+  background: rgba(10, 10, 15, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
   border-bottom: none;
-  border-radius: 12px 12px 0 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   padding: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 -8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .lyrics-content {

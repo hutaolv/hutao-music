@@ -35,9 +35,11 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
   left: 0;
   right: 0;
   height: var(--nav-height);
-  background: rgba(10, 10, 15, 0.95);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border-color);
+  background: rgba(10, 10, 15, 0.88);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   z-index: 100;
 }
 
@@ -78,15 +80,16 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
 
 .nav-link {
   padding: 8px 16px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   font-size: 15px;
   color: var(--text-secondary);
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.nav-link:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+@media (hover: hover) {
+  .nav-link:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
 }
 
 .nav-link.active {
@@ -96,18 +99,20 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
 
 .download-link {
   border: 1px solid var(--accent);
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.1);
+  border-radius: var(--radius-pill);
+  background: rgba(99, 102, 241, 0.08);
   font-weight: 600;
   white-space: nowrap;
 }
-
-.download-link:hover {
-  background: rgba(99, 102, 241, 0.2);
-  color: var(--accent-light);
+@media (hover: hover) {
+  .download-link:hover {
+    background: rgba(99, 102, 241, 0.18);
+    color: var(--accent-light);
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.2);
+  }
 }
 
-/* 手机端（≤767px）：导航栏收紧排版 */
+/* ===== Mobile ===== */
 @media (max-width: 767px) {
   .nav-inner {
     flex-wrap: wrap;

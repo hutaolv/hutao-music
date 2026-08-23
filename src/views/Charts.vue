@@ -1,10 +1,10 @@
 <template>
   <div class="charts">
     <h1 class="section-title">排行榜</h1>
-    <p class="section-subtitle">汇聚五大平台热门歌曲，每日更新</p>
+    <p class="section-subtitle">汇聚各大平台热门歌曲，每日更新</p>
 
     <div class="platform-tabs">
-      <button v-for="p in platforms" :key="p" class="platform-tab" :class="{ active: activePlatform === p }" :style="activePlatform === p ? { color: platformColors[p], borderColor: platformColors[p] } : {}" @click="switchPlatform(p)">{{ p }}</button>
+      <button v-for="p in platforms" :key="p" class="platform-tab glass-card" :class="{ active: activePlatform === p }" :style="activePlatform === p ? { color: platformColors[p], borderColor: platformColors[p], background: `color-mix(in srgb, ${platformColors[p]} 12%, transparent)` } : {}" @click="switchPlatform(p)">{{ p }}</button>
     </div>
 
     <div v-if="sublists.length > 1" class="sublist-tabs">
@@ -36,7 +36,7 @@
       <span class="col-title">歌曲</span>
       <span class="col-artist">歌手</span>
       <span class="col-duration">时长</span>
-      <span class="col-action">操作</span>
+      <span class="col-action"></span>
     </div>
 
     <div v-if="filteredSongs.length" class="chart-list">
@@ -49,14 +49,16 @@
         </span>
           <span class="col-title">
             <span class="row-title">{{ song.title }}</span>
-            <span v-if="song.vip" class="chart-vip">VIP</span>
-            <span v-if="song.vip" class="chart-hutao" @click.stop="goSearch(song.title)">🍑</span>
+            <div v-if="song.vip" class="meta-row">
+              <span class="meta-tag vip">VIP</span>
+              <span class="chart-hutao" @click.stop="goSearch(song.title)">🍑</span>
+            </div>
           </span>
         <span class="col-artist">{{ song.artist }}</span>
         <span class="col-duration">{{ song.duration }}</span>
         <span class="col-action">
-          <button class="action-btn play-btn" @click="store.playSong(song)" title="播放">&#x25B6;</button>
-          <button class="action-btn add-btn" @click="store.addToPlaylist(song)" title="添加到播放列表">&#x2795;</button>
+          <button class="action-btn play-btn reveal-action" @click="store.playSong(song)" title="播放">&#x25B6;</button>
+          <button class="action-btn add-btn reveal-action" @click="store.addToPlaylist(song)" title="添加到播放列表">&#x2795;</button>
           <button class="action-btn fav-btn" :class="favClass(song.id)" @click="toggleFav(song)" title="收藏"><span class="fav-heart">&#x2665;</span></button>
         </span>
       </div>
@@ -263,6 +265,7 @@ async function toggleFav(song) {
 </script>
 
 <style scoped>
+/* ===== Platform tabs ===== */
 .platform-tabs {
   display: flex;
   gap: 8px;
@@ -272,24 +275,25 @@ async function toggleFav(song) {
 
 .platform-tab {
   padding: 10px 24px;
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--bg-card);
   border: 1px solid var(--border-color);
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.platform-tab:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .platform-tab:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.04);
+  }
 }
-
 .platform-tab.active {
   background: transparent;
 }
 
+/* ===== Sublist / filter / sort pill tabs ===== */
 .sublist-tabs {
   display: flex;
   gap: 6px;
@@ -300,27 +304,28 @@ async function toggleFav(song) {
 
 .sublist-tab {
   padding: 6px 16px;
-  border-radius: 14px;
+  border-radius: var(--radius-pill);
   font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-color);
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.sublist-tab:hover {
-  color: var(--text-secondary);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .sublist-tab:hover {
+    color: var(--text-secondary);
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.03);
+  }
 }
-
 .sublist-tab.active {
   color: var(--accent-light);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.08);
 }
 
-/* VIP 筛选标签 */
+/* ===== VIP filter ===== */
 .vip-filter {
   display: flex;
   gap: 6px;
@@ -330,27 +335,28 @@ async function toggleFav(song) {
 
 .vip-filter-btn {
   padding: 5px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-color);
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.vip-filter-btn:hover {
-  color: var(--text-secondary);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .vip-filter-btn:hover {
+    color: var(--text-secondary);
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.03);
+  }
 }
-
 .vip-filter-btn.active {
   color: var(--accent-light);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.08);
 }
 
-/* HOYO-MiX 排序按钮 */
+/* ===== HOYO-MiX sort ===== */
 .hoyo-sort {
   display: flex;
   gap: 6px;
@@ -360,26 +366,28 @@ async function toggleFav(song) {
 
 .hoyo-sort-btn {
   padding: 5px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-color);
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.hoyo-sort-btn:hover {
-  color: var(--text-secondary);
-  border-color: var(--text-muted);
+@media (hover: hover) {
+  .hoyo-sort-btn:hover {
+    color: var(--text-secondary);
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.03);
+  }
 }
-
 .hoyo-sort-btn.active {
   color: var(--accent-light);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.08);
 }
 
+/* ===== Chart rows ===== */
 .chart-header-row, .chart-row {
   display: flex;
   align-items: center;
@@ -388,7 +396,7 @@ async function toggleFav(song) {
   font-size: 13px;
 }
 
-/* 榜单工具条：歌曲数 + 播放全部按钮 */
+/* ===== Toolbar ===== */
 .chart-toolbar {
   display: flex;
   align-items: center;
@@ -402,69 +410,87 @@ async function toggleFav(song) {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
-  padding: 6px 12px;
-  border-radius: 999px;
-  transition: opacity 0.2s, transform 0.2s;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.play-all-btn:hover { opacity: 0.85; }
-
-/* 点击播放全部时按钮回弹动画 */
-.play-all-btn:active { transform: scale(0.9); }
+@media (hover: hover) {
+  .play-all-btn:hover { opacity: 0.85; }
+}
+.play-all-btn:active { transform: scale(0.92); }
 .play-all-btn.playing { animation: playall-pop 0.3s ease; }
 
 @keyframes playall-pop {
   0% { transform: scale(1); }
-  40% { transform: scale(1.08); }
+  40% { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
 
+/* ===== Header row — no border, just subtle text ===== */
 .chart-header-row {
   color: var(--text-muted);
-  border-bottom: 1px solid var(--border-color);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  opacity: 0.6;
 }
 
+/* ===== Song rows — no border dividers, spacing-based separation ===== */
 .chart-row {
   border-radius: var(--radius-sm);
   cursor: default;
   transition: background 0.2s;
 }
+@media (hover: hover) {
+  .chart-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
 
-.chart-row:hover { background: var(--bg-card); }
-
-.col-rank { width: 40px; text-align: center; flex-shrink: 0; }
+.col-rank { width: 36px; text-align: center; flex-shrink: 0; }
 .col-cover { width: 44px; flex-shrink: 0; }
 .col-title { flex: 1; min-width: 0; }
 .col-artist { width: 140px; color: var(--text-secondary); flex-shrink: 0; }
 .col-duration { width: 60px; color: var(--text-muted); text-align: right; flex-shrink: 0; }
-.col-action { width: 120px; display: flex; gap: 4px; flex-shrink: 0; }
+.col-action { width: 100px; display: flex; gap: 2px; flex-shrink: 0; justify-content: flex-end; }
 
+/* ===== Rank badges — metallic gradient text ===== */
 .rank-badge {
-  display: inline-block;
-  width: 28px;
-  height: 28px;
-  line-height: 28px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--text-muted);
-  background: var(--bg-card);
+  color: rgba(255, 255, 255, 0.15);
+  background: transparent;
 }
 
-.rank-badge.gold { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
-.rank-badge.silver { color: #94a3b8; background: rgba(148, 163, 184, 0.1); }
-.rank-badge.bronze { color: #d97706; background: rgba(217, 119, 6, 0.1); }
+.rank-badge.gold {
+  background: linear-gradient(135deg, rgba(251,191,36,0.18), rgba(245,158,11,0.06));
+  color: #fbbf24;
+}
+.rank-badge.silver {
+  background: linear-gradient(135deg, rgba(203,213,225,0.14), rgba(148,163,184,0.05));
+  color: #cbd5e1;
+}
+.rank-badge.bronze {
+  background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(217,119,6,0.05));
+  color: #f59e0b;
+}
 
 .row-cover {
   width: 44px;
   height: 44px;
-  border-radius: 6px;
+  border-radius: 12px;
   object-fit: cover;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) {
+  .chart-row:hover .row-cover { transform: scale(1.05); }
 }
 
 .row-title {
@@ -473,45 +499,99 @@ async function toggleFav(song) {
   color: var(--text-primary);
 }
 
-.chart-vip {
+.col-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.meta-tag {
   font-size: 10px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: white;
-  font-weight: 700;
-  margin-left: 6px;
-  letter-spacing: 0.5px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.meta-tag.vip {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
 }
 
 .chart-hutao {
-  font-size: 12px;
-  margin-left: 4px;
+  font-size: 11px;
   cursor: pointer;
   transition: transform 0.2s;
 }
-
-.chart-hutao:hover {
-  transform: scale(1.3);
+@media (hover: hover) {
+  .chart-hutao:hover { transform: scale(1.3); }
 }
 
+/* ===== Action buttons ===== */
 .action-btn {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.action-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+/* Hover-reveal: play + add hidden by default, slide in on row hover */
+.reveal-action {
+  opacity: 0;
+  transform: translateX(6px);
+}
+@media (hover: hover) {
+  .chart-row:hover .reveal-action {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.action-btn:active {
+  transform: scale(0.8) !important;
+  transition-duration: 0.1s;
+}
 
 .play-btn:hover { color: var(--accent-light); }
 .add-btn:hover { color: #10b981; }
-.fav-btn.favorited { color: #ef4444; }
+
+.fav-btn {
+  color: var(--text-muted);
+  opacity: 0;
+  transform: translateX(6px);
+}
+@media (hover: hover) {
+  .chart-row:hover .fav-btn {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.fav-btn:hover { color: #ef4444; }
+.fav-btn.favorited {
+  color: #ef4444;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Touch: always show buttons */
+@media (hover: none) {
+  .reveal-action, .fav-btn {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
 
 .no-result { padding: 40px; text-align: center; color: var(--text-muted); font-size: 15px; }
 
@@ -524,20 +604,24 @@ async function toggleFav(song) {
   color: var(--text-secondary);
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 20px;
-  transition: all 0.2s;
+  border-radius: var(--radius-pill);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.load-more:hover:not(:disabled) { color: var(--text-primary); border-color: var(--text-muted); }
+@media (hover: hover) {
+  .load-more:hover:not(:disabled) { color: var(--text-primary); border-color: var(--text-muted); }
+}
 .load-more:disabled { opacity: 0.5; cursor: default; }
 
-/* 手机端（≤767px）：隐藏歌手列节省空间，操作列收窄，按钮同步缩小免得溢出 */
+/* ===== Mobile ===== */
 @media (max-width: 767px) {
   .col-artist { display: none; }
   .col-cover { width: 36px; }
-  .row-cover { width: 36px; height: 36px; }
+  .row-cover { width: 36px; height: 36px; border-radius: 10px; }
   .col-duration { width: 44px; }
-  .col-action { width: 92px; gap: 2px; }
-  .action-btn { width: 28px; height: 28px; font-size: 13px; }
+  .col-action { width: 88px; gap: 2px; }
+  .action-btn { width: 28px; height: 28px; font-size: 12px; }
   .chart-header-row, .chart-row { gap: 8px; padding: 10px 10px; }
+  /* Touch: always show buttons */
+  .reveal-action, .fav-btn { opacity: 1; transform: translateX(0); }
 }
 </style>

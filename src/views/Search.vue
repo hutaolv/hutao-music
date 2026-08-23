@@ -2,7 +2,7 @@
   <div class="search-page">
     <h1 class="section-title">搜索</h1>
 
-    <div class="search-box">
+    <div class="search-box glass-card">
       <input v-model="keyword" type="text" placeholder="输入歌曲或歌手名称..." class="search-input" @input="onInput" @keydown.enter="doSearch" />
       <button class="search-submit" @click="doSearch">&#x1F50D;</button>
     </div>
@@ -282,11 +282,10 @@ onMounted(() => {
   align-items: center;
   max-width: 600px;
   margin-bottom: 16px;
-  background: var(--bg-card);
-  border-radius: 24px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
   padding: 0 4px 0 20px;
-  transition: border-color 0.2s;
+  transition: border-color 0.25s;
 }
 
 .search-box:focus-within { border-color: var(--accent); }
@@ -311,8 +310,9 @@ onMounted(() => {
   color: var(--text-secondary);
   transition: all 0.2s;
 }
-
-.search-submit:hover { background: var(--bg-hover); color: var(--accent-light); }
+@media (hover: hover) {
+  .search-submit:hover { background: var(--bg-hover); color: var(--accent-light); }
+}
 
 .platform-filters {
   display: flex;
@@ -339,13 +339,16 @@ onMounted(() => {
 .platform-filter {
   font-size: 12px;
   padding: 5px 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-pill);
   background: var(--bg-card);
   color: var(--text-muted);
   border: 1px solid var(--border-color);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
+}
+@media (hover: hover) {
+  .platform-filter:hover { border-color: var(--pf-color); color: var(--pf-color); }
 }
 
 .filter-divider {
@@ -353,8 +356,6 @@ onMounted(() => {
   margin: 0 4px;
   opacity: 0.4;
 }
-
-.platform-filter:hover { border-color: var(--pf-color); color: var(--pf-color); }
 
 .hutao-search {
   --pf-color: #10b981;
@@ -383,18 +384,20 @@ onMounted(() => {
 
 .history-tag {
   padding: 8px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-pill);
   font-size: 13px;
   background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid var(--border-color);
 }
-
-.history-tag:hover {
-  color: var(--accent-light);
-  border-color: var(--accent);
+@media (hover: hover) {
+  .history-tag:hover {
+    color: var(--accent-light);
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.06);
+  }
 }
 
 .clear-history {
@@ -403,13 +406,14 @@ onMounted(() => {
   color: var(--text-muted);
   transition: color 0.2s;
 }
-
-.clear-history:hover { color: #ef4444; }
+@media (hover: hover) {
+  .clear-history:hover { color: #ef4444; }
+}
 
 .result-list {
-  background: var(--bg-card);
-  border-radius: var(--radius);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .no-result {
@@ -422,17 +426,17 @@ onMounted(() => {
   display: block;
   margin: 16px auto 0;
   padding: 8px 28px;
-  border-radius: 18px;
+  border-radius: var(--radius-pill);
   font-size: 13px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-light); }
-
+@media (hover: hover) {
+  .load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-light); }
+}
 .load-more:disabled { opacity: 0.5; cursor: default; }
 
 .song-toolbar {
@@ -447,20 +451,20 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
-  padding: 6px 12px;
-  border-radius: 999px;
-  transition: opacity 0.2s, transform 0.2s;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.play-all-btn:hover { opacity: 0.85; }
-
-.play-all-btn:active { transform: scale(0.9); }
+@media (hover: hover) {
+  .play-all-btn:hover { opacity: 0.85; }
+}
+.play-all-btn:active { transform: scale(0.92); }
 .play-all-btn.playing { animation: playall-pop 0.3s ease; }
 
 @keyframes playall-pop {
   0% { transform: scale(1); }
-  40% { transform: scale(1.08); }
+  40% { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
 
@@ -478,10 +482,15 @@ onMounted(() => {
   background: var(--bg-card);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  border-left: 2px solid transparent;
 }
-
-.artist-result-item:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+  .artist-result-item:hover {
+    background: var(--bg-hover);
+    border-left-color: var(--accent);
+  }
+}
 
 .artist-avatar {
   width: 56px;
@@ -503,5 +512,66 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+@media (max-width: 767px) {
+  .search-box {
+    margin-bottom: 12px;
+  }
+  .search-input {
+    height: 42px;
+    font-size: 15px;
+  }
+  .search-submit {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+  .platform-filters {
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+  .filter-label {
+    font-size: 12px;
+  }
+  .platform-filter {
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+  .scope-filters {
+    gap: 6px;
+    margin: -8px 0 18px;
+  }
+  .section { margin-bottom: 24px; }
+  .history-tags { gap: 6px; }
+  .history-tag {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .clear-history {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .song-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .artist-result-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .artist-result-item {
+    gap: 10px;
+    padding: 10px;
+  }
+  .artist-avatar {
+    width: 44px;
+    height: 44px;
+  }
+  .artist-name { font-size: 14px; }
+  .load-more {
+    padding: 8px 20px;
+    font-size: 12px;
+  }
 }
 </style>

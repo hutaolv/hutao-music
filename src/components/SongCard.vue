@@ -1,24 +1,24 @@
 <template>
   <div class="song-card" @click="$emit('play', song)">
     <div class="rank" v-if="rank !== undefined">
-      <span class="rank-num" :class="{ 'top-three': rank <= 3 }">{{ rank }}</span>
+      <span class="rank-num" :class="rankClass">{{ rank }}</span>
     </div>
-    <img :src="song.cover" :alt="song.title" class="cover" @error="hideImg" />
+    <div class="cover-wrap">
+      <img :src="song.cover" :alt="song.title" class="cover" @error="hideImg" />
+    </div>
     <div class="info">
-      <div class="title-row">
-        <span class="title">{{ song.title }}</span>
-        <span v-if="song.vip" class="vip-badge">VIP</span>
-        <span class="platform-tag" :style="{ background: platformColor + '20', color: platformColor }">{{ song.platform }}</span>
+      <span class="title">{{ song.title }}</span>
+      <div class="meta-row">
+        <span v-if="song.vip" class="meta-tag vip">VIP</span>
+        <span class="meta-tag platform">{{ song.platform }}</span>
+        <span class="meta-sep" v-if="song.artist">&middot;</span>
+        <span class="meta-artist">{{ song.artist }}</span>
       </div>
-      <div class="artist">{{ song.artist }}</div>
     </div>
     <span class="duration">{{ song.duration }}</span>
-    <!-- 仅显示播放按钮（我的喜欢/历史播放列表），与整卡播放互不冲突 -->
-    <button v-if="showPlay && !showActions" class="action-btn play-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
-    <!-- showActions 为 true 时显示播放/添加到播放列表按钮（搜索结果等场景），点击不触发整卡播放 -->
+    <button v-if="showPlay && !showActions" class="action-btn play-btn reveal-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
     <template v-if="showActions">
-      <button class="action-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
-      <button class="action-btn" @click.stop="$emit('add', song)" title="添加到播放列表">&#x2795;</button>
+      <button class="action-btn add-btn reveal-btn" @click.stop="$emit('add', song)" title="添加到播放列表">&#x2795;</button>
     </template>
     <button class="fav-btn" :class="favClass" @click.stop="toggleFav"><span class="fav-heart">&#x2665;</span></button>
   </div>
@@ -46,7 +46,14 @@ const emit = defineEmits(['play', 'add', 'fav-changed'])
 const isFav = ref(false)
 const platformColor = platformColors[props.song.platform] || '#6366f1'
 const anim = ref('')
+const addAnim = ref('')
 let animTimer = null
+let addAnimTimer = null
+
+const rankClass = computed(() => {
+  if (!props.rank) return {}
+  return { gold: props.rank === 1, silver: props.rank === 2, bronze: props.rank === 3 }
+})
 
 // 收藏状态存储在 IndexedDB（异步），挂载后异步获取初始收藏状态
 getFavorites().then(list => {
@@ -85,17 +92,18 @@ async function toggleFav() {
 .song-card {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.2s;
 }
-
-.song-card:hover { background: var(--bg-hover); }
+@media (hover: hover) {
+  .song-card:hover { background: rgba(255, 255, 255, 0.04); }
+}
 
 .rank {
-  width: 32px;
+  width: 28px;
   text-align: center;
   flex-shrink: 0;
 }
@@ -103,29 +111,47 @@ async function toggleFav() {
 .rank-num {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.18);
   font-variant-numeric: tabular-nums;
 }
 
-.rank-num.top-three { color: var(--accent-light); }
+.rank-num.gold {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.rank-num.silver {
+  background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.rank-num.bronze {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.cover-wrap {
+  flex-shrink: 0;
+}
 
 .cover {
   width: 44px;
   height: 44px;
-  border-radius: 6px;
+  border-radius: 12px;
   object-fit: cover;
-  flex-shrink: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) {
+  .song-card:hover .cover { transform: scale(1.05); }
 }
 
 .info {
   flex: 1;
   min-width: 0;
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .title {
@@ -135,31 +161,46 @@ async function toggleFav() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: block;
 }
 
-.platform-tag {
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.meta-tag {
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: 4px;
-  flex-shrink: 0;
   font-weight: 500;
-}
-
-.vip-badge {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: white;
-  font-weight: 700;
   flex-shrink: 0;
-  letter-spacing: 0.5px;
 }
 
-.artist {
+.meta-tag.vip {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.meta-tag.platform {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+
+.meta-sep {
+  color: var(--text-muted);
+  opacity: 0.3;
+  font-size: 10px;
+}
+
+.meta-artist {
   font-size: 12px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .duration {
@@ -168,24 +209,41 @@ async function toggleFav() {
   flex-shrink: 0;
 }
 
-/* 播放 / 添加到播放列表按钮 */
+/* ===== Action buttons ===== */
 .action-btn {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-shrink: 0;
+  opacity: 0;
+  transform: translateX(6px);
+}
+@media (hover: hover) {
+  .song-card:hover .reveal-btn {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.action-btn:active {
+  transform: scale(0.85) !important;
+  transition-duration: 0.1s;
 }
 
-.action-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.add-btn:hover { color: #10b981; }
+.add-btn.add-bounce { animation: btn-bounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
-/* 播放按钮：主色强调，方便我的喜欢/历史播放列表快速播放 */
-.play-btn:hover { color: #fff; background: var(--accent-light); }
+@keyframes btn-bounce {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.3); }
+  60% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
 
 .fav-btn {
   font-size: 16px;
@@ -196,10 +254,30 @@ async function toggleFav() {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-shrink: 0;
+  opacity: 0;
+  transform: translateX(6px);
+}
+@media (hover: hover) {
+  .song-card:hover .fav-btn {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.fav-btn:active { transform: scale(0.85) !important; transition-duration: 0.1s; }
+.fav-btn:hover { color: #ef4444; }
+.fav-btn.favorited {
+  color: #ef4444;
+  opacity: 1;
+  transform: translateX(0);
 }
 
-.fav-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
-.fav-btn.favorited { color: #ef4444; }
+/* Touch: always show buttons */
+@media (hover: none) {
+  .reveal-btn, .fav-btn {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
 </style>

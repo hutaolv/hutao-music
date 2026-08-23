@@ -16,11 +16,28 @@
   --accent-light: #818cf8;
   --accent-dark: #4f46e5;
   --border-color: #2a2a3e;
+  --border-subtle: rgba(255, 255, 255, 0.06);
   --shadow: 0 4px 24px rgba(0,0,0,0.4);
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
   --nav-height: 64px;
   --player-height: 80px;
+
+  /* Glassmorphism tokens */
+  --glass-bg: rgba(26, 26, 38, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --glass-blur: 16px;
+
+  /* Platform brand gradients (subtle bg tints) */
+  --grad-酷狗: linear-gradient(135deg, rgba(46,177,238,0.12) 0%, rgba(46,177,238,0.02) 100%);
+  --grad-网易云: linear-gradient(135deg, rgba(212,60,51,0.12) 0%, rgba(212,60,51,0.02) 100%);
+  --grad-QQ: linear-gradient(135deg, rgba(0,210,108,0.12) 0%, rgba(0,210,108,0.02) 100%);
+  --grad-B站: linear-gradient(135deg, rgba(251,114,153,0.12) 0%, rgba(251,114,153,0.02) 100%);
+  --grad-咪咕: linear-gradient(135deg, rgba(255,102,0,0.12) 0%, rgba(255,102,0,0.02) 100%);
+  --grad-抖音: linear-gradient(135deg, rgba(46,62,180,0.12) 0%, rgba(46,62,180,0.02) 100%);
+  --grad-酷我: linear-gradient(135deg, rgba(43,162,69,0.12) 0%, rgba(43,162,69,0.02) 100%);
 }
 
 html, body {
@@ -199,12 +216,86 @@ img {
   100%    { transform: rotate(42deg) scaleX(1); opacity: 0; }
 }
 
+/* ===== Glassmorphism card ===== */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), 0 4px 24px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-card {
+    background: var(--bg-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ===== Hover motion utilities ===== */
+.hover-lift {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) {
+  .hover-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  }
+}
+.hover-lift:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ===== Accent gradient text ===== */
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent-light), #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ===== Pulse animation for empty states ===== */
+@keyframes gentle-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.04); }
+}
+.pulse-icon {
+  animation: gentle-pulse 3s ease-in-out infinite;
+}
+
+/* ===== Slide-in entrance for cards ===== */
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.card-enter {
+  animation: card-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ===== 手机端适配（≤767px，避开 iPad 768px，桌面/平板默认样式不受影响） ===== */
+/* ===== Reduced motion: disable all non-essential animations ===== */
+@media (prefers-reduced-motion: reduce) {
+  .hover-lift { transition: none; }
+  .hover-lift:hover { transform: none; box-shadow: none; }
+  .pulse-icon { animation: none; }
+  .card-enter { animation: none; opacity: 1; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ===== 手机端适配（≤767px，避开 iPad 768px，桌面/平板默认样式不受影响） ===== */
 @media (max-width: 767px) {
   /* 手机端导航栏变两层（logo+链接一行、搜索框一行）更高；播放条改双行布局更高 */
   :root {
     --nav-height: 104px;
     --player-height: 120px;
+    --radius: 12px;
+    --radius-sm: 8px;
   }
 
   /* 页面内容收窄边距，让手机上内容充分利用宽度 */
