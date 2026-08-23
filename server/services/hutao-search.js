@@ -39,7 +39,7 @@ export const thirdPartySearchApis = [
         album: item.ALBUM || '',
         duration: formatDuration(Number(item.DURATION) || 0),
         platform: platform || '酷我音乐',
-        cover: ''
+        cover: item.PIC || item.ALBUMPIC || ''
       }))
     }
   },
