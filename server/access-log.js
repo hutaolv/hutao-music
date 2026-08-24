@@ -42,6 +42,22 @@ function localDateStr(d) {
 
 // 当前统计所属的日期，跨天检测与归档都以此为基准
 let currentDate = localDateStr(new Date())
+
+// 本地时区 ISO 风格时间戳，如 2026-08-24T13:55:40.959+08:00。
+// 与 toISOString() 的区别：那个固定输出 UTC（结尾 Z），肉眼核对要心算 +8；
+// 这个直接按容器本地时区输出并带上偏移量后缀，日志里看到的就是北京时间。
+// 注意：归档日期判断仍用上面的 localDateStr，两者分工不变
+function localIso(d) {
+  const pad = n => String(n).padStart(2, '0')
+  const ms = String(d.getMilliseconds()).padStart(3, '0')
+  // getTimezoneOffset 返回"本地 - UTC"的分钟数且东八区为负值，取反得到 +480 这类偏移
+  const offMin = -d.getTimezoneOffset()
+  const sign = offMin >= 0 ? '+' : '-'
+  const absOff = Math.abs(offMin)
+  const offStr = `${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${ms}${offStr}`
+}
 // 脏标记：内存有新增/变更才需要落盘，避免空转 IO
 let dirty = false
 // 写入锁：上一次异步写未完成时跳过本轮，防止并发写同一文件互相覆盖
@@ -51,7 +67,7 @@ let writeBusy = false
 
 // 把指定日期的内存数据序列化为文件内容（带 date 字段，启动恢复时据此判断是否属于今天）
 function serialize(date, map) {
-  return JSON.stringify({ date, savedAt: new Date().toISOString(), ips: Object.fromEntries(map) }, null, 2)
+  return JSON.stringify({ date, savedAt: localIso(new Date()), ips: Object.fromEntries(map) }, null, 2)
 }
 
 // 原子写：先写同目录临时文件，再 rename 覆盖目标——rename 在同一文件系统上是原子的，
@@ -266,8 +282,8 @@ async function record(req) {
   if (!s) {
     s = {
       requests: 1,
-      firstSeen: now.toISOString(),
-      lastSeen: now.toISOString(),
+      firstSeen: localIso(now),
+      lastSeen: localIso(now),
       geo: localGeoLabel(ip),
       isp: '',
       network,
@@ -311,4 +327,4 @@ export default function accessLogger(req, res, next) {
 }
 
 // 供测试/调试/手动归档使用：stats 为当天内存数据，archiveNow 可立即触发一次归档
-export { stats, flushTick, archiveNow, OUT_FILE, HISTORY_DIR }
+export { stats, flushTick, archiveNow, localIso, OUT_FILE, HISTORY_DIR }
