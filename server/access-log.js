@@ -1,21 +1,28 @@
-// 访问日志模块：聚合记录每个访问者（按 IP）的访问次数、地理位置、网络状态与设备信息，
-// 定期落盘到 server/log/ 目录，供站长查看用户访问概况。
-// 设计说明：
-// - 以 IP 为维度聚合计数与首尾访问时间，避免高频请求刷爆磁盘
-// - 外部 IPv4 尝试在线解析地理位置（国内接口优先，失败降级 unknown）
-// - 设备/网络信息从 User-Agent 与连接信息解析，录音存内存，周期 flush
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs'
+// 访问日志模块（v2 重构版）：聚合记录每个访问者（按 IP）的访问次数、地理位置、网络状态与设备信息
+//
+// 与 v1 的区别：
+// - 不再跨天累计：access.json 只保存"今天"的数据，每天本地时间 0 点归档一次
+// - 凌晨归档：当天完整数据写入 server/log/history/access-日期.json，写入成功后才
+//   清空内存与 access.json，从零开始记录新的一天
+// - 原子写入：先写临时文件再 rename，任何时刻磁盘上都存在完整 JSON，
+//   避免写一半进程被杀导致文件损坏、下次启动静默丢光历史
+// - 优雅停机：SIGTERM/SIGINT 时强制落盘后再退出（Docker stop 场景不再丢最后 30 秒）
+//
+// 时区说明：归档时机取容器本地时区，Docker 默认 UTC 会导致"凌晨"对应北京时间早上 8 点，
+// 部署时请在 docker-compose.yml 设置 TZ=Asia/Shanghai
+import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from 'fs'
+import { writeFile, rename } from 'fs/promises'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // 日志目录：server/log
 const LOG_DIR = resolve(__dirname, 'log')
-// 聚合结果文件：server/log/access.json
+// 当天数据文件：server/log/access.json
 const OUT_FILE = resolve(LOG_DIR, 'access.json')
-// 历史归档目录：server/log/history
+// 历史归档目录：server/log/history（每天一个文件）
 const HISTORY_DIR = resolve(LOG_DIR, 'history')
-// 聚合数据每隔多少毫秒落盘一次
+// 内存有变更时隔多少毫秒落盘一次（仅快照当日数据，供进程重启后恢复当天进度）
 const FLUSH_INTERVAL = 30000
 // 在线 IP 归属地接口超时（毫秒）
 const GEO_TIMEOUT = 4000
@@ -26,13 +33,175 @@ mkdirSync(HISTORY_DIR, { recursive: true })
 // 聚合表：ip -> { requests, firstSeen, lastSeen, geo, isp, network, device, os, browser, paths }
 const stats = new Map()
 
-// 读取历史汇总（重启后保留累计访问次数）
-let persisted = {}
-if (existsSync(OUT_FILE)) {
-  try {
-    persisted = JSON.parse(readFileSync(OUT_FILE, 'utf8') || '{}')
-  } catch { persisted = {} }
+// 本地时区日期字符串（YYYY-MM-DD）。不用 toISOString 是因为它按 UTC 取日期，
+// 会导致东八区晚上 8 点后日期提前一天，凌晨归档时间错位
+function localDateStr(d) {
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
+
+// 当前统计所属的日期，跨天检测与归档都以此为基准
+let currentDate = localDateStr(new Date())
+// 脏标记：内存有新增/变更才需要落盘，避免空转 IO
+let dirty = false
+// 写入锁：上一次异步写未完成时跳过本轮，防止并发写同一文件互相覆盖
+let writeBusy = false
+
+// ---------- 序列化与原子写入 ----------
+
+// 把指定日期的内存数据序列化为文件内容（带 date 字段，启动恢复时据此判断是否属于今天）
+function serialize(date, map) {
+  return JSON.stringify({ date, savedAt: new Date().toISOString(), ips: Object.fromEntries(map) }, null, 2)
+}
+
+// 原子写：先写同目录临时文件，再 rename 覆盖目标——rename 在同一文件系统上是原子的，
+// 目标文件要么是旧完整内容、要么是新完整内容，不会出现截断的半截 JSON
+async function atomicWrite(file, text) {
+  const tmp = `${file}.tmp`
+  await writeFile(tmp, text, 'utf8')
+  await rename(tmp, file)
+}
+
+// 把当天内存快照写入 access.json（异步，不阻塞事件循环；失败保留脏标记下轮重试）
+async function writeToday() {
+  try {
+    await atomicWrite(OUT_FILE, serialize(currentDate, stats))
+  } catch (e) {
+    dirty = true
+    console.warn('访问日志写入失败:', e.message)
+  }
+}
+
+// 定时快照：有变更且上一轮已写完才执行
+async function flushTick() {
+  if (writeBusy || !dirty) return
+  writeBusy = true
+  dirty = false
+  await writeToday()
+  writeBusy = false
+}
+
+// ---------- 每日归档 ----------
+
+// 核心归档动作：
+// 1. 当天内存数据写入历史目录（文件名带日期；同名文件已存在则跳过，避免重复运行时覆盖）
+// 2. 归档成功后才清空内存、更新当前日期并重置 access.json —— 保证"先落地再清理"，不丢数据
+async function archiveNow() {
+  const hasData = stats.size > 0
+  if (hasData) {
+    const histFile = resolve(HISTORY_DIR, `access-${currentDate}.json`)
+    if (!existsSync(histFile)) {
+      await atomicWrite(histFile, serialize(currentDate, stats))
+    } else {
+      console.warn(`历史文件已存在，跳过归档: ${histFile}`)
+    }
+  }
+  // 清空当天统计，切换到新的一天，并立即把空的当天文件写下去
+  stats.clear()
+  currentDate = localDateStr(new Date())
+  await writeToday()
+}
+
+// 凌晨定时器：计算距离下一个本地 0 点的毫秒数，睡到点后归档，再安排下一天。
+// 比"每小时检查一次"精确，也不会出现 v1 里只存第一个小时快照的问题
+function scheduleMidnightArchive() {
+  const now = new Date()
+  const next = new Date(now)
+  next.setHours(24, 0, 0, 0) // 小时数传 24 自动滚到明天 0 点
+  setTimeout(async () => {
+    try {
+      await archiveNow()
+    } catch (e) {
+      // 归档失败不清内存：脏数据还在，下个触发点或重启后会再次尝试
+      console.warn('凌晨归档失败（数据保留待重试）:', e.message)
+    }
+    scheduleMidnightArchive()
+  }, next.getTime() - now.getTime())
+}
+
+// ---------- 启动恢复 ----------
+
+// 启动时处理磁盘上的 access.json：
+// - 属于今天：恢复进内存，接着记（进程白天重启不丢当天进度）
+// - 属于过去（如停机跨了零点）：先把那天数据补归档到历史目录，再以空数据开新的一天
+// - 文件损坏：改名留存现场（access.corrupt-时间戳.json），从空开始，避免反复 parse 失败
+function loadFromDisk() {
+  if (!existsSync(OUT_FILE)) return
+  try {
+    const parsed = JSON.parse(readFileSync(OUT_FILE, 'utf8').replace(/^\uFEFF/, '') || '{}')
+    const today = localDateStr(new Date())
+    if (parsed?.date === today && parsed.ips && typeof parsed.ips === 'object') {
+      for (const [ip, s] of Object.entries(parsed.ips)) {
+        if (s && typeof s === 'object') stats.set(ip, s)
+      }
+    } else if (parsed?.date && parsed.ips && Object.keys(parsed.ips).length > 0) {
+      const histFile = resolve(HISTORY_DIR, `access-${parsed.date}.json`)
+      if (!existsSync(histFile)) {
+        writeFileSync(histFile, JSON.stringify(parsed, null, 2), 'utf8')
+      }
+      writeFileSync(OUT_FILE, serialize(today, new Map()), 'utf8')
+    }
+  } catch {
+    try {
+      renameSync(OUT_FILE, resolve(LOG_DIR, `access.corrupt-${Date.now()}.json`))
+    } catch { /* 连损坏文件都保不住时只能放弃，不影响服务启动 */ }
+  }
+}
+
+loadFromDisk()
+
+// ---------- IP 归属地解析（在线接口，后续可换离线库）----------
+
+// 内网/本机地址的可见标注，替代空 geo
+function localGeoLabel(ip) {
+  if (!ip || ip === 'unknown') return '未知'
+  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return '本机(127.0.0.1)'
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return '内网'
+  if (ip.startsWith('172.')) return '内网'
+  if (ip.includes(':')) return '本机(IPv6)'
+  return ''
+}
+
+// 判定是否为外部 IPv4（可在线解析归属地）：内网/本机/IPv6 均返回 false
+function isExternalIPv4(ip) {
+  if (!ip || ip === 'unknown' || ip.includes(':')) return false
+  if (ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return false
+  return true
+}
+
+// 在线解析 IP 归属地：优先 ipinfo.io（精度高），失败回退 ip-api.com（lang=zh-CN 返回中文）。
+// 注意：免费接口有频率限制，新访客大量涌入时会部分解析失败留空，属可接受的降级
+async function resolveGeo(ip, s) {
+  if (!isExternalIPv4(ip)) return
+  // 接口一：ipinfo.io（精度高，包含 ASN/运营商信息）
+  try {
+    const res = await fetch(`https://ipinfo.io/${ip}/json`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(GEO_TIMEOUT)
+    })
+    const json = await res.json()
+    if (json?.city) {
+      // 拼接为 "国家 省份 城市" 格式
+      s.geo = [json.country, json.region, json.city].filter(Boolean).join(' ')
+      // 从 org 字段提取运营商（格式：ASxxxx 运营商名）
+      s.isp = (json.org || '').replace(/^AS\d+\s+/, '') || ''
+      return
+    }
+  } catch { /* 该接口失败则继续尝试下一个 */ }
+  // 接口二：ip-api.com（UTF-8 中文结果，国际可访问，兜底）
+  try {
+    const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`, {
+      signal: AbortSignal.timeout(GEO_TIMEOUT)
+    })
+    const json = await res.json()
+    if (json?.status === 'success') {
+      s.geo = [json.country, json.regionName, json.city].filter(Boolean).join(' ')
+      s.isp = json.isp || ''
+    }
+  } catch { /* 全部失败则保留 unknown */ }
+}
+
+// ---------- 请求记录 ----------
 
 // 解析 User-Agent，返回 { device, os, browser, network }
 function parseUA(ua = '') {
@@ -77,8 +246,12 @@ function parseUA(ua = '') {
 async function record(req) {
   // 跳过健康检查与静态资源请求，避免首页/JS/CSS 刷爆统计（只记真实访问入口）
   if (req.path === '/api/health') return
-  // 常见静态资源扩展名：不动用 bulk 匹配，快速判断
   if (/\.(js|css|png|jpe?g|gif|svg|ico|woff2?|ttf|eot|map|json)(\?|$)/i.test(req.path)) return
+  // 跨天兜底：若定时器因故未触发（如系统休眠/时钟跳变），在第一条新一天的请求里补归档
+  const today = localDateStr(new Date())
+  if (today !== currentDate) {
+    try { await archiveNow() } catch (e) { console.warn('跨天归档失败:', e.message) }
+  }
   // 支持 x-forwarded-for（Nginx 反代时取真实客户端 IP）
   const xff = req.headers['x-forwarded-for']
   const ip = (xff ? String(xff).split(',')[0].trim() : (req.socket?.remoteAddress || '')).replace(/^::ffff:/, '')
@@ -88,29 +261,20 @@ async function record(req) {
   const now = new Date()
   const { device, os, browser, network: guessedNetwork } = parseUA(ua)
   const network = reportedNetwork || guessedNetwork
-  // 生成本次记录字段（不记录查询参数，避免入库搜索关键词等敏感信息）
-  const entry = {
-    method: req.method,
-    path: req.path,
-    at: now.toISOString()
-  }
 
   let s = stats.get(ip)
   if (!s) {
-    // 首次见到该 IP：优先复用历史累计次数，再异步解析归属地
-    const hist = persisted[ip] || {}
     s = {
-      requests: (hist.requests || 0) + 1,
-      firstSeen: hist.firstSeen || now.toISOString(),
+      requests: 1,
+      firstSeen: now.toISOString(),
       lastSeen: now.toISOString(),
-      // 优先用本次上报/新解析的网络类型，历史值仅作无上报时的兜底
-      geo: hist.geo || localGeoLabel(ip),
-      isp: hist.isp || '',
-      network: network || hist.network || '',
-      device: device || hist.device || '',
-      os: os || hist.os || '',
-      browser: browser || hist.browser || '',
-      paths: (hist.paths || {})
+      geo: localGeoLabel(ip),
+      isp: '',
+      network,
+      device,
+      os,
+      browser,
+      paths: {}
     }
     stats.set(ip, s)
     // 首次见到该 IP：异步解析归属地（内网地址跳过在线解析）
@@ -121,109 +285,30 @@ async function record(req) {
     // 后续访问用最新上报/解析的网络类型覆盖（网络环境可能切换）
     if (network) s.network = network
   }
-  // 累计路径访问次数
-  s.paths[entry.method + ' ' + entry.path] = (s.paths[entry.method + ' ' + entry.path] || 0) + 1
+  // 累计路径访问次数（不记录查询参数，避免入库搜索关键词等敏感信息）
+  s.paths[req.method + ' ' + req.path] = (s.paths[req.method + ' ' + req.path] || 0) + 1
+  dirty = true
 }
 
-// 内网/本机地址的可见标注，替代空 geo
-function localGeoLabel(ip) {
-  if (!ip || ip === 'unknown') return '未知'
-  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return '本机(127.0.0.1)'
-  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return '内网'
-  if (ip.startsWith('172.')) return '内网'
-  if (ip.includes(':')) return '本机(IPv6)'
-  return ''
-}
+// 定时快照当日数据 + 安排凌晨归档
+setInterval(flushTick, FLUSH_INTERVAL)
+scheduleMidnightArchive()
 
-// 判定是否为外部 IPv4（可在线解析归属地）：内网/本机/IPv6 均返回 false
-function isExternalIPv4(ip) {
-  if (!ip || ip === 'unknown' || ip.includes(':')) return false
-  if (ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return false
-  return true
+// 优雅停机：SIGTERM（docker stop）/SIGINT（Ctrl+C）时强制把当天数据落盘再退出。
+// 注意 v1 挂在 process.on('exit') 的方案对信号终止无效，必须拦信号本身
+async function shutdownFlush() {
+  dirty = true
+  await flushTick()
+  process.exit(0)
 }
-
-// 在线解析 IP 归属地：优先 ipinfo.io（精度高），失败回退 ip-api.com。
-// 内网/本机地址已在上游标注，无需在线解析（这里只处理外网 IPv4）
-async function resolveGeo(ip, s) {
-  if (!isExternalIPv4(ip)) return
-  // 接口一：ipinfo.io（精度高，包含 ASN/运营商信息）
-  try {
-    const res = await fetch(`https://ipinfo.io/${ip}/json`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(GEO_TIMEOUT)
-    })
-    const json = await res.json()
-    if (json?.city) {
-      // 拼接为 "国家 省份 城市" 格式
-      s.geo = [json.country, json.region, json.city].filter(Boolean).join(' ')
-      // 从 org 字段提取运营商（格式：ASxxxx 运营商名）
-      s.isp = (json.org || '').replace(/^AS\d+\s+/, '') || ''
-      return
-    }
-  } catch { /* 该接口失败则继续尝试下一个 */ }
-  // 接口二：ip-api.com（UTF-8，国际可访问，兜底）
-  try {
-    const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`, {
-      signal: AbortSignal.timeout(GEO_TIMEOUT)
-    })
-    const json = await res.json()
-    if (json?.status === 'success') {
-      s.geo = [json.country, json.regionName, json.city].filter(Boolean).join(' ')
-      s.isp = json.isp || ''
-    }
-  } catch { /* 全部失败则保留 unknown */ }
-}
-
-// 将内存聚合数据落盘
-function flush() {
-  const now = new Date()
-  for (const [ip, s] of stats) {
-    // 合并历史与本次数据，写入总数与最近状态
-    persisted[ip] = {
-      requests: s.requests,
-      firstSeen: s.firstSeen,
-      lastSeen: s.lastSeen,
-      geo: s.geo || '',
-      isp: s.isp || '',
-      network: s.network,
-      device: s.device,
-      os: s.os,
-      browser: s.browser,
-      paths: s.paths,
-      updatedAt: now.toISOString()
-    }
-  }
-  try {
-    writeFileSync(OUT_FILE, JSON.stringify(persisted, null, 2), 'utf8')
-  } catch (e) {
-    console.warn('访问日志写入失败:', e.message)
-  }
-}
-
-// 每日归档：把昨天的聚合快照写一份历史 json（文件名带日期）
-function archiveDaily() {
-  const now = new Date()
-  const ymd = now.toISOString().slice(0, 10)
-  const histFile = resolve(HISTORY_DIR, `access-${ymd}.json`)
-  if (!existsSync(histFile)) {
-    try {
-      writeFileSync(histFile, JSON.stringify(Object.fromEntries(stats), null, 2), 'utf8')
-    } catch { /* 归档失败不影响主流程 */ }
-  }
-}
-
-// 定时 flush + 每日归档
-setInterval(flush, FLUSH_INTERVAL)
-setInterval(archiveDaily, 60 * 60 * 1000)
-// 进程退出前落盘，避免丢失最后一段时间的数据
-process.on('exit', flush)
+process.on('SIGTERM', () => { shutdownFlush() })
+process.on('SIGINT', () => { shutdownFlush() })
 
 // Express 中间件：每个请求记录一次访问（不阻塞响应）
 export default function accessLogger(req, res, next) {
-  // 响应完成后再记录，能包含最终访问事件；即使请求失败也记录
   record(req).catch(() => {})
   next()
 }
 
-// 供测试/调试使用
-export { stats, flush, OUT_FILE }
+// 供测试/调试/手动归档使用：stats 为当天内存数据，archiveNow 可立即触发一次归档
+export { stats, flushTick, archiveNow, OUT_FILE, HISTORY_DIR }
