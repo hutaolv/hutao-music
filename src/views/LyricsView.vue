@@ -146,6 +146,7 @@ import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { getSongUrl } from '../services/api'
 import { registerCanvas, setSpectrumActive } from '../utils/spectrum'
+import { downloadSong as saveSong } from '../utils/download'
 
 const store = usePlayerStore()
 const router = useRouter()
@@ -212,19 +213,13 @@ async function setQuality(q) {
   store.touchQualitySwitch()
 }
 
-// 下载歌曲：直接用 <a download> 触发浏览器原生下载
+// 下载歌曲
 async function downloadSong() {
   if (!store.currentSong) return
   const url = downloadUrl.value
   if (!url) return
   const filename = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.style.display = 'none'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  saveSong(url, filename)
 }
 
 // 监听歌曲变化，探测可用音质并更新下载地址

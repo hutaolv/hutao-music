@@ -195,6 +195,7 @@ import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
+import { downloadSong as saveSong } from '../utils/download'
 import Playlist from './Playlist.vue'
 import AudioVisualizer from './AudioVisualizer.vue'
 
@@ -293,19 +294,13 @@ async function setQuality(q) {
   store.touchQualitySwitch()
 }
 
-// 下载歌曲：直接用 <a download> 触发浏览器原生下载，无需等待 blob 转换
+// 下载歌曲
 async function downloadSong() {
   if (!store.currentSong) return
   const url = downloadUrl.value
   if (!url) return
   const filename = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.style.display = 'none'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  saveSong(url, filename)
 }
 
 // 音量弹出面板
