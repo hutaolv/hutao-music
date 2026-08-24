@@ -3,6 +3,11 @@ services:
     build: .
     image: hutao-music
     container_name: hutao-music
+    environment:
+      # 容器默认是 UTC 时区，会导致访问日志的"每天凌晨归档"错位到北京时间早上 8 点。
+      # 显式设置东八区后，凌晨归档即对应北京时间 0 点。
+      # Node.js 自带 ICU 时区数据，alpine 基础镜像无需额外安装 tzdata 包
+      - TZ=Asia/Shanghai
     ports:
       - "3001:3001"
     restart: unless-stopped
