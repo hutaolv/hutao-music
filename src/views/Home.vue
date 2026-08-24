@@ -2,9 +2,9 @@
   <div class="home">
     <section class="section">
       <h2 class="section-title">热门榜单速览</h2>
-      <div v-if="Object.keys(top3ByPlatform).length" class="bento-grid">
+      <div v-if="Object.keys(top5ByPlatform).length" class="bento-grid">
         <div
-          v-for="(songs, platform) in top3ByPlatform"
+          v-for="(songs, platform) in top5ByPlatform"
           :key="platform"
           class="bento-card glass-card hover-lift card-enter"
           :class="'bento-' + bentoSize(platform)"
@@ -115,7 +115,8 @@ function playAllFx(songs) {
   setTimeout(() => { playingAll.value = false }, 350)
 }
 
-const top3ByPlatform = computed(() => {
+// 重命名 top3ByPlatform -> top5ByPlatform：函数实际取每平台榜单前 5 首（slice(0, 5)），原命名与行为不符，避免误导
+const top5ByPlatform = computed(() => {
   const result = {}
   for (const platform of homePlatforms) {
     const live = liveCharts.value[platform]
@@ -128,7 +129,7 @@ const top3ByPlatform = computed(() => {
 
 // Bento grid sizing: first platform gets large card, rest get small
 function bentoSize(platform) {
-  const keys = Object.keys(top3ByPlatform.value)
+  const keys = Object.keys(top5ByPlatform.value)
   if (keys.length === 0) return 'small'
   return platform === keys[0] ? 'large' : 'small'
 }
