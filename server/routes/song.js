@@ -365,8 +365,9 @@ router.get('/url', async (req, res) => {
     if (url && !url.startsWith('/')) {
       url = `/api/proxy/audio?url=${encodeURIComponent(url)}`
     }
-    // 拿不到真实音频时不返回 demo，前端据此提示"无法获取"并跳过，url 保持为 null
-    if (url && detect !== '1') setCachedUrl(cacheKey, url)
+    // 探测请求解析出的地址同样写入缓存：前端开播后立刻会发一次后台探测，
+    // 这次结果若不落缓存，用户短期内重播同一首还得再解析一遍
+    if (url) setCachedUrl(cacheKey, url)
     res.json({ code: 200, data: { url, availableQualities } })
   } catch (e) {
     res.json({ code: 200, data: { url: null, availableQualities: null } })
