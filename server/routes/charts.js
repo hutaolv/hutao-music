@@ -21,16 +21,29 @@ const services = {
   '酷狗音乐': kugou
 }
 
-// 内存缓存：排行榜数据5分钟内不重复请求
+// 内存缓存：排行榜数据1小时内不重复请求。
+// 榜单本身各平台一天才更新一次，1小时的"陈旧"用户无感知，
+// 可大幅减少首页并发拉榜对上游的压力（原为5分钟）
 const cache = new Map()
-const CACHE_TTL = 300_000
+const CACHE_TTL = 3_600_000
 
 function getCached(key) {
   const entry = cache.get(key)
   if (entry && Date.now() - entry.time < CACHE_TTL) return entry.data
   return null
 }
-function setCache(key, data) { cache.set(key, { data, time: Date.now() }) }
+
+// 缓存容量上限：防御性措施——缓存键由用户可控的 platform/sublist 拼出，
+const CACHE_MAX_ENTRIES = 2000
+
+function setCache(key, data) {
+  cache.set(key, { data, time: Date.now() })
+  // 超限后按 Map 插入顺序淘汰最旧的一条（与 song.js 的 urlCache 同款策略）
+  if (cache.size > CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value
+    cache.delete(oldest)
+  }
+}
 
 router.get('/', async (req, res) => {
   const platform = req.query.platform

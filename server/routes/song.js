@@ -15,9 +15,10 @@ import { fetchWithFallback } from '../services/thirdPartyApis.js'
 
 const router = Router()
 
-// 播放地址缓存：同一首歌5分钟内不重复请求
+// 播放地址缓存：同一首歌10分钟内不重复请求
+// （主流平台签名直链实际有效期普遍在20分钟左右，10分钟取中间安全值）
 const urlCache = new Map()
-const URL_CACHE_TTL = 5 * 60 * 1000
+const URL_CACHE_TTL = 10 * 60 * 1000
 function getCachedUrl(key) {
   const entry = urlCache.get(key)
   if (entry && Date.now() - entry.ts < URL_CACHE_TTL) return entry.url
