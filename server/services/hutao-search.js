@@ -121,14 +121,16 @@ export async function searchWithThirdParty(keyword, platform) {
       ])
       if (result?.length) {
         console.log(`[ThirdParty] search ${api.name} success for "${keyword}", got ${result.length} results`)
-        // 同时搜索官方 API 获取官方 ID，用于歌词获取
+        // 同时搜索官方 API 获取官方 ID 与时长，用于歌词获取和时长回填
         const officialIds = await getOfficialIds(keyword, platform, result)
         // 第三方搜索源的平台：kuwo 返回的是目标平台标签，实际资源来自酷我
         const sourcePlatform = api.name === 'kuwo' ? '酷我音乐' : api.name === 'qq-official' ? 'QQ音乐' : '网易云音乐'
         // 官方 ID 来自哪个平台，请求播放/歌词就按哪个平台走，避免用网易云ID去酷狗查询
         const officialPlatform = platform === 'QQ音乐' ? 'QQ音乐' : '网易云音乐'
         return result.map((song, idx) => {
-          const officialId = officialIds[idx]
+          // getOfficialIds 返回 { id, duration } 对象数组
+          const matched = officialIds[idx] || {}
+          const officialId = matched.id || null
           return {
             ...song,
             // platform 统一设为目标平台标签，确保前端过滤正确
@@ -136,6 +138,10 @@ export async function searchWithThirdParty(keyword, platform) {
             // realPlatform 记录真实资源来源，前端请求播放/歌词时使用
             realPlatform: officialId ? officialPlatform : sourcePlatform,
             platformId: officialId || song.id,
+            // meting 等第三方源不返回时长（写死 0:00）：用官方搜索匹配到的真实时长回填
+            duration: (!song.duration || song.duration === '0:00') && matched.duration
+              ? matched.duration
+              : song.duration,
             isThirdParty: true
           }
         })
@@ -147,7 +153,8 @@ export async function searchWithThirdParty(keyword, platform) {
   return []
 }
 
-// 通过官方 API 搜索获取官方 ID，用于歌词获取
+// 通过官方 API 搜索获取官方 ID 与真实时长：ID 用于歌词获取，
+// 时长用于回填（meting 等第三方源不返回时长，写死 0:00）
 async function getOfficialIds(keyword, platform, songs) {
   const officialIds = []
   try {
@@ -162,7 +169,11 @@ async function getOfficialIds(keyword, platform, songs) {
         r.title === song.title &&
         (r.artist.includes(song.artist.split('/')[0]) || song.artist.includes(r.artist.split('/')[0]))
       )
-      officialIds.push(match?.platformId || match?.id || null)
+      // 同时携带官方匹配到的时长，供调用方回填
+      officialIds.push({
+        id: match?.platformId || match?.id || null,
+        duration: match?.duration || null
+      })
     }
   } catch {
     // 官方 API 搜索失败时返回空
