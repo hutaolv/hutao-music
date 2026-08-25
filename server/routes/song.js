@@ -95,35 +95,62 @@ async function probeQualitiesByApis(apis, songId, cacheKey) {
 
 // ---------- 双路并行竞速（P0）----------
 // 官方与第三方两条解析路径同时出发，先拿到有效地址者胜出。
-// 若第三方先成功，给官方 graceMs 的反超窗口——官方源音质与版权更优，
-// 两者几乎同时完成时偏向官方；任一路抛错视为该路失败，不影响另一路。
-// 取代旧的串行瀑布结构（实测QQ最坏要2秒以上层层回退）
+// 反超窗口只在"官方仍在途中"时生效：若官方已明确失败，第三方结果立即采用，
+// 不白等窗口期（QQ 无版权歌的常见场景，官方会秒回 null）。
+// 任一路抛错视为该路失败，不影响另一路
 function raceDualPath(preferredFn, fallbackFn, graceMs = 600) {
   const t0 = Date.now()
   const pPreferred = (async () => { try { return await preferredFn() } catch { return null } })()
   const pFallback = (async () => { try { return await fallbackFn() } catch { return null } })()
   return new Promise(resolve => {
     let settled = false
+    let prefVal = null, prefDone = false     // 官方路的终局状态
+    let fallVal = null, fallDone = false     // 第三方路的终局状态
+    let timer = null
+
     const finish = (value, tag) => {
       if (settled || !value?.url) return
       settled = true
+      if (timer) clearTimeout(timer)
       console.log(`[Race] ${tag} 胜出，耗时 ${Date.now() - t0}ms`)
       resolve(value)
     }
-    // 两路都已终局仍无有效地址 → 整体失败
-    const allDoneCheck = () => {
-      Promise.all([pPreferred, pFallback]).then(([a, b]) => {
-        if (!settled) resolve(a?.url ? a : (b?.url ? b : null))
-      })
-    }
-    pPreferred.then(v => { finish(v, '官方'); allDoneCheck() })
-    pFallback.then(v => {
-      if (v?.url) {
-        // 第三方先出结果：窗口期内官方仍可反超，超时则采用第三方
-        setTimeout(() => finish(v, '第三方'), graceMs)
-      } else {
-        allDoneCheck()
+
+    // 第三方就绪后的裁决：官方已失败 → 立即采用第三方；
+    // 官方还在路上 → 启动一次反超窗口计时
+    const adjudicate = () => {
+      if (settled || !fallDone || !fallVal?.url) return false
+      if (prefDone) {
+        finish(fallVal, '第三方(官方已失败)')
+        return true
       }
+      if (!timer) {
+        timer = setTimeout(() => finish(fallVal, '第三方(超时反超)'), graceMs)
+      }
+      return true
+    }
+
+    const allDoneCheck = () => {
+      if (!settled && prefDone && fallDone) {
+        resolve(prefVal?.url ? prefVal : (fallVal?.url ? fallVal : null))
+      }
+    }
+
+    pPreferred.then(v => {
+      prefVal = v
+      prefDone = true
+      if (v?.url) {
+        finish(v, '官方')
+      } else {
+        // 官方先失败了：若第三方也已就绪，立刻放行，不空耗窗口
+        adjudicate()
+      }
+      allDoneCheck()
+    })
+    pFallback.then(v => {
+      fallVal = v
+      fallDone = true
+      if (!adjudicate()) allDoneCheck()
     })
   })
 }
@@ -203,6 +230,18 @@ router.get('/url', async (req, res) => {
     let availableQualities = null
     // 音质探测缓存的键：可用音质只与"哪首歌"有关，与请求的音质档位无关
     const qualityKey = `${platform}:${id}`
+
+    // 探测请求的快速通道：播放地址与可用音质双双命中缓存时，
+    // 不再重新解析地址（探测的本意只是拿音质菜单），零上游请求完成响应
+    if (detect === '1') {
+      const cachedUrlForDetect = getCachedUrl(cacheKey)
+      if (cachedUrlForDetect) {
+        return res.json({
+          code: 200,
+          data: { url: cachedUrlForDetect, availableQualities: getCachedQualities(qualityKey) || ['standard'] }
+        })
+      }
+    }
 
     // 第三方搜索的歌曲：直接使用第三方 API
     if (source === 'thirdparty') {
