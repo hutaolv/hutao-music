@@ -43,20 +43,14 @@ function localDateStr(d) {
 // 当前统计所属的日期，跨天检测与归档都以此为基准
 let currentDate = localDateStr(new Date())
 
-// 本地时区 ISO 风格时间戳，如 2026-08-24T13:55:40.959+08:00。
-// 与 toISOString() 的区别：那个固定输出 UTC（结尾 Z），肉眼核对要心算 +8；
-// 这个直接按容器本地时区输出并带上偏移量后缀，日志里看到的就是北京时间。
-// 注意：归档日期判断仍用上面的 localDateStr，两者分工不变
+// 本地时区时间戳（不带时区后缀），如 2026-08-24 13:55:40.959。
+// 直接按服务器本地时区输出，日志里看到的就是北京时间；
+// 无偏移量后缀，默认读者已知这是东八区时间。归档日期判断仍用上面的 localDateStr
 function localIso(d) {
   const pad = n => String(n).padStart(2, '0')
   const ms = String(d.getMilliseconds()).padStart(3, '0')
-  // getTimezoneOffset 返回"本地 - UTC"的分钟数且东八区为负值，取反得到 +480 这类偏移
-  const offMin = -d.getTimezoneOffset()
-  const sign = offMin >= 0 ? '+' : '-'
-  const absOff = Math.abs(offMin)
-  const offStr = `${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${ms}${offStr}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${ms}`
 }
 // 脏标记：内存有新增/变更才需要落盘，避免空转 IO
 let dirty = false
@@ -316,7 +310,8 @@ async function record(req) {
     resolveGeo(ip, s)
   } else {
     s.requests++
-    s.lastSeen = now.toISOString()
+    // 老访客再次访问：lastSeen 同样用本地时区格式（此前漏改成 UTC，导致同一记录里两种格式混排）
+    s.lastSeen = localIso(now)
     // 后续访问用最新上报/解析的网络类型覆盖（网络环境可能切换）
     if (network) s.network = network
   }
