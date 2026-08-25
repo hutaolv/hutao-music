@@ -9,7 +9,9 @@
         <router-link v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" active-class="active">
           {{ item.name }}
         </router-link>
-        <a v-if="!isApp" href="/downloads/胡桃音悦-1.0.4.apk" download class="nav-link download-link">下载安卓版</a>
+        <!-- 使用固定重定向地址而非写死版本号文件名：服务端会按 version.json
+             自动302到最新版APK，避免每次发版都要记得改这里（曾因写死1.0.4导致下载旧版） -->
+        <a v-if="!isApp" href="/downloads/胡桃音悦.apk" download class="nav-link download-link">下载安卓版</a>
       </div>
     </div>
   </nav>
