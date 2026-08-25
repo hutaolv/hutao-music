@@ -162,20 +162,32 @@ loadFromDisk()
 
 // ---------- IP 归属地解析（在线接口，后续可换离线库）----------
 
-// 内网/本机地址的可见标注，替代空 geo
+// 内网/本机地址的可见标注，替代空 geo。
+// IPv6 细分：仅回环/链路本地(fe80)/唯一本地(fc|fd开头)算本地，
+// 其余是公网 IPv6（如 Cloudflare 中转出口），返回空串交给在线解析
 function localGeoLabel(ip) {
   if (!ip || ip === 'unknown') return '未知'
   if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return '本机(127.0.0.1)'
+  if (ip.includes(':')) {
+    const lower = ip.toLowerCase()
+    if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return '内网(IPv6)'
+    return ''
+  }
   if (ip.startsWith('10.') || ip.startsWith('192.168.')) return '内网'
   if (ip.startsWith('172.')) return '内网'
-  if (ip.includes(':')) return '本机(IPv6)'
   return ''
 }
 
-// 判定是否为外部 IPv4（可在线解析归属地）：内网/本机/IPv6 均返回 false
-function isExternalIPv4(ip) {
-  if (!ip || ip === 'unknown' || ip.includes(':')) return false
-  if (ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return false
+// 判定是否为可在线解析的外部地址：
+// IPv4 排除内网/保留段；IPv6 仅排除回环与本地前缀，公网 IPv6 同样可查归属地
+function isExternalIp(ip) {
+  if (!ip || ip === 'unknown') return false
+  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return false
+  if (ip.includes(':')) {
+    const lower = ip.toLowerCase()
+    return !(lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd'))
+  }
+  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return false
   return true
 }
 
@@ -186,24 +198,29 @@ function isExternalIPv4(ip) {
 // 接口三 ipinfo.io：全英文，仅作最终兜底
 // 新访客突发超限时归属地会留空，属可接受降级（解析异步执行，不阻塞请求主流程）
 async function resolveGeo(ip, s) {
-  if (!isExternalIPv4(ip)) return
-  // 接口一：pconline
-  try {
-    const res = await fetch(`https://whois.pconline.com.cn/ipJson.jsp?ip=${ip}&json=true`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(GEO_TIMEOUT)
-    })
-    const buf = await res.arrayBuffer()
-    // 返回为 GBK 编码，先解码成字符串再 JSON.parse
-    const json = JSON.parse(new TextDecoder('gbk').decode(buf))
-    if (json?.addr) {
-      s.geo = String(json.addr)
-      // addr 形如 "上海市 电信"：末段是运营商；境外 IP 可能只有一段（无运营商）
-      const parts = s.geo.split(/\s+/).filter(Boolean)
-      s.isp = parts.length > 1 ? parts[parts.length - 1] : ''
-      return
-    }
-  } catch { /* 该接口失败则继续尝试下一个 */ }
+  if (!isExternalIp(ip)) return
+  const isV6 = ip.includes(':')
+  // 接口一：pconline —— 仅用于 IPv4！
+  // 实测两个坑：① 境外 IP 会直接 503 拒绝；② IPv6 查询会忽略 ip 参数、
+  // 错误地返回调用方自身的归属地，因此 IPv6 必须跳过此接口
+  if (!isV6) {
+    try {
+      const res = await fetch(`https://whois.pconline.com.cn/ipJson.jsp?ip=${ip}&json=true`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(GEO_TIMEOUT)
+      })
+      const buf = await res.arrayBuffer()
+      // 返回为 GBK 编码，先解码成字符串再 JSON.parse
+      const json = JSON.parse(new TextDecoder('gbk').decode(buf))
+      if (json?.addr) {
+        s.geo = String(json.addr)
+        // addr 形如 "上海市 电信"：末段是运营商；境外 IP 可能只有一段（无运营商）
+        const parts = s.geo.split(/\s+/).filter(Boolean)
+        s.isp = parts.length > 1 ? parts[parts.length - 1] : ''
+        return
+      }
+    } catch { /* 该接口失败则继续尝试下一个 */ }
+  }
   // 接口二：ip-api.com（UTF-8 中文结果，国际可访问）
   try {
     const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`, {
