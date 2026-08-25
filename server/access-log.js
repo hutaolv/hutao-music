@@ -185,26 +185,32 @@ function isExternalIPv4(ip) {
   return true
 }
 
-// 在线解析 IP 归属地：优先 ipinfo.io（精度高），失败回退 ip-api.com（lang=zh-CN 返回中文）。
-// 注意：免费接口有频率限制，新访客大量涌入时会部分解析失败留空，属可接受的降级
+// 在线解析 IP 归属地。优先级（实测结论）：
+// 接口一 pconline 太平洋电脑网：全中文含运营商；注意必须 https，http 会被 403 封禁；
+//         返回 GBK 编码需用 TextDecoder 解码
+// 接口二 ip-api.com：zh-CN 下国家省份中文，免费版限 45 次/分钟
+// 接口三 ipinfo.io：全英文，仅作最终兜底
+// 新访客突发超限时归属地会留空，属可接受降级（解析异步执行，不阻塞请求主流程）
 async function resolveGeo(ip, s) {
   if (!isExternalIPv4(ip)) return
-  // 接口一：ipinfo.io（精度高，包含 ASN/运营商信息）
+  // 接口一：pconline
   try {
-    const res = await fetch(`https://ipinfo.io/${ip}/json`, {
+    const res = await fetch(`https://whois.pconline.com.cn/ipJson.jsp?ip=${ip}&json=true`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(GEO_TIMEOUT)
     })
-    const json = await res.json()
-    if (json?.city) {
-      // 拼接为 "国家 省份 城市" 格式
-      s.geo = [json.country, json.region, json.city].filter(Boolean).join(' ')
-      // 从 org 字段提取运营商（格式：ASxxxx 运营商名）
-      s.isp = (json.org || '').replace(/^AS\d+\s+/, '') || ''
+    const buf = await res.arrayBuffer()
+    // 返回为 GBK 编码，先解码成字符串再 JSON.parse
+    const json = JSON.parse(new TextDecoder('gbk').decode(buf))
+    if (json?.addr) {
+      s.geo = String(json.addr)
+      // addr 形如 "上海市 电信"：末段是运营商；境外 IP 可能只有一段（无运营商）
+      const parts = s.geo.split(/\s+/).filter(Boolean)
+      s.isp = parts.length > 1 ? parts[parts.length - 1] : ''
       return
     }
   } catch { /* 该接口失败则继续尝试下一个 */ }
-  // 接口二：ip-api.com（UTF-8 中文结果，国际可访问，兜底）
+  // 接口二：ip-api.com（UTF-8 中文结果，国际可访问）
   try {
     const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`, {
       signal: AbortSignal.timeout(GEO_TIMEOUT)
@@ -213,8 +219,21 @@ async function resolveGeo(ip, s) {
     if (json?.status === 'success') {
       s.geo = [json.country, json.regionName, json.city].filter(Boolean).join(' ')
       s.isp = json.isp || ''
+      return
     }
-  } catch { /* 全部失败则保留 unknown */ }
+  } catch { /* 该接口失败则继续尝试下一个 */ }
+  // 接口三：ipinfo.io（英文，最终兜底）
+  try {
+    const res = await fetch(`https://ipinfo.io/${ip}/json`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(GEO_TIMEOUT)
+    })
+    const json = await res.json()
+    if (json?.city) {
+      s.geo = [json.country, json.region, json.city].filter(Boolean).join(' ')
+      s.isp = (json.org || '').replace(/^AS\d+\s+/, '') || ''
+    }
+  } catch { /* 全部失败则保持空值 */ }
 }
 
 // ---------- 请求记录 ----------
