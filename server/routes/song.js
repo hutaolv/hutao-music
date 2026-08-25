@@ -34,6 +34,136 @@ function setCachedUrl(key, url) {
   }
 }
 
+// ---------- 音质探测独立缓存（P1）----------
+// 探测需要并发打满多个上游接口（实测一次约1.4秒），而同一首歌的可用音质短期不会变化，
+// 因此把探测结果单独缓存30分钟：期间任何用户再触发探测都直接复用，不再打扰上游
+const qualityCache = new Map()
+const QUALITY_CACHE_TTL = 30 * 60 * 1000
+
+function getCachedQualities(key) {
+  const entry = qualityCache.get(key)
+  if (entry && Date.now() - entry.ts < QUALITY_CACHE_TTL) return entry.list
+  qualityCache.delete(key)
+  return null
+}
+
+function setCachedQualities(key, list) {
+  if (!Array.isArray(list) || !list.length) return
+  qualityCache.set(key, { list, ts: Date.now() })
+  // 容量上限防膨胀：每条仅几十字节，300条约几十KB
+  if (qualityCache.size > 300) {
+    qualityCache.delete(qualityCache.keys().next().value)
+  }
+}
+
+// 官方探测器的缓存包装：优先读缓存，未命中执行探测器并写缓存；异常时降级为标准音质
+// 参数：detector - 官方探测函数；cacheKey - 探测缓存键
+async function detectQualitiesCached(detector, cacheKey) {
+  const cached = getCachedQualities(cacheKey)
+  if (cached) return cached
+  try {
+    const list = await detector()
+    if (Array.isArray(list) && list.length) {
+      setCachedQualities(cacheKey, list)
+      return list
+    }
+  } catch { /* 探测失败降级 */ }
+  return ['standard']
+}
+
+// 第三方API并行探测三个音质档位（带缓存）。机制与原三处内联代码一致：
+// 每档位5秒超时保护，全部失败时兜底返回标准音质
+async function probeQualitiesByApis(apis, songId, cacheKey) {
+  const cached = getCachedQualities(cacheKey)
+  if (cached) return cached
+  const probes = [
+    { q: 'lossless', quality: 'lossless' },
+    { q: 'high', quality: 'high' },
+    { q: 'standard', quality: 'standard' }
+  ]
+  const results = await Promise.allSettled(probes.map(p =>
+    Promise.race([
+      fetchWithFallback(apis, songId, p.quality),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
+  ))
+  const list = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
+  const finalList = list.length ? list : ['standard']
+  setCachedQualities(cacheKey, finalList)
+  return finalList
+}
+
+// ---------- 双路并行竞速（P0）----------
+// 官方与第三方两条解析路径同时出发，先拿到有效地址者胜出。
+// 若第三方先成功，给官方 graceMs 的反超窗口——官方源音质与版权更优，
+// 两者几乎同时完成时偏向官方；任一路抛错视为该路失败，不影响另一路。
+// 取代旧的串行瀑布结构（实测QQ最坏要2秒以上层层回退）
+function raceDualPath(preferredFn, fallbackFn, graceMs = 600) {
+  const t0 = Date.now()
+  const pPreferred = (async () => { try { return await preferredFn() } catch { return null } })()
+  const pFallback = (async () => { try { return await fallbackFn() } catch { return null } })()
+  return new Promise(resolve => {
+    let settled = false
+    const finish = (value, tag) => {
+      if (settled || !value?.url) return
+      settled = true
+      console.log(`[Race] ${tag} 胜出，耗时 ${Date.now() - t0}ms`)
+      resolve(value)
+    }
+    // 两路都已终局仍无有效地址 → 整体失败
+    const allDoneCheck = () => {
+      Promise.all([pPreferred, pFallback]).then(([a, b]) => {
+        if (!settled) resolve(a?.url ? a : (b?.url ? b : null))
+      })
+    }
+    pPreferred.then(v => { finish(v, '官方'); allDoneCheck() })
+    pFallback.then(v => {
+      if (v?.url) {
+        // 第三方先出结果：窗口期内官方仍可反超，超时则采用第三方
+        setTimeout(() => finish(v, '第三方'), graceMs)
+      } else {
+        allDoneCheck()
+      }
+    })
+  })
+}
+
+// ---------- 酷我兜底链（从原三处内联代码提取复用）----------
+
+// 酷我关键词搜索：返回首个命中的酷我歌曲ID，失败返回 null
+async function searchKuwoId(title, artist) {
+  try {
+    const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
+    const { data } = await axios.get('http://search.kuwo.cn/r.s', {
+      params: { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' },
+      headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
+    })
+    const hit = data?.abslist?.[0]
+    return hit ? String(hit.MUSICRID || '').replace('MUSIC_', '') : null
+  } catch { return null }
+}
+
+// 用酷我ID走第三方API解析播放地址；目标音质拿不到时逐级回退标准。返回 { url } 或 null
+async function resolveKuwoById(kuwoId, q) {
+  try {
+    const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
+    let u = result?.url || null
+    if (!u && q !== 'standard') {
+      const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard')
+      u = fb?.url || null
+    }
+    return u ? { url: u } : null
+  } catch { return null }
+}
+
+// 搜索+解析一步到位：QQ 官方失败时的完整兜底链
+async function resolveViaKuwoSearch(title, artist, q) {
+  const kuwoId = await searchKuwoId(title, artist)
+  if (!kuwoId) return null
+  console.log('[KuwoFallback] 命中酷我:', kuwoId)
+  return resolveKuwoById(kuwoId, q)
+}
+
 // 清洗歌词文本里的 HTML 实体（如 &nbsp; &amp; &lt; &#39;），避免原样显示
 function sanitizeLyricsText(text) {
   if (!text) return text
@@ -71,6 +201,8 @@ router.get('/url', async (req, res) => {
     const q = ['standard', 'high', 'lossless'].includes(quality) ? quality : 'standard'
     // detect=1 时探测该歌曲实际可用的音质档位，供前端动态显示音质菜单
     let availableQualities = null
+    // 音质探测缓存的键：可用音质只与"哪首歌"有关，与请求的音质档位无关
+    const qualityKey = `${platform}:${id}`
 
     // 第三方搜索的歌曲：直接使用第三方 API
     if (source === 'thirdparty') {
@@ -79,58 +211,21 @@ router.get('/url', async (req, res) => {
         const title = req.query.title
         const artist = req.query.artist || ''
         if (title) {
-          try {
-            const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
-            const { data } = await axios.get('http://search.kuwo.cn/r.s', {
-              params: { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' },
-              headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
-            })
-            const hit = data?.abslist?.[0]
-            if (hit) {
-              const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
-              console.log('[ThirdParty] QQ fallback to kuwo, id:', kuwoId)
-              // detect=1 时探测该歌曲在酷我上可用的音质档位
-              if (detect === '1') {
-                const probes = [
-                  { q: 'lossless', quality: 'lossless' },
-                  { q: 'high', quality: 'high' },
-                  { q: 'standard', quality: 'standard' }
-                ]
-                const results = await Promise.allSettled(probes.map(p =>
-                  Promise.race([
-                    fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-                  ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
-                ))
-                availableQualities = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
-                if (!availableQualities.length) availableQualities = ['standard']
-              }
-              const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
-              url = result?.url || null
-              if (!url && q !== 'standard') {
-                const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard')
-                url = fb?.url || null
-              }
+          const kuwoId = await searchKuwoId(title, artist)
+          if (kuwoId) {
+            // 探测结果走缓存：同一首歌30分钟内不重复打上游（P1）
+            if (detect === '1') {
+              availableQualities = await probeQualitiesByApis(kuwoThirdPartyApis, kuwoId, qualityKey)
             }
-          } catch {}
+            const r = await resolveKuwoById(kuwoId, q)
+            url = r?.url || null
+          }
         }
-        if (!url && detect === '1') availableQualities = ['standard']
+        if (!url && detect === '1' && !availableQualities) availableQualities = ['standard']
       } else {
         const thirdPartyApis = platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
         if (detect === '1') {
-          const probes = [
-            { q: 'lossless', quality: 'lossless' },
-            { q: 'high', quality: 'high' },
-            { q: 'standard', quality: 'standard' }
-          ]
-          const results = await Promise.allSettled(probes.map(p =>
-            Promise.race([
-              fetchWithFallback(thirdPartyApis, id, p.quality),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-            ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
-          ))
-          availableQualities = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
-          if (!availableQualities.length) availableQualities = ['standard']
+          availableQualities = await probeQualitiesByApis(thirdPartyApis, id, qualityKey)
         }
         const result = await fetchWithFallback(thirdPartyApis, id, q)
         url = result?.url || null
@@ -143,57 +238,36 @@ router.get('/url', async (req, res) => {
       // 官方搜索的歌曲：使用官方 API
       switch (platform) {
         case '网易云音乐':
-          if (detect === '1') availableQualities = await netease.detectQualities(id)
+          // 探测结果走独立缓存（P1）：30分钟内重复探测直接复用
+          if (detect === '1') {
+            availableQualities = await detectQualitiesCached(() => netease.detectQualities(id), qualityKey)
+          }
           url = await netease.getSongUrl(id, q)
           if (!url && q !== 'standard') url = await netease.getSongUrl(id, 'standard')
           break
-        case 'QQ音乐':
-          if (detect === '1') availableQualities = await qqmusic.detectQualities(mid || id, mediaMid)
-          url = await qqmusic.getSongUrl(mid || id, mediaMid, q)
-          if (!url && q !== 'standard') url = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
-          // 官方 API 失败时回退酷我搜索+播放
-          if (!url) {
+        case 'QQ音乐': {
+          // 音质探测走独立缓存（P1）：官方探测器优先，失败降级为标准音质
+          if (detect === '1') {
+            availableQualities = await detectQualitiesCached(
+              () => qqmusic.detectQualities(mid || id, mediaMid), qualityKey)
+          }
+          // P0 双路并行竞速：官方直连与"酷我搜索→第三方"兜底链同时出发，
+          // 先拿到有效地址者胜出（旧实现为三层串行瀑布，实测最坏 2 秒以上）
+          const officialFn = async () => {
+            let u = await qqmusic.getSongUrl(mid || id, mediaMid, q)
+            if (!u && q !== 'standard') u = await qqmusic.getSongUrl(mid || id, mediaMid, 'standard')
+            return u ? { url: u } : null
+          }
+          const fallbackFn = () => {
             const title = req.query.title || ''
             const artist = req.query.artist || ''
-            if (title) {
-              try {
-                const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
-                const { data: kwData } = await axios.get('http://search.kuwo.cn/r.s', {
-                  params: { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' },
-                  headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
-                })
-                const hit = kwData?.abslist?.[0]
-                if (hit) {
-                  const kuwoId = String(hit.MUSICRID || '').replace('MUSIC_', '')
-                  console.log(`[QQ] Official failed, fallback to kuwo for: ${title}, kuwoId: ${kuwoId}`)
-                  // detect=1 时探测该歌曲在酷我上可用的音质档位
-                  if (detect === '1') {
-                    availableQualities = []
-                    const probes = [
-                      { q: 'lossless', quality: 'lossless' },
-                      { q: 'high', quality: 'high' },
-                      { q: 'standard', quality: 'standard' }
-                    ]
-                    const results = await Promise.allSettled(probes.map(p =>
-                      Promise.race([
-                        fetchWithFallback(kuwoThirdPartyApis, kuwoId, p.quality),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-                      ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
-                    ))
-                    availableQualities = results.map(r => r.value).filter(r => r.ok).map(r => r.q)
-                    if (!availableQualities.length) availableQualities = ['standard']
-                  }
-                  const kwResult = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
-                  url = kwResult?.url || null
-                  if (!url && q !== 'standard') {
-                    const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard')
-                    url = fb?.url || null
-                  }
-                }
-              } catch {}
-            }
+            if (!title) return Promise.resolve(null)
+            return resolveViaKuwoSearch(title, artist, q)
           }
+          const raced = await raceDualPath(officialFn, fallbackFn, 600)
+          url = raced?.url || null
           break
+        }
         case 'B站':
           // 音频馆歌曲走 auid；搜索到的音乐视频按 bvid 取真实的视频音频流
           if (req.query.auid) url = await bilibili.getSongUrl(req.query.auid)
@@ -208,7 +282,10 @@ router.get('/url', async (req, res) => {
             const miguContentId = contentId || (id.startsWith('migu_') ? id.replace('migu_', '') : id)
             const miguCopyrightId = copyrightId || miguContentId
             if (detect === '1') {
-              availableQualities = await migu.detectQualities(miguContentId, miguCopyrightId)
+              // 探测结果走独立缓存（P1），咪咕按内容ID维度区分
+              availableQualities = await detectQualitiesCached(
+                () => migu.detectQualities(miguContentId, miguCopyrightId),
+                `${qualityKey}:${miguContentId}`)
             }
             url = await migu.getSongUrl(miguContentId, miguCopyrightId, q)
             if (!url && q !== 'standard') url = await migu.getSongUrl(miguContentId, miguCopyrightId, 'standard')
@@ -223,23 +300,24 @@ router.get('/url', async (req, res) => {
             url = fallback?.url || null
           }
           break
-        case '酷狗音乐':
+        case '酷狗音乐': {
           // 酷狗官方播放接口无需签名：免费歌曲返回直链，付费歌曲 url 为空。
-          // 官方取不到时依次回退第三方 API 解析 VIP 歌曲播放地址；音质档位逐级降档
-          url = await kugou.getSongUrl(id)
-          if (!url) {
-            for (const sessionQ of [...new Set([q, 'standard'])]) {
-              const kugouResult = await fetchWithFallback(kugouThirdPartyApis, id, sessionQ)
-              url = kugouResult?.url || null
-              if (url) break
-            }
-            // 第三方 API 解析出的播放地址或为 http CDN（https 页面混合内容被拦）、
-            // 或为证书不匹配的 https 中转站，浏览器直连均不可靠，统一走服务端音频代理
-            if (url) {
-              url = `/api/proxy/audio?url=${encodeURIComponent(url)}`
-            }
+          // P0 双路并行竞速：官方与第三方同时出发先到先得，取代旧的串行逐档回退；
+          // 第三方的两个音质档位也并行尝试，不再串行等待
+          const officialFn = async () => {
+            const u = await kugou.getSongUrl(id)
+            return u ? { url: u } : null
           }
+          const fallbackFn = async () => {
+            const results = await Promise.all(
+              [...new Set([q, 'standard'])].map(qq => fetchWithFallback(kugouThirdPartyApis, id, qq))
+            )
+            return results.find(r => r?.url) || null
+          }
+          const raced = await raceDualPath(officialFn, fallbackFn, 600)
+          url = raced?.url || null
           break
+        }
       }
     }
     // 跨域直链（http/https 域名）统一走 /api/proxy/audio 同源转发：

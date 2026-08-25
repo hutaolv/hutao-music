@@ -56,8 +56,10 @@
             </svg>
           </button>
           <button class="ctrl-btn" @click="store.playPrev">&#x23EE;</button>
-          <button class="ctrl-btn play-btn" @click="store.togglePlay">
-            <span v-if="store.isPlaying">&#x23F8;</span>
+          <button class="ctrl-btn play-btn" @click="onPlayClick">
+            <!-- 解析中显示旋转圈，让用户知道正在加载而不是卡死 -->
+            <span v-if="resolving && !store.isPlaying" class="loading-spinner"></span>
+            <span v-else-if="store.isPlaying">&#x23F8;</span>
             <span v-else>&#x25B6;</span>
           </button>
           <button class="ctrl-btn" @click="store.playNext">&#x23ED;</button>
@@ -394,10 +396,21 @@ let vipBlockedTimer = null
 let audio = null
 let unregisterMiniSpec = null
 
+// 直链解析进行中标记：点播到开播之间为 true，播放按钮显示旋转圈反馈
+const resolving = ref(false)
+
+// 播放按钮点击：解析期间忽略重复点击，避免对旧音频源误操作
+function onPlayClick() {
+  if (resolving.value) return
+  store.togglePlay()
+}
+
 // 拿不到真实音频时：提示"无法获取"，2 秒后自动跳下一首
 function showPlayFailed() {
   if (playFailedTimer) clearTimeout(playFailedTimer)
   store.isPlaying = false
+  // 解析失败同样要解除播放按钮的加载态
+  resolving.value = false
   playFailedToast.value = true
   playFailedTimer = setTimeout(() => {
     playFailedToast.value = false
@@ -407,6 +420,9 @@ function showPlayFailed() {
 
 function initAudio() {
   audio = new Audio()
+  // 显式声明自动预加载：部分浏览器默认策略偏保守（只取元数据），
+  // 会导致拿到直链后还要额外往返才能起播，明确 auto 让浏览器提前缓冲
+  audio.preload = 'auto'
   // 默认不接管 Web Audio：先按原生 audio 直出（audio.volume 控音量），保证一定有声音。
   // 仅当用户开启频谱且首次手势成功激活图时才切换为 GainNode 控音（见 onFirstGesture / enableSpectrumGraph）
   initAudioGraph(audio)
@@ -578,9 +594,14 @@ watch(() => store.currentSong, async (song) => {
       nextUrlCache.url = ''
     }
     if (!url) {
+      // 进入解析阶段：播放按钮切换为加载态（P2）
+      resolving.value = true
       // 先快速获取当前音质的播放地址，不等音质探测
       url = await getSongUrl(song, quality.value)
-      // 音质探测放后台，不阻塞播放
+      // 切歌守卫：等待期间用户已切到其他歌时，丢弃本轮结果，
+      // 防止旧地址覆盖新歌的音频源（同时保证加载态状态正确）
+      if (store.currentSong?.id !== song.id) return
+      // 音质探测放后台，不阻塞播放；结果仅更新音质菜单与自动升档
       getSongUrl(song, quality.value, true).then(res => {
         availableQualities.value = res.availableQualities || ['standard']
         // 若当前音质不可用，自动切到可用最高档
@@ -589,7 +610,8 @@ watch(() => store.currentSong, async (song) => {
           if (prefer && prefer !== quality.value) {
             quality.value = prefer
             getSongUrl(song, prefer).then(fallbackUrl => {
-              if (fallbackUrl && audio) {
+              // 切歌守卫：探测回调较慢，期间已切歌则不得覆盖新歌的音频源
+              if (fallbackUrl && audio && store.currentSong?.id === song.id) {
                 audio.src = fallbackUrl
                 downloadUrl.value = fallbackUrl
               }
@@ -606,10 +628,13 @@ watch(() => store.currentSong, async (song) => {
       setSpectrumActive(true)
       audio.play().catch(() => {})
       store.isPlaying = true
+      // 成功起播，解除加载态
+      resolving.value = false
       // 预取下一首 + 加载歌词并行，不阻塞播放
       prefetchNextUrl()
       getLyrics(song).then(lrc => {
-        if (lrc) {
+        // 切歌守卫：歌词返回晚于切歌时不覆盖新歌歌词
+        if (lrc && store.currentSong?.id === song.id) {
           store.rawLyrics = lrc.lyrics || ''
           store.rawTransLyrics = lrc.transLyrics || ''
         }
@@ -956,6 +981,18 @@ onUnmounted(() => {
 .play-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .play-btn:active { background: transparent; }
 
+/* 解析加载态旋转圈：点播后等待直链返回期间替代播放图标，避免误以为卡死 */
+.loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent-light);
+  border-radius: 50%;
+  display: inline-block;
+  animation: btn-spin 0.8s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+
 /* 音质选择：按钮 + 上浮菜单 */
 .quality-wrap { position: relative; }
 .quality-btn {
@@ -1232,6 +1269,12 @@ onUnmounted(() => {
     background: transparent;
   }
   .play-btn:active { background: transparent; }
+
+  /* 手机端加载圈随按钮尺寸同步缩小 */
+  .play-btn .loading-spinner {
+    width: 15px;
+    height: 15px;
+  }
 
   .style-btn {
     display: none;
