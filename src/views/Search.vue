@@ -37,7 +37,23 @@
       </div>
 
       <div v-if="!keyword && !searchHistory.length" class="section">
-        <p class="no-result">输入关键词开始搜索</p>
+        <!-- 空状态：居中视觉引导（放大镜内嵌音符的线性图标 + 发光渐变），替代纯文字提示 -->
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <!-- 放大镜镜框 -->
+              <circle cx="28" cy="28" r="18" stroke-width="2.5" />
+              <!-- 镜框内的音符（符干+符头+符尾旗） -->
+              <path d="M26 35 V21 l8 -2.5 V33" stroke-width="2.5" />
+              <ellipse cx="23.5" cy="35.5" rx="3" ry="2.4" stroke-width="1.8" />
+              <ellipse cx="31.5" cy="33.5" rx="3" ry="2.4" stroke-width="1.8" />
+              <!-- 放大镜手柄 -->
+              <line x1="42" y1="42" x2="54" y2="54" stroke-width="3.5" />
+            </svg>
+          </div>
+          <p class="empty-title">搜索全网音乐，发现你的宝藏歌单</p>
+          <p class="empty-sub">支持 QQ音乐 · 网易云 · B站 · 抖音 等七大平台，还可开启「胡桃搜」聚合查找</p>
+        </div>
       </div>
 
       <div v-if="keyword" class="section">
@@ -357,9 +373,9 @@ onMounted(() => {
   font-size: 12px;
   padding: 5px 12px;
   border-radius: var(--radius-pill);
-  background: var(--bg-card);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
-  border: 1px solid var(--border-color);
+  border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
@@ -384,11 +400,13 @@ onMounted(() => {
   border-color: transparent;
 }
 
+/* 选中态改为高饱和实心背景 + 白字：与未选中的低透明度灰底形成强对比 */
 .platform-filter.active {
-  background: color-mix(in srgb, var(--pf-color) 20%, transparent);
-  border-color: var(--pf-color);
-  color: var(--pf-color);
+  background: var(--pf-color);
+  border-color: transparent;
+  color: #fff;
   font-weight: 600;
+  box-shadow: 0 2px 14px color-mix(in srgb, var(--pf-color) 40%, transparent);
 }
 
 .section { margin-bottom: 32px; }
@@ -437,6 +455,46 @@ onMounted(() => {
   padding: 24px 0;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* ===== 空状态：居中视觉引导（放大镜内嵌音符线性图标 + 品牌色辉光）===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 56px 24px;
+}
+
+.empty-icon {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 品牌色径向辉光：中心淡紫光晕向外消散，衬托半透明线性图标 */
+  background: radial-gradient(circle at 50% 38%, rgba(129, 140, 248, 0.16), transparent 68%);
+  margin-bottom: 22px;
+}
+
+.empty-icon svg {
+  stroke: var(--accent-light);
+  opacity: 0.78;
+  filter: drop-shadow(0 0 14px rgba(129, 140, 248, 0.35));
+}
+
+.empty-title {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.empty-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 300px;
+  line-height: 1.9;
 }
 
 .load-more {
@@ -532,46 +590,92 @@ onMounted(() => {
 }
 
 @media (max-width: 767px) {
+  /* 手机端隐藏页面大标题"搜索"——搜索框本身就是身份标识，为首屏让位 */
+  .search-page > .section-title {
+    display: none;
+  }
+
+  /* 搜索框紧凑化：高度压到44px（满足最小触控），上下留白收紧 */
   .search-box {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+    padding: 0 4px 0 16px;
   }
   .search-input {
-    height: 42px;
+    height: 44px;
     font-size: 15px;
   }
   .search-submit {
-    width: 36px;
-    height: 36px;
-    font-size: 14px;
+    width: 40px;
+    height: 40px;
+    font-size: 15px;
   }
   .search-clear {
-    width: 24px;
-    height: 24px;
-    font-size: 11px;
-  }
-  .platform-filters {
-    gap: 6px;
-    margin-bottom: 18px;
-  }
-  .filter-label {
+    width: 32px;
+    height: 32px;
     font-size: 12px;
   }
+
+  /* 平台筛选：横向滚动胶囊——单行排列不换行，向右滑动查看更多平台；
+     隐藏"平台："前缀标签和分隔符，节省横向空间 */
+  .platform-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding-bottom: 4px;
+    scrollbar-width: none;               /* Firefox 隐藏滚动条 */
+    -webkit-overflow-scrolling: touch;   /* iOS 顺滑滚动 */
+  }
+  .platform-filters::-webkit-scrollbar { display: none; }
+  .platform-filters .filter-label,
+  .platform-filters .filter-divider { display: none; }
+
+  /* 胶囊触控目标：视觉高40px，配合负边距热区扩展实际命中约46px（≥44px规范） */
   .platform-filter {
-    font-size: 11px;
-    padding: 4px 10px;
+    flex-shrink: 0;
+    font-size: 13px;
+    min-height: 40px;
+    padding: 0 18px;
+    display: inline-flex;
+    align-items: center;
+    position: relative;
   }
+  .platform-filter::after {
+    content: '';
+    position: absolute;
+    inset: -3px -5px;   /* 向外扩展触控热区，不影响视觉尺寸 */
+  }
+
+  /* B站范围筛选同步横向滚动 */
   .scope-filters {
-    gap: 6px;
-    margin: -8px 0 18px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    margin: -6px 0 16px;
+    scrollbar-width: none;
   }
+  .scope-filters::-webkit-scrollbar { display: none; }
+  .scope-filters .filter-label { display: none; }
+  .scope-filters .platform-filter {
+    flex-shrink: 0;
+    min-height: 36px;
+  }
+
+  /* 空状态：占满更多纵向空间，图标微缩适配小屏 */
+  .empty-state { padding: 72px 20px; }
+  .empty-icon { width: 96px; height: 96px; }
+  .empty-icon svg { width: 58px; height: 58px; }
+  .empty-title { font-size: 14px; }
+  .empty-sub { font-size: 11px; }
+
   .section { margin-bottom: 24px; }
   .history-tags { gap: 6px; }
   .history-tag {
-    padding: 6px 12px;
+    padding: 10px 14px;
     font-size: 12px;
   }
   .clear-history {
-    padding: 6px 12px;
+    padding: 10px 12px;
     font-size: 12px;
   }
   .song-toolbar {

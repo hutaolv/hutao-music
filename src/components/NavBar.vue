@@ -116,24 +116,63 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
 
 /* ===== Mobile ===== */
 @media (max-width: 767px) {
+  /* 单行紧凑导航：logo 缩小、链接变轻量 Tab（无底色、选中用下划线指示），
+     高度由 --nav-height:56px 控制，为首屏内容让出空间 */
   .nav-inner {
-    flex-wrap: wrap;
-    align-content: center;
-    gap: 4px 12px;
-    padding: 0 12px;
+    gap: 10px;
+    padding: 0 14px;
+  }
+
+  .logo {
+    gap: 6px;
   }
 
   .logo-text {
-    font-size: 17px;
+    font-size: 15px;
   }
 
   .logo-icon {
-    font-size: 22px;
+    font-size: 19px;
+  }
+
+  .nav-links {
+    flex: 1;
+    justify-content: flex-end;
+    gap: 2px;
   }
 
   .nav-link {
-    padding: 6px 10px;
+    padding: 6px 9px;
     font-size: 13px;
+    border-radius: 8px;
+    position: relative;
+  }
+
+  /* 轻量 Tab 选中态：去掉底色，改为文字高亮 + 底部短横线指示器 */
+  .nav-link.active {
+    background: transparent;
+    color: var(--accent-light);
+    font-weight: 600;
+  }
+
+  .nav-link.active::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: 16px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+
+  /* 下载按钮压缩为紧凑描边样式，保证单行放得下 */
+  .download-link {
+    padding: 5px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    border-width: 1px;
   }
 }
 </style>

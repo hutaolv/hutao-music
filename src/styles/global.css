@@ -290,9 +290,10 @@ img {
 
 /* ===== 手机端适配（≤767px，避开 iPad 768px，桌面/平板默认样式不受影响） ===== */
 @media (max-width: 767px) {
-  /* 手机端导航栏变两层（logo+链接一行、搜索框一行）更高；播放条改双行布局更高 */
+  /* 手机端导航压成单行紧凑 Tab（logo+链接同一行，高56px），
+     为首屏内容让出约48px高度；播放条底部安全区同步收紧 */
   :root {
-    --nav-height: 104px;
+    --nav-height: 56px;
     --player-height: 120px;
     --radius: 12px;
     --radius-sm: 8px;

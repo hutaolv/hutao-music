@@ -150,6 +150,16 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
+/* 手机端页脚：居中极小字 + 降透明度，呈现原生 App 底部版权栏质感 */
+@media (max-width: 767px) {
+  .site-footer {
+    padding: 10px 20px calc(var(--player-height) + 10px);
+    font-size: 10px;
+    opacity: 0.55;
+    line-height: 1.7;
+  }
+}
+
 /* 免责声明弹窗 */
 .dialog-mask {
   position: fixed;
