@@ -10,6 +10,14 @@ const headers = {
   'Origin': 'https://music.163.com'
 }
 
+// 网易云CDN支持 ?param=WxH 缩略参数：服务端按需缩放，避免下载原图。
+// 原图常见几千像素（几百KB~2MB），500px 足以覆盖歌词页320px大封面@2x屏的清晰度，
+// 单张体积可降约85%。已带查询参数的 URL 不重复处理
+function thumb(picUrl) {
+  if (!picUrl) return ''
+  return picUrl.includes('?') ? picUrl : `${picUrl}?param=500y500`
+}
+
 const KNOWN_LISTS = [
   { id: 3778678, name: '云音乐热歌榜' },
   { id: 3779629, name: '云音乐新歌榜' },
@@ -56,7 +64,7 @@ async function getPlaylist(id) {
       artist: (track.ar || track.artists || []).map(a => a.name || a).join(' / '),
       artistId: (track.ar?.[0]?.id || track.artists?.[0]?.id) ? `netease_artist_${(track.ar?.[0]?.id || track.artists?.[0]?.id)}` : '',
       album: track.al?.name || track.album?.name || '',
-      cover: track.al?.picUrl || track.album?.picUrl || '',
+      cover: thumb(track.al?.picUrl || track.album?.picUrl || ''),
       duration: formatDuration(track.dt || track.duration),
       durationMs: track.dt || track.duration || 0,
       platform: '网易云音乐',
@@ -112,7 +120,7 @@ export async function searchSongs(keyword, limit = 50) {
         artist: ar.map(a => a.name).join(' / '),
         artistId: ar[0]?.id ? `netease_artist_${ar[0].id}` : '',
         album: al.name || '',
-        cover: al.picUrl || '',
+        cover: thumb(al.picUrl || ''),
         duration: formatDuration(track.duration || track.dt),
         durationMs: track.duration || track.dt || 0,
         platform: '网易云音乐',
@@ -190,7 +198,7 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
         artist: ar.map(a => a.name).join(' / '),
         artistId: `netease_artist_${ar[0]?.id || ''}`,
         album: al.name || '',
-        cover: al.picUrl || '',
+        cover: thumb(al.picUrl || ''),
         duration: formatDuration(dur),
         durationMs: dur,
         platform: '网易云音乐',

@@ -4,7 +4,7 @@
       <span class="rank-num" :class="rankClass">{{ rank }}</span>
     </div>
     <div class="cover-wrap">
-      <img :src="song.cover" :alt="song.title" class="cover" @error="hideImg" />
+      <img :src="song.cover" :alt="song.title" class="cover" loading="lazy" decoding="async" @error="hideImg" />
     </div>
     <div class="info">
       <span class="title">{{ song.title }}</span>

@@ -1,6 +1,13 @@
 import axios from 'axios'
 import crypto from 'crypto'
 
+// B站图床支持 @WxH.webp 后缀：服务端按需缩放并转 WebP 格式，
+// 比原图 JPEG 体积更小。已带尺寸后缀的不重复处理
+function biliThumb(picUrl) {
+  if (!picUrl) return ''
+  return picUrl.includes('@') ? picUrl : `${picUrl}@500w_500h.webp`
+}
+
 // 轮换使用的浏览器 UA 列表，降低被识别为同一爬虫的概率
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -89,9 +96,9 @@ async function fetchAudioMenu(sid, name) {
     platformId: String(v.id),
     title: v.title,
     artist: v.author || v.uname || '未知',
-    artistId: v.uid ? `bilibili_artist_${v.uid}` : '',
-    album: '',
-    cover: v.cover ? `/api/proxy/image?url=${encodeURIComponent(v.cover)}` : '',
+      artistId: v.uid ? `bilibili_artist_${v.uid}` : '',
+      album: '',
+      cover: v.cover ? `/api/proxy/image?url=${encodeURIComponent(biliThumb(v.cover))}` : '',
     duration: formatDurationStr(v.duration),
     durationMs: (v.duration || 0) * 1000,
     platform: 'B站',
@@ -137,9 +144,9 @@ export async function getToplist(order, sublistIndex) {
           platformId: v.bvid,
           title: v.title.replace(/<[^>]*>/g, ''),
           artist: v.owner?.name || '未知',
-          artistId: v.owner?.mid ? `bilibili_artist_${v.owner.mid}` : '',
-          album: v.tname || '',
-          cover: v.pic ? `/api/proxy/image?url=${encodeURIComponent(v.pic)}` : '',
+            artistId: v.owner?.mid ? `bilibili_artist_${v.owner.mid}` : '',
+            album: v.tname || '',
+            cover: v.pic ? `/api/proxy/image?url=${encodeURIComponent(biliThumb(v.pic))}` : '',
           duration: formatDurationStr(v.duration),
           durationMs: parseDuration(v.duration) * 1000,
           platform: 'B站',
@@ -248,9 +255,9 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
         platformId: String(v.id),
         title: v.title || '',
         artist: info?.author || v.uname || '未知',
-        artistId: `bilibili_artist_${v.uid || uid}`,
-        album: '',
-        cover: v.cover ? `/api/proxy/image?url=${encodeURIComponent(v.cover)}` : '',
+          artistId: `bilibili_artist_${v.uid || uid}`,
+          album: '',
+          cover: v.cover ? `/api/proxy/image?url=${encodeURIComponent(biliThumb(v.cover))}` : '',
         duration: formatDuration(duration),
         durationMs: (duration || 0) * 1000,
         platform: 'B站',
@@ -471,9 +478,9 @@ export async function search(query, scope = 'music', page = 1) {
         platformId: v.bvid,
         title: v.title.replace(/<[^>]*>/g, ''),
         artist: v.author || '未知',
-        artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
-        album: v.tname || '',
-        cover: v.pic ? `/api/proxy/image?url=${encodeURIComponent(v.pic)}` : '',
+          artistId: v.mid ? `bilibili_artist_${v.mid}` : '',
+          album: v.tname || '',
+          cover: v.pic ? `/api/proxy/image?url=${encodeURIComponent(biliThumb(v.pic))}` : '',
         duration: formatDurationStr(v.duration),
         durationMs: parseDuration(v.duration) * 1000,
         platform: 'B站',

@@ -24,7 +24,8 @@ function mapSong(item) {
     artist: m.author || '未知',
     artistId: '',
     album: m.album || '',
-    cover: m.cover_large?.url_list?.[0] || m.cover_thumb?.url_list?.[0] || '',
+    // 列表展示场景优先取缩略图（cover_thumb 比 cover_large 小数倍）
+    cover: m.cover_thumb?.url_list?.[0] || m.cover_large?.url_list?.[0] || '',
     duration: formatDuration(m.duration),
     durationMs: (m.duration || 0) * 1000,
     platform: '汽水音乐',
@@ -54,7 +55,7 @@ export async function getToplist(order, sublistIndex) {
     })
     if (data?.status_code === 0 && data?.music_list?.length) {
       result[idx].songs = data.music_list.map(mapSong)
-      result[idx].cover = data.music_list[0]?.music_info?.cover_large?.url_list?.[0] || ''
+      result[idx].cover = data.music_list[0]?.music_info?.cover_thumb?.url_list?.[0] || data.music_list[0]?.music_info?.cover_large?.url_list?.[0] || ''
     }
   } catch (e) {
     console.error(`Qishui chart ${chart.name} error:`, e.message)

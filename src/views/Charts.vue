@@ -45,7 +45,7 @@
           <span class="rank-badge" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
         </span>
         <span class="col-cover">
-          <img :src="song.cover" :alt="song.title" class="row-cover" @error="e => e.target.style.display = 'none'" />
+          <img :src="song.cover" :alt="song.title" class="row-cover" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
         </span>
           <span class="col-title">
             <span class="row-title">{{ song.title }}</span>

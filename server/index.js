@@ -1,9 +1,10 @@
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
-import { resolve, dirname } from 'path'
+import { createHash } from 'crypto'
+import { resolve, dirname, sep, extname } from 'path'
 import { fileURLToPath } from 'url'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, mkdirSync, readdirSync, statSync, unlinkSync, createReadStream, createWriteStream } from 'fs'
 import { Readable } from 'stream'
 import chartsRouter from './routes/charts.js'
 import searchRouter from './routes/search.js'
@@ -89,6 +90,54 @@ app.use('/api/charts', chartsRouter)
 app.use('/api/search', searchRouter)
 app.use('/api/song', songRouter)
 
+// ---------- 图片代理磁盘缓存 ----------
+// 封面图经代理拉取后落盘共享：A 用户拉过的图，所有用户与后续访问直接回盘，
+// 不再打上游（防盗链源站），同时抗上游波动。TTL 7 天 + 总量上限按最旧淘汰
+const IMG_CACHE_DIR = resolve(__dirname, 'cache/covers')
+const IMG_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const IMG_CACHE_MAX_TOTAL = 300 * 1024 * 1024
+mkdirSync(IMG_CACHE_DIR, { recursive: true })
+
+// 由 Content-Type 推断扩展名（未知类型按 jpg 处理，与历史回退逻辑一致）
+function imgExtOf(contentType) {
+  const ct = (contentType || '').toLowerCase()
+  if (ct.includes('png')) return 'png'
+  if (ct.includes('webp')) return 'webp'
+  if (ct.includes('gif')) return 'gif'
+  return 'jpg'
+}
+// 扩展名反查 Content-Type（缓存命中回盘时还原响应头）
+const IMG_EXT_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }
+
+// 缓存文件路径：对最终上游 URL 取 md5，扩展名记录内容类型
+function imageCacheFile(url, contentType) {
+  return resolve(IMG_CACHE_DIR, createHash('md5').update(url).digest('hex') + '.' + imgExtOf(contentType))
+}
+
+// 周期清理：先删超过 TTL 的文件，总量仍超限时按最旧淘汰
+function cleanImageCache() {
+  try {
+    const now = Date.now()
+    let total = 0
+    const alive = []
+    for (const name of readdirSync(IMG_CACHE_DIR)) {
+      const p = resolve(IMG_CACHE_DIR, name)
+      let st
+      try { st = statSync(p) } catch { continue }
+      if (now - st.mtimeMs > IMG_CACHE_TTL_MS) { try { unlinkSync(p) } catch {} continue }
+      total += st.size
+      alive.push({ p, mtimeMs: st.mtimeMs, size: st.size })
+    }
+    alive.sort((a, b) => a.mtimeMs - b.mtimeMs)
+    for (const e of alive) {
+      if (total <= IMG_CACHE_MAX_TOTAL) break
+      try { unlinkSync(e.p); total -= e.size } catch {}
+    }
+  } catch { /* 清理失败不影响主流程 */ }
+}
+cleanImageCache()
+setInterval(cleanImageCache, 6 * 60 * 60 * 1000)   // 每 6 小时清一次
+
 app.get('/api/proxy/image', async (req, res) => {
   const { url } = req.query
   if (!url) return res.status(400).json({ code: 400, message: 'url required' })
@@ -96,6 +145,22 @@ app.get('/api/proxy/image', async (req, res) => {
     // B站等来源的封面常是协议相对地址（//i0.hdslb.com/...），fetch 无法解析，需补全协议
     let target = decodeURIComponent(url)
     if (target.startsWith('//')) target = 'https:' + target
+
+    // 磁盘缓存命中：按扩展名还原 Content-Type 直接回盘
+    const cacheDir = IMG_CACHE_DIR
+    const hash = createHash('md5').update(target).digest('hex')
+    for (const ext of Object.keys(IMG_EXT_TYPES)) {
+      const f = resolve(cacheDir, `${hash}.${ext}`)
+      if (!existsSync(f)) continue
+      const st = statSync(f)
+      if (Date.now() - st.mtimeMs > IMG_CACHE_TTL_MS) break   // 过期视为未命中，走重新拉取并覆盖
+      res.setHeader('Content-Type', IMG_EXT_TYPES[ext])
+      res.setHeader('Cache-Control', 'public, max-age=604800')
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      createReadStream(f).pipe(res)
+      return
+    }
+
     const imageRes = await fetch(target, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -106,8 +171,17 @@ app.get('/api/proxy/image', async (req, res) => {
     const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
     res.setHeader('Content-Type', contentType)
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Cache-Control', 'public, max-age=86400')
-    Readable.fromWeb(imageRes.body).pipe(res)
+    // 浏览器缓存从1天提到7天：配合服务端磁盘缓存，封面几乎零重复流量
+    res.setHeader('Cache-Control', 'public, max-age=604800')
+
+    // 边转发边写盘：同一份上游流同时给用户和缓存文件，不额外占用内存缓冲
+    const cacheFile = imageCacheFile(target, contentType)
+    const upstream = Readable.fromWeb(imageRes.body)
+    const ws = createWriteStream(cacheFile)
+    upstream.on('error', () => { try { unlinkSync(cacheFile) } catch {} })
+    ws.on('error', () => { try { unlinkSync(cacheFile) } catch {} })
+    upstream.pipe(ws)
+    upstream.pipe(res)
   } catch (e) {
     res.status(500).json({ code: 500, message: e.message })
   }
@@ -232,7 +306,18 @@ if (existsSync(downloadsDir)) {
 
 const distDir = resolve(__dirname, '../dist')
 if (existsSync(distDir)) {
-  app.use(express.static(distDir))
+  // 静态资源缓存策略：
+  // - assets/ 下是带内容哈希的 JS/CSS：代码不变则文件名不变，可安全长缓存。
+  //   设为 10 天 + immutable，期间浏览器/Cloudflare 直接用本地副本不再发请求
+  //   （发新版时哈希文件名变化，index.html 会指向新文件，不存在更新不到的问题）
+  // - index.html 不设长缓存：保持每次校验，确保发版即时生效
+  app.use(express.static(distDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.includes(`${sep}assets${sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=864000, immutable')
+      }
+    }
+  }))
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(resolve(distDir, 'index.html'))

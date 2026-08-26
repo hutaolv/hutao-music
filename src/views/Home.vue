@@ -18,7 +18,7 @@
           <div class="bento-songs">
             <div v-for="(song, i) in songs" :key="song.id" class="bento-song" @click.stop="store.playSong(song)">
               <span class="bento-rank" :class="{ gold: i === 0, silver: i === 1, bronze: i === 2 }">{{ i + 1 }}</span>
-              <img v-if="song.cover" :src="song.cover" :alt="song.title" class="bento-cover" @error="e => e.target.style.display = 'none'" />
+              <img v-if="song.cover" :src="song.cover" :alt="song.title" class="bento-cover" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
               <div class="bento-song-info">
                 <div class="bento-song-title">{{ song.title }}</div>
                 <div class="bento-song-artist">{{ song.artist }}</div>
