@@ -9,3 +9,5 @@ server/downloads/*.apk
 # 访问日志：仅保留目录占位（.gitkeep），内容不入库
 server/log/*.json
 server/log/history/
+# 图片代理磁盘缓存（运行时生成）
+server/cache/
