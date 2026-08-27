@@ -14,11 +14,17 @@
         class="platform-filter"
         :class="{ active: selectedPlatform === p && !useThirdParty }"
         :style="{ '--pf-color': platformColors[p] || '#6366f1' }"
-        @click="selectPlatform(p)">{{ p }}</span>
+        @click="selectPlatform(p)">
+        <img :src="`/icons/platforms/${platformIcons[p]}`" :alt="p" class="pf-icon" :class="{ 'is-color': colorPlatforms.has(p) }" />
+        {{ platformDisplayName[p] || p }}
+      </span>
       <span class="filter-divider">|</span>
       <span class="platform-filter hutao-search"
         :class="{ active: useThirdParty }"
-        @click="toggleThirdParty">胡桃搜</span>
+        @click="toggleThirdParty">
+        <img src="/icons/hutaoico.png" alt="胡桃" class="pf-icon pf-icon-hutao" />
+        胡桃
+      </span>
     </div>
 
     <div v-if="selectedPlatform === 'B站'" class="scope-filters">
@@ -52,7 +58,7 @@
             </svg>
           </div>
           <p class="empty-title">搜索全网音乐，发现你的宝藏歌单</p>
-          <p class="empty-sub">支持 QQ音乐 · 网易云 · B站 · 抖音 等七大平台，还可开启「胡桃搜」聚合查找</p>
+          <p class="empty-sub">支持 QQ · 网易云 · B站 · 抖音 等七大平台，还可开启「胡桃」聚合查找</p>
         </div>
       </div>
 
@@ -111,6 +117,34 @@ import { getSearchHistory, addSearchHistory, clearSearchHistory } from '../utils
 import { platforms, platformColors } from '../data/platforms'
 import SongCard from '../components/SongCard.vue'
 import HutaoLoading from '../components/HutaoLoading.vue'
+
+// 平台图标映射（复用排行榜的 public/icons/platforms/ 资源）：
+// - bilibili/netease：Simple Icons 官方矢量
+// - qqmusic/migu：Arcticons 线性矢量
+// - douyin/kuwo/kugou：官网抓取的满幅彩色应用图标
+const platformIcons = {
+  '抖音': 'douyin.png',
+  'QQ音乐': 'qqmusic.svg',
+  '网易云音乐': 'netease.svg',
+  'B站': 'bilibili.svg',
+  '咪咕音乐': 'migu.svg',
+  '酷我音乐': 'kuwo.png',
+  '酷狗音乐': 'kugou.svg'
+}
+
+// 彩色图标集合：酷我的图标是满幅彩色磁贴，不能套白色剪影滤镜，改为原生应用图标样式展示
+const colorPlatforms = new Set(['酷我音乐'])
+
+// 搜索页平台简称映射：去除"音乐"后缀，精简胶囊文字占用
+const platformDisplayName = {
+  'QQ音乐': 'QQ',
+  '网易云音乐': '网易云',
+  'B站': 'B站',
+  '咪咕音乐': '咪咕',
+  '酷我音乐': '酷我',
+  '酷狗音乐': '酷狗',
+  '抖音': '抖音'
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -379,6 +413,36 @@ onMounted(() => {
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 平台图标：默认白色剪影（矢量源统一），品牌色由胶囊背景传递 */
+.pf-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: 0.88;
+  flex-shrink: 0;
+}
+
+/* 彩色应用图标（酷我）：跳过剪影滤镜，保留原生配色。
+   选择器加父级前缀提升特异性，确保覆盖基础 .pf-icon 的 invert 滤镜 */
+.platform-filter .pf-icon.is-color {
+  filter: none;
+  opacity: 1;
+  border-radius: 20%;
+}
+
+/* 胡桃搜图标：圆形头像，始终原色展示 */
+.pf-icon-hutao {
+  filter: none;
+  opacity: 1;
+  border-radius: 50%;
+  width: 17px;
+  height: 17px;
 }
 @media (hover: hover) {
   .platform-filter:hover { border-color: var(--pf-color); color: var(--pf-color); }
@@ -635,9 +699,10 @@ onMounted(() => {
     flex-shrink: 0;
     font-size: 13px;
     min-height: 40px;
-    padding: 0 18px;
+    padding: 0 14px;
     display: inline-flex;
     align-items: center;
+    gap: 5px;
     position: relative;
   }
   .platform-filter::after {
@@ -645,6 +710,9 @@ onMounted(() => {
     position: absolute;
     inset: -3px -5px;   /* 向外扩展触控热区，不影响视觉尺寸 */
   }
+  /* 手机端图标微缩适配小屏胶囊 */
+  .pf-icon { width: 15px; height: 15px; }
+  .pf-icon-hutao { width: 16px; height: 16px; }
 
   /* B站范围筛选同步横向滚动 */
   .scope-filters {

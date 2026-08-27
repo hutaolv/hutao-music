@@ -5,8 +5,8 @@
 
     <!-- 平台选择：图标卡片网格（极淡品牌色底），选中高亮 + 品牌色外发光 -->
     <div class="platform-grid">
-      <button v-for="p in platforms" :key="p" class="platform-card" :class="{ active: activePlatform === p, 'is-color': colorPlatforms.has(p) }" :style="{ '--pf-color': platformColors[p] || '#6366f1' }" @click="switchPlatform(p)">
-        <img :src="`/icons/platforms/${platformIcons[p]}`" :alt="p" class="platform-icon" />
+      <button v-for="p in platforms" :key="p" class="platform-card" :class="{ active: activePlatform === p }" :style="{ '--pf-color': platformColors[p] || '#6366f1' }" @click="switchPlatform(p)">
+        <img :src="`/icons/platforms/${platformIcons[p]}`" :alt="p" class="platform-icon" :class="{ 'is-color': colorPlatforms.has(p) }" />
         <span class="platform-name">{{ p }}</span>
       </button>
     </div>
@@ -381,8 +381,9 @@ async function toggleFav(song) {
   opacity: 0.92;
 }
 
-/* 彩色应用图标（酷我/酷狗）：跳过滤镜，按原生图标样式展示 */
-.platform-icon.is-color {
+/* 彩色应用图标（酷我）：跳过滤镜，按原生图标样式展示。
+   选择器加 .platform-card 前缀提升特异性，确保覆盖基础 .platform-icon 的 invert 滤镜 */
+.platform-card .platform-icon.is-color {
   filter: none;
   opacity: 1;
   border-radius: 22%;
