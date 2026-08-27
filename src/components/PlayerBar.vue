@@ -184,7 +184,7 @@
       <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，2秒后自动跳过</div>
     </transition>
     <transition name="fade">
-      <div v-if="vipBlockedToast" class="vip-toast blocked-toast">VIP资源无法播放，请尝试胡桃搜索~~</div>
+      <div v-if="vipBlockedToast" class="vip-toast blocked-toast">VIP资源无法播放，请尝试胡桃搜索~~~</div>
     </transition>
   </div>
 </template>
@@ -570,12 +570,15 @@ watch(() => store.currentSong, async (song) => {
     store.isPlaying = false
   }
   if (song) {
-    // VIP 歌曲拦截：显示提示，不尝试播放
+    // VIP 歌曲拦截：显示提示，5秒后自动跳下一首
     if (song.vip) {
       vipBlockedToast.value = true
       store.isPlaying = false
       if (vipBlockedTimer) clearTimeout(vipBlockedTimer)
-      vipBlockedTimer = setTimeout(() => { vipBlockedToast.value = false }, 3000)
+      vipBlockedTimer = setTimeout(() => {
+        vipBlockedToast.value = false
+        if (store.currentSong) store.playNext()
+      }, 5000)
       return
     }
     // 收藏状态从 IndexedDB 异步读取（同步读取已不适用）
