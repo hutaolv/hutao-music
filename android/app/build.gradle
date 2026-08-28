@@ -18,13 +18,15 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
         }
     }
-    // 产物命名：debug 包直接输出为 胡桃音悦-{versionName}.apk（默认是 app-debug.apk）
+    // 产物命名：release 包输出为 胡桃音悦-{versionName}.apk
     applicationVariants.all { variant ->
-        if (variant.buildType.name == 'debug') {
+        if (variant.buildType.name == 'release') {
             variant.outputs.all {
                 outputFileName = "胡桃音悦-${variant.versionName}.apk"
             }
@@ -44,9 +46,6 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
-    testImplementation "junit:junit:$junitVersion"
-    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
-    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 }
 
