@@ -102,6 +102,7 @@ const nextLine = computed(() => {
 
 function selectColor(c) {
   lyricColor.value = c
+  store.lyricColor = c
   setDesktopLyricsColor(c)
   showColorPicker.value = false
 }
@@ -281,7 +282,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .desktop-lyric-text.active {
-  color: var(--lyric-color, #818cf8);
-  text-shadow: 0 0 20px color-mix(in srgb, var(--lyric-color, #818cf8) 40%, transparent);
+  color: var(--lyric-color, #60a5fa);
+  text-shadow: 0 0 20px color-mix(in srgb, var(--lyric-color, #60a5fa) 40%, transparent);
 }
 </style>

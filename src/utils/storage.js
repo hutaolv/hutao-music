@@ -225,7 +225,7 @@ const DL_KEYS = {
 }
 
 export function getDesktopLyricsColor() {
-  return localStorage.getItem(DL_KEYS.COLOR) || '#818cf8'
+  return localStorage.getItem(DL_KEYS.COLOR) || '#60a5fa'
 }
 
 export function setDesktopLyricsColor(c) {

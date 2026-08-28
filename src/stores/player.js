@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getPlaylist, savePlaylist, addRecentPlay, getVolume, saveVolume } from '../utils/storage'
+import { getPlaylist, savePlaylist, addRecentPlay, getVolume, saveVolume, getDesktopLyricsColor } from '../utils/storage'
 
 // 收藏/历史改用 IndexedDB 后 addRecentPlay 为异步，播放流程不等待返回值，静默失败即可
 function recordRecent(song) {
@@ -27,6 +27,8 @@ export const usePlayerStore = defineStore('player', () => {
   const favVersion = ref(0)
   // 音质切换信号：歌词页切换音质时 +1，PlayerBar 监听后立即重新获取对应音质的播放地址
   const qualityVersion = ref(0)
+  // 歌词颜色：桌面歌词/歌词页共享，修改任一处同步生效
+  const lyricColor = ref(getDesktopLyricsColor())
 
   const playModes = ['sequence', 'loop', 'random']
 
@@ -152,7 +154,7 @@ export const usePlayerStore = defineStore('player', () => {
   return {
     currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
     playMode,     showPlaylist, playModes, nextMode,
-    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion, qualityVersion,
+    rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion, qualityVersion, lyricColor,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
     clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll, touchFavVersion, touchQualitySwitch
   }

@@ -31,6 +31,7 @@
         <div v-for="(line, i) in parsedLyrics" :key="i"
           class="lyric-line"
           :class="{ active: store.currentLyricIndex === i }"
+          :style="store.currentLyricIndex === i ? { color: store.lyricColor } : {}"
           :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }"
           @click="seekTo(line.time)">
           {{ line.text }}
