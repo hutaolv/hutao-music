@@ -399,6 +399,20 @@ let unregisterMiniSpec = null
 // 直链解析进行中标记：点播到开播之间为 true，播放按钮显示旋转圈反馈
 const resolving = ref(false)
 
+// 安全播放：包装 audio.play() 的 Promise，失败时自动回退 isPlaying 状态，
+// 避免状态显示"播放中"但实际无声的卡死问题
+async function safePlay() {
+  if (!audio || !audio.src) return false
+  try {
+    await audio.play()
+    store.isPlaying = true
+    return true
+  } catch {
+    store.isPlaying = false
+    return false
+  }
+}
+
 // 播放按钮点击：解析期间忽略重复点击，避免对旧音频源误操作
 function onPlayClick() {
   if (resolving.value) return
@@ -433,6 +447,13 @@ function initAudio() {
   audio.addEventListener('ended', onEnded)
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
+  })
+  // 音频加载/解码失败时自动恢复：防止播放器卡死无声
+  audio.addEventListener('error', () => {
+    if (store.currentSong) {
+      resolving.value = false
+      showPlayFailed()
+    }
   })
   // 后台回来时若状态是播放中但音频暂停（如后台切歌被系统打断/拒绝），自动恢复
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -477,7 +498,7 @@ function registerMiniSpectrum() {
 function onVisibilityChange() {
   if (document.hidden || !audio) return
   if (store.isPlaying && audio.paused && audio.src) {
-    audio.play().catch(() => {})
+    safePlay()
   }
 }
 
@@ -502,7 +523,7 @@ function updateLyrics() {
 function onEnded() {
   if (store.playMode === 'loop') {
     audio.currentTime = 0
-    audio.play()
+    safePlay()
   } else {
     store.playNext()
   }
@@ -629,8 +650,8 @@ watch(() => store.currentSong, async (song) => {
       downloadUrl.value = url
       resumeAudio()
       setSpectrumActive(true)
-      audio.play().catch(() => {})
-      store.isPlaying = true
+      // 安全播放：成功才标记 isPlaying，失败则回退状态避免卡死
+      const played = await safePlay()
       // 成功起播，解除加载态
       resolving.value = false
       // 预取下一首 + 加载歌词并行，不阻塞播放
@@ -656,7 +677,7 @@ watch(() => store.isPlaying, (playing) => {
     resumeAudio()
     setSpectrumActive(true)
     if (audio.src) {
-      audio.play().catch(() => {})
+      safePlay()
     }
   } else {
     setSpectrumActive(false)
