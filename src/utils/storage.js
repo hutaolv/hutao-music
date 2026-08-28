@@ -6,6 +6,7 @@ const KEYS = {
   RECENT_PLAYS: 'musichub_recent',
   SEARCH_HISTORY: 'musichub_search_history',
   PLAY_LIST: 'musichub_playlist',
+  CURRENT_SONG: 'musichub_current_song',
   VOLUME: 'musichub_volume'
 }
 
@@ -209,6 +210,19 @@ export function getPlaylist() {
 
 export function savePlaylist(list) {
   localStorage.setItem(KEYS.PLAY_LIST, JSON.stringify(list))
+}
+
+export function getCurrentSong() {
+  const raw = localStorage.getItem(KEYS.CURRENT_SONG)
+  return raw ? JSON.parse(raw) : null
+}
+
+export function saveCurrentSong(song) {
+  if (song) {
+    localStorage.setItem(KEYS.CURRENT_SONG, JSON.stringify(song))
+  } else {
+    localStorage.removeItem(KEYS.CURRENT_SONG)
+  }
 }
 
 export function getVolume() {

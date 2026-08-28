@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { getPlaylist, savePlaylist, addRecentPlay, getVolume, saveVolume, getDesktopLyricsColor } from '../utils/storage'
+import { ref, computed, watch } from 'vue'
+import { getPlaylist, savePlaylist, addRecentPlay, getVolume, saveVolume, getDesktopLyricsColor, getCurrentSong, saveCurrentSong } from '../utils/storage'
 
 // 收藏/历史改用 IndexedDB 后 addRecentPlay 为异步，播放流程不等待返回值，静默失败即可
 function recordRecent(song) {
@@ -8,7 +8,7 @@ function recordRecent(song) {
 }
 
 export const usePlayerStore = defineStore('player', () => {
-  const currentSong = ref(null)
+  const currentSong = ref(getCurrentSong())
   const playlist = ref(getPlaylist())
   const currentIndex = ref(-1)
   const isPlaying = ref(false)
@@ -150,6 +150,34 @@ export const usePlayerStore = defineStore('player', () => {
   function touchQualitySwitch() {
     qualityVersion.value++
   }
+
+  // === 跨标签页同步 ===
+  // 当前标签页修改时写入 localStorage，其他标签页通过 storage 事件感知变化
+  let skipPlaylistSave = false
+  let skipSongSave = false
+
+  watch(currentSong, (song) => {
+    if (!skipSongSave) saveCurrentSong(song)
+    skipSongSave = false
+  })
+  watch(playlist, (list) => {
+    if (!skipPlaylistSave) savePlaylist(list)
+    skipPlaylistSave = false
+  })
+
+  // 监听其他标签页的 localStorage 变化，同步播放列表和当前歌曲
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'musichub_playlist') {
+      skipPlaylistSave = true
+      playlist.value = getPlaylist()
+    } else if (e.key === 'musichub_current_song') {
+      const song = getCurrentSong()
+      if (song?.id !== currentSong.value?.id) {
+        skipSongSave = true
+        currentSong.value = song
+      }
+    }
+  })
 
   return {
     currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
