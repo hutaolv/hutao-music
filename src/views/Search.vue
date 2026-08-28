@@ -455,11 +455,11 @@ onMounted(() => {
 }
 
 .hutao-search {
-  --pf-color: #10b981;
+  --pf-color: #dc2626;
 }
 
 .hutao-search.active {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
   color: white;
   border-color: transparent;
 }
