@@ -115,7 +115,7 @@ npm install -D @capacitor/cli @capacitor/android
 npx cap add android
 
 # 3. 构建前端并同步到 Android 工程（打包前必须执行，命令中替换为你的服务器地址）
-$env:VITE_API_BASE='https://你的域名'
+$env:VITE_API_BASE='https://你的域名'或者 'http://你的服务器地址:3001'
 npm run build
 npx cap sync android
 
