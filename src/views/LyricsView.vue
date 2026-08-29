@@ -129,14 +129,18 @@
               </div>
             </div>
           </div>
-          <!-- 下载歌曲：底部居中半透明长条按钮 -->
-          <button class="ms-download" :disabled="!downloadUrl" @click="downloadSong">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <!-- 下载歌曲：列表项样式 + 右侧箭头 -->
+          <div class="ms-divider"></div>
+          <button class="ms-download-row" :disabled="!downloadUrl" @click="downloadSong">
+            <svg class="ms-download-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            {{ downloadUrl ? '点击下载' : '加载中...' }}
+            <span class="ms-download-label">{{ downloadUrl ? '点击下载' : '加载中...' }}</span>
+            <svg class="ms-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
           </button>
         </div>
       </div>
@@ -889,7 +893,7 @@ watch(ringSpecRef, (el) => {
     -webkit-backdrop-filter: blur(4px);
     z-index: 300;
   }
-  /* 手机端设置面板：毛玻璃质感 + 多层内阴影 */
+  /* 手机端设置面板：毛玻璃质感 + 多层内阴影 + 顶部微光描边 */
   .mobile-settings-panel {
     width: min(340px, calc(100vw - 32px));
     padding: 16px;
@@ -897,10 +901,11 @@ watch(ringSpecRef, (el) => {
     backdrop-filter: blur(20px) saturate(1.3);
     -webkit-backdrop-filter: blur(20px) saturate(1.3);
     border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top-color: rgba(255, 255, 255, 0.14);
     border-radius: 16px;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      inset 0 0 0 0.5px rgba(255, 255, 255, 0.03),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.04),
       0 16px 48px rgba(0, 0, 0, 0.6);
     max-height: 80vh;
     overflow-y: auto;
@@ -923,8 +928,8 @@ watch(ringSpecRef, (el) => {
     justify-content: center;
   }
   .ms-close:hover { color: var(--text-primary); background: var(--bg-hover); }
-  /* 设置项行：标签左对齐 + 控件右对齐，紧凑间距 */
-  .ms-group { margin-bottom: 10px; }
+  /* 设置项行：标签左对齐 + 控件右对齐 */
+  .ms-group { margin-bottom: 14px; }
   .ms-row {
     display: flex;
     align-items: center;
@@ -934,6 +939,7 @@ watch(ringSpecRef, (el) => {
   .ms-label {
     font-size: 12px;
     color: var(--text-muted);
+    opacity: 0.7;
     flex-shrink: 0;
     letter-spacing: 0.02em;
   }
@@ -956,8 +962,10 @@ watch(ringSpecRef, (el) => {
   }
   .ms-seg-btn.active {
     color: var(--text-primary);
-    background: rgba(99, 102, 241, 0.25);
-    box-shadow: 0 0 8px rgba(99, 102, 241, 0.15);
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.32) 0%, rgba(99, 102, 241, 0.18) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 0 8px rgba(99, 102, 241, 0.15);
   }
   /* iOS 风格开关：封面频谱 */
   .ms-toggle {
@@ -984,10 +992,12 @@ watch(ringSpecRef, (el) => {
   .ms-toggle.active {
     background: var(--accent);
     border-color: var(--accent-light);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.4), 0 0 24px rgba(99, 102, 241, 0.15);
   }
   .ms-toggle.active .ms-toggle-thumb {
     transform: translateX(18px);
     background: #fff;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
   }
   /* 紧凑胶囊组：频谱颜色 + 音质选择 */
   .ms-pills {
@@ -1010,8 +1020,9 @@ watch(ringSpecRef, (el) => {
   }
   .ms-pill.active {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.1);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.06) 100%);
     border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
   .ms-dot {
     width: 10px;
@@ -1022,29 +1033,35 @@ watch(ringSpecRef, (el) => {
   }
   .ms-dot.rainbow { background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6); }
   .ms-dot.amber { background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706); }
-  /* 下载按钮：底部居中半透明长条 */
-  .ms-download {
+  /* 分隔线 */
+  .ms-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+    margin: 4px 0 14px;
+  }
+  /* 下载：列表项样式 */
+  .ms-download-row {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: 8px;
     width: 100%;
-    margin-top: 14px;
-    padding: 10px 0;
+    padding: 4px 0;
     font-size: 13px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
-    transition: all 0.2s;
+    transition: color 0.2s;
   }
-  .ms-download:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-primary);
+  .ms-download-row:hover:not(:disabled) { color: var(--text-primary); }
+  .ms-download-row:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ms-download-icon { flex-shrink: 0; opacity: 0.6; }
+  .ms-download-label { flex: 1; }
+  .ms-arrow {
+    flex-shrink: 0;
+    opacity: 0.35;
+    transition: opacity 0.2s, transform 0.2s;
   }
-  .ms-download:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+  .ms-download-row:hover:not(:disabled) .ms-arrow {
+    opacity: 0.6;
+    transform: translateX(2px);
   }
   /* 面板淡入淡出 + 缩放弹出 */
   .fade-enter-active { transition: opacity 0.2s; }
