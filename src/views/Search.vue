@@ -9,6 +9,13 @@
     </div>
 
     <div class="platform-filters">
+      <span class="platform-filter hutao-search"
+        :class="{ active: useThirdParty }"
+        @click="toggleThirdParty">
+        <img src="/icons/hutaoico.png" alt="胡桃" class="pf-icon pf-icon-hutao" />
+        胡桃
+      </span>
+      <span class="filter-divider">|</span>
       <span class="filter-label">平台：</span>
       <span v-for="p in allPlatforms" :key="p"
         class="platform-filter"
@@ -17,13 +24,6 @@
         @click="selectPlatform(p)">
         <img :src="`/icons/platforms/${platformIcons[p]}`" :alt="p" class="pf-icon" :class="{ 'is-color': colorPlatforms.has(p) }" />
         {{ platformDisplayName[p] || p }}
-      </span>
-      <span class="filter-divider">|</span>
-      <span class="platform-filter hutao-search"
-        :class="{ active: useThirdParty }"
-        @click="toggleThirdParty">
-        <img src="/icons/hutaoico.png" alt="胡桃" class="pf-icon pf-icon-hutao" />
-        胡桃
       </span>
     </div>
 
