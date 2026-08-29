@@ -9,13 +9,6 @@
     </div>
 
     <div class="platform-filters">
-      <span class="platform-filter hutao-search"
-        :class="{ active: useThirdParty }"
-        @click="toggleThirdParty">
-        <img src="/icons/hutaoico.png" alt="胡桃" class="pf-icon pf-icon-hutao" />
-        胡桃
-      </span>
-      <span class="filter-divider">|</span>
       <span class="filter-label">平台：</span>
       <span v-for="p in allPlatforms" :key="p"
         class="platform-filter"
@@ -24,6 +17,13 @@
         @click="selectPlatform(p)">
         <img :src="`/icons/platforms/${platformIcons[p]}`" :alt="p" class="pf-icon" :class="{ 'is-color': colorPlatforms.has(p) }" />
         {{ platformDisplayName[p] || p }}
+      </span>
+      <span class="filter-divider">|</span>
+      <span class="platform-filter hutao-search"
+        :class="{ active: useThirdParty }"
+        @click="toggleThirdParty">
+        <img src="/icons/hutaoico.png" alt="胡桃" class="pf-icon pf-icon-hutao" />
+        胡桃
       </span>
     </div>
 
@@ -679,20 +679,13 @@ onMounted(() => {
     font-size: 12px;
   }
 
-  /* 平台筛选：横向滚动胶囊——单行排列不换行，向右滑动查看更多平台；
-     隐藏"平台："前缀标签和分隔符，节省横向空间 */
+  /* 平台筛选：自动换行显示全部平台，隐藏"平台："前缀标签节省空间 */
   .platform-filters {
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 14px;
-    padding-bottom: 4px;
-    scrollbar-width: none;               /* Firefox 隐藏滚动条 */
-    -webkit-overflow-scrolling: touch;   /* iOS 顺滑滚动 */
   }
-  .platform-filters::-webkit-scrollbar { display: none; }
-  .platform-filters .filter-label,
-  .platform-filters .filter-divider { display: none; }
+  .platform-filters .filter-label { display: none; }
 
   /* 胶囊触控目标：视觉高40px，配合负边距热区扩展实际命中约46px（≥44px规范） */
   .platform-filter {
