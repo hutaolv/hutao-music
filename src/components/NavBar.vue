@@ -4,6 +4,7 @@
       <router-link to="/" class="logo">
         <span class="logo-icon">&#x266B;</span>
         <span class="logo-text">胡桃音悦</span>
+        <img src="/icons/hutaoico.png" alt="胡桃" class="logo-hutao">
       </router-link>
       <div class="nav-links">
         <router-link v-for="item in navItems" :key="item.path" :to="item.path" class="nav-link" active-class="active">
@@ -75,6 +76,12 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
   -webkit-text-fill-color: transparent;
 }
 
+.logo-hutao {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
 .nav-links {
   display: flex;
   gap: 4px;
@@ -116,11 +123,15 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
 
 /* ===== Mobile ===== */
 @media (max-width: 767px) {
+  .navbar {
+    height: 74px;
+  }
+
   .nav-inner {
     flex-wrap: wrap;
     align-content: center;
-    gap: 4px 12px;
-    padding: 0 12px;
+    gap: 8px 12px;
+    padding: 23px 12px;
   }
 
   .logo-text {
@@ -129,6 +140,12 @@ const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor
 
   .logo-icon {
     font-size: 22px;
+  }
+
+  .logo-hutao {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
   }
 
   .nav-link {

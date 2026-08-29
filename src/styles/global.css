@@ -21,7 +21,7 @@
   --radius: 16px;
   --radius-sm: 10px;
   --radius-pill: 999px;
-  --nav-height: 64px;
+  --nav-height: 74px;
   --player-height: 80px;
 
   /* Glassmorphism tokens */
@@ -293,7 +293,7 @@ img {
   /* 手机端导航压成单行紧凑 Tab（logo+链接同一行，高56px），
      为首屏内容让出约48px高度；播放条底部安全区同步收紧 */
   :root {
-    --nav-height: 56px;
+    --nav-height: 64px;
     --player-height: 120px;
     --radius: 12px;
     --radius-sm: 8px;
