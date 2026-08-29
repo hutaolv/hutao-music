@@ -82,56 +82,62 @@
             <span class="ms-title">播放器设置</span>
             <button class="ms-close" @click="mobileSettingsOpen = false" title="关闭">&#x2715;</button>
           </div>
+          <!-- 播放器样式：分段控制器 -->
           <div class="ms-group">
-            <div class="ms-label">播放器样式</div>
-            <div class="ms-options">
-              <button class="ms-option" :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
-              <button class="ms-option" :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
-              <button class="ms-option" :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
+            <div class="ms-row">
+              <span class="ms-label">播放器样式</span>
+              <div class="ms-segment">
+                <button class="ms-seg-btn" :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
+                <button class="ms-seg-btn" :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
+                <button class="ms-seg-btn" :class="{ active: playerStyle === 'plain' }" @click="setStyle('plain')">经典</button>
+              </div>
             </div>
           </div>
+          <!-- 封面频谱：iOS 风格开关 -->
           <div class="ms-group">
-            <div class="ms-label">封面频谱</div>
-            <div class="ms-options">
-              <button class="ms-option" :class="{ active: showSpectrum }" @click="toggleSpectrum">
-                {{ showSpectrum ? '开' : '关' }}
+            <div class="ms-row">
+              <span class="ms-label">封面频谱</span>
+              <button class="ms-toggle" :class="{ active: showSpectrum }" @click="toggleSpectrum">
+                <span class="ms-toggle-thumb"></span>
               </button>
             </div>
           </div>
+          <!-- 频谱颜色：紧凑带图标胶囊（仅频谱开启时显示） -->
           <div v-if="showSpectrum" class="ms-group">
-            <div class="ms-label">频谱颜色</div>
-            <div class="ms-options">
-              <button class="ms-option" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')">
-                <span class="ms-color-dot rainbow"></span>彩虹
-              </button>
-              <button class="ms-option" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')">
-                <span class="ms-color-dot amber"></span>琥珀
-              </button>
+            <div class="ms-row">
+              <span class="ms-label">频谱颜色</span>
+              <div class="ms-pills">
+                <button class="ms-pill" :class="{ active: spectrumColor === 'rainbow' }" @click="setSpectrumColor('rainbow')">
+                  <span class="ms-dot rainbow"></span>彩虹
+                </button>
+                <button class="ms-pill" :class="{ active: spectrumColor === 'amber' }" @click="setSpectrumColor('amber')">
+                  <span class="ms-dot amber"></span>琥珀
+                </button>
+              </div>
             </div>
           </div>
+          <!-- 音质选择：紧凑胶囊组 -->
           <div class="ms-group">
-            <div class="ms-label">音质选择</div>
-            <div class="ms-options">
-              <button v-for="o in menuOptions" :key="o.value"
-                class="ms-option" :class="{ active: o.value === quality }"
-                @click="setQuality(o.value)">
-                {{ o.label }}
-              </button>
+            <div class="ms-row">
+              <span class="ms-label">音质选择</span>
+              <div class="ms-pills">
+                <button v-for="o in menuOptions" :key="o.value"
+                  class="ms-pill" :class="{ active: o.value === quality }"
+                  @click="setQuality(o.value)">
+                  {{ o.label }}
+                </button>
+              </div>
             </div>
           </div>
-          <div class="ms-group">
-            <div class="ms-label">下载歌曲</div>
-            <div class="ms-options">
-              <button class="ms-option download-option" :disabled="!downloadUrl" @click="downloadSong">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                {{ downloadUrl ? '点击下载' : '加载中...' }}
-              </button>
-            </div>
-          </div>
+          <!-- 下载歌曲：底部居中半透明长条按钮 -->
+          <button class="ms-download" :disabled="!downloadUrl" @click="downloadSong">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            {{ downloadUrl ? '点击下载' : '加载中...' }}
+          </button>
         </div>
       </div>
     </transition>
@@ -878,17 +884,24 @@ watch(ringSpecRef, (el) => {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    /* 需高于播放条(z-index:200)与歌词页(z-index:100)，避免底部内容被遮挡 */
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     z-index: 300;
   }
+  /* 手机端设置面板：毛玻璃质感 + 多层内阴影 */
   .mobile-settings-panel {
-    width: min(320px, calc(100vw - 32px));
+    width: min(340px, calc(100vw - 32px));
     padding: 16px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
+    background: rgba(18, 18, 30, 0.82);
+    backdrop-filter: blur(20px) saturate(1.3);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 16px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.03),
+      0 16px 48px rgba(0, 0, 0, 0.6);
     max-height: 80vh;
     overflow-y: auto;
   }
@@ -896,11 +909,11 @@ watch(ringSpecRef, (el) => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
   }
   .ms-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
   .ms-close {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-muted);
     width: 28px;
     height: 28px;
@@ -910,42 +923,143 @@ watch(ringSpecRef, (el) => {
     justify-content: center;
   }
   .ms-close:hover { color: var(--text-primary); background: var(--bg-hover); }
-  .ms-group { margin-bottom: 14px; }
-  .ms-label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
-  .ms-options { display: flex; gap: 8px; flex-wrap: wrap; }
-  .ms-option {
+  /* 设置项行：标签左对齐 + 控件右对齐，紧凑间距 */
+  .ms-group { margin-bottom: 10px; }
+  .ms-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .ms-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+  }
+  /* 分段控制器：播放器样式 */
+  .ms-segment {
+    display: flex;
+    gap: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 2px;
+  }
+  .ms-seg-btn {
+    font-size: 12px;
+    padding: 5px 14px;
+    border-radius: 8px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    line-height: 1.3;
+  }
+  .ms-seg-btn.active {
+    color: var(--text-primary);
+    background: rgba(99, 102, 241, 0.25);
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.15);
+  }
+  /* iOS 风格开关：封面频谱 */
+  .ms-toggle {
+    width: 44px;
+    height: 26px;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    flex-shrink: 0;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .ms-toggle-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  .ms-toggle.active {
+    background: var(--accent);
+    border-color: var(--accent-light);
+  }
+  .ms-toggle.active .ms-toggle-thumb {
+    transform: translateX(18px);
+    background: #fff;
+  }
+  /* 紧凑胶囊组：频谱颜色 + 音质选择 */
+  .ms-pills {
+    display: flex;
     gap: 6px;
+    flex-wrap: wrap;
+  }
+  .ms-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: all 0.2s;
+    line-height: 1.3;
+  }
+  .ms-pill.active {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  .ms-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.25);
+    flex-shrink: 0;
+  }
+  .ms-dot.rainbow { background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6); }
+  .ms-dot.amber { background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706); }
+  /* 下载按钮：底部居中半透明长条 */
+  .ms-download {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px 0;
     font-size: 13px;
-    padding: 8px 16px;
-    border-radius: 999px;
-    background: var(--bg-hover);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
-    border: 1px solid var(--border-color);
     transition: all 0.2s;
   }
-  .ms-option.active { color: var(--text-primary); background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
-  .ms-color-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.3);
+  .ms-download:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
   }
-  .ms-color-dot.rainbow { background: linear-gradient(135deg, #22d3ee, #818cf8, #f472b6); }
-  .ms-color-dot.amber { background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706); }
-  .download-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .download-option:disabled {
-    opacity: 0.5;
+  .ms-download:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
   }
-  /* 面板淡入淡出 */
-  .fade-enter-active, .fade-leave-active { transition: opacity 0.25s; }
+  /* 面板淡入淡出 + 缩放弹出 */
+  .fade-enter-active { transition: opacity 0.2s; }
+  .fade-leave-active { transition: opacity 0.15s; }
   .fade-enter-from, .fade-leave-to { opacity: 0; }
+  .fade-enter-active .mobile-settings-panel { animation: ms-pop-in 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+  .fade-leave-active .mobile-settings-panel { animation: ms-pop-out 0.15s ease-in; }
+  @keyframes ms-pop-in {
+    from { opacity: 0; transform: scale(0.95) translateY(8px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes ms-pop-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(0.97); }
+  }
 }
 
 /* 翻页动画：退出 + 进入，模拟真实翻页感 */
