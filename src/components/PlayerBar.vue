@@ -112,12 +112,13 @@
         <button class="ctrl-btn desktop-lyrics-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
         </button>
-        <button v-if="downloadUrl" class="ctrl-btn download-btn desktop-only" @click="downloadSong" title="下载歌曲">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <button v-if="downloadUrl" class="ctrl-btn download-btn desktop-only" :disabled="isDownloading" @click="downloadSong" title="下载歌曲">
+          <svg v-if="!isDownloading" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
+          <span v-else class="dl-spinner-desktop"></span>
         </button>
         <div class="volume-wrap" ref="volumeWrapRef">
           <button class="ctrl-btn" @click.stop="toggleVolumePopup" @mouseenter="showVolumePopup = true">&#x1F50A;</button>
@@ -272,6 +273,8 @@ const qualityOptions = [
 const showQualityMenu = ref(false)
 const qualityWrap = ref(null)
 const downloadUrl = ref('')
+// 下载中状态：防重复点击 + 显示 loading
+const isDownloading = ref(false)
 
 const qualityLabel = computed(() => {
   const o = qualityOptions.find(o => o.value === quality.value)
@@ -296,13 +299,18 @@ async function setQuality(q) {
   store.touchQualitySwitch()
 }
 
-// 下载歌曲
+// 下载歌曲：加锁防重复点击，完成后解锁
 async function downloadSong() {
-  if (!store.currentSong) return
+  if (!store.currentSong || isDownloading.value) return
   const url = downloadUrl.value
   if (!url) return
+  isDownloading.value = true
   const filename = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
-  saveSong(url, filename)
+  try {
+    await saveSong(url, filename)
+  } finally {
+    setTimeout(() => { isDownloading.value = false }, 1500)
+  }
 }
 
 // 音量弹出面板
@@ -406,12 +414,18 @@ async function safePlay() {
   try {
     await audio.play()
     store.isPlaying = true
+    pendingUserPlay = false
     return true
   } catch {
     store.isPlaying = false
+    pendingUserPlay = false
     return false
   }
 }
+
+// 用户主动播放意图标记：playAll/playNext 等设置 isPlaying=true，
+// watcher 中发现此标记时不设 isPlaying=false，异步获取 URL 后自动播放
+let pendingUserPlay = false
 
 // 播放按钮点击：解析期间忽略重复点击，避免对旧音频源误操作
 function onPlayClick() {
@@ -419,11 +433,23 @@ function onPlayClick() {
   store.togglePlay()
 }
 
-// 拿不到真实音频时：提示"无法获取"，2 秒后自动跳下一首
+// 拿不到真实音频时：先重试一次，仍失败再跳下一首
+let audioRetryCount = 0
 function showPlayFailed() {
   if (playFailedTimer) clearTimeout(playFailedTimer)
+  // 首次失败：重试当前歌曲（可能网络抖动）
+  if (audioRetryCount < 1 && audio && audio.src) {
+    audioRetryCount++
+    resolving.value = true
+    playFailedTimer = setTimeout(() => {
+      resolving.value = false
+      audio.load()
+      safePlay()
+    }, 1000)
+    return
+  }
+  audioRetryCount = 0
   store.isPlaying = false
-  // 解析失败同样要解除播放按钮的加载态
   resolving.value = false
   playFailedToast.value = true
   playFailedTimer = setTimeout(() => {
@@ -586,15 +612,18 @@ watch(() => store.currentSong, async (song) => {
   store.rawTransLyrics = ''
   store.currentLyricIndex = -1
   // 切歌时立即暂停旧歌曲，避免新URL加载期间旧歌继续播放
+  // 若用户主动触发播放（playAll/playNext等），保留 isPlaying=true 不重置
+  audioRetryCount = 0
   if (audio && !audio.paused) {
     audio.pause()
-    store.isPlaying = false
+    if (!pendingUserPlay) store.isPlaying = false
   }
   if (song) {
     // VIP 歌曲拦截：显示提示，5秒后自动跳下一首
     if (song.vip) {
       vipBlockedToast.value = true
       store.isPlaying = false
+      pendingUserPlay = false
       if (vipBlockedTimer) clearTimeout(vipBlockedTimer)
       vipBlockedTimer = setTimeout(() => {
         vipBlockedToast.value = false
@@ -673,6 +702,7 @@ watch(() => store.currentSong, async (song) => {
 watch(() => store.isPlaying, (playing) => {
   if (!audio) return
   if (playing) {
+    pendingUserPlay = true
     // 用户手势触发播放时同步恢复 AudioContext（iOS 自动挂起），频谱才有数据
     resumeAudio()
     setSpectrumActive(true)
@@ -680,6 +710,7 @@ watch(() => store.isPlaying, (playing) => {
       safePlay()
     }
   } else {
+    pendingUserPlay = false
     setSpectrumActive(false)
     audio.pause()
   }
@@ -972,6 +1003,19 @@ onUnmounted(() => {
 .ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; background: transparent; }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .ctrl-btn.active { color: var(--accent-light); background: transparent; }
+.ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 桌面端下载按钮 spinner */
+.dl-spinner-desktop {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: var(--accent-light);
+  border-radius: 50%;
+  animation: dl-spin-pb 0.7s linear infinite;
+}
+@keyframes dl-spin-pb { to { transform: rotate(360deg); } }
 
 /* 颜色选择按钮 */
 .color-btn { padding: 0; }

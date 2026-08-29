@@ -67,15 +67,6 @@
           <span class="color-dot amber"></span>
         </button>
       </template>
-      <span class="switch-sep"></span>
-      <button class="dl-btn" :disabled="!downloadUrl || isDownloading" @click="downloadSong" title="下载歌曲">
-        <svg v-if="!isDownloading" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-        <span v-else class="dl-spinner"></span>
-      </button>
     </div>
     <!-- 手机端播放器设置按钮（齿轮）：点击弹出设置面板调整样式/频谱/颜色，仅手机端显示 -->
     <button class="mobile-settings-btn" @click="mobileSettingsOpen = true" title="播放器设置">

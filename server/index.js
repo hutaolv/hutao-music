@@ -234,7 +234,11 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     // 与图片代理一样补全协议相对地址，避免解析失败
     let target = decodeURIComponent(url)
     if (target.startsWith('//')) target = 'https:' + target
-    const response = await fetch(target, { headers: fetchHeaders })
+    // 音频流加超时，避免上游无响应时连接挂死导致客户端卡顿
+    const response = await fetch(target, {
+      headers: fetchHeaders,
+      signal: AbortSignal.timeout(15000)
+    })
     if (!response.ok && response.status !== 206) return res.status(502).json({ code: 502, message: 'proxy failed' })
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Cache-Control', 'public, max-age=3600')
@@ -248,7 +252,7 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     }
     Readable.fromWeb(response.body).pipe(res)
   } catch (e) {
-    res.status(500).json({ code: 500, message: e.message })
+    if (!res.headersSent) res.status(500).json({ code: 500, message: e.message })
   }
 })
 
