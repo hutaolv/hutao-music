@@ -44,7 +44,7 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
-    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 + 颜色选择（桌面/平板横排展示） -->
+    <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 + 颜色选择 + 下载（桌面/平板横排展示） -->
     <div class="style-switch">
       <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
       <button :class="{ active: playerStyle === 'vinyl' }" @click="setStyle('vinyl')">复古</button>
@@ -67,6 +67,15 @@
           <span class="color-dot amber"></span>
         </button>
       </template>
+      <span class="switch-sep"></span>
+      <button class="dl-btn" :disabled="!downloadUrl || isDownloading" @click="downloadSong" title="下载歌曲">
+        <svg v-if="!isDownloading" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <span v-else class="dl-spinner"></span>
+      </button>
     </div>
     <!-- 手机端播放器设置按钮（齿轮）：点击弹出设置面板调整样式/频谱/颜色，仅手机端显示 -->
     <button class="mobile-settings-btn" @click="mobileSettingsOpen = true" title="播放器设置">
@@ -131,13 +140,14 @@
           </div>
           <!-- 下载歌曲：列表项样式 + 右侧箭头 -->
           <div class="ms-divider"></div>
-          <button class="ms-download-row" :disabled="!downloadUrl" @click="downloadSong">
-            <svg class="ms-download-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <button class="ms-download-row" :disabled="!downloadUrl || isDownloading" @click="downloadSong">
+            <span v-if="isDownloading" class="dl-spinner"></span>
+            <svg v-else class="ms-download-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <span class="ms-download-label">{{ downloadUrl ? '点击下载' : '加载中...' }}</span>
+            <span class="ms-download-label">{{ isDownloading ? '下载中...' : (downloadUrl ? '点击下载' : '加载中...') }}</span>
             <svg class="ms-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="9 18 15 12 9 6"/>
             </svg>
@@ -197,6 +207,8 @@ const menuOptions = computed(() => {
 
 // 下载地址
 const downloadUrl = ref('')
+// 下载中状态：防重复点击 + 显示 loading 反馈
+const isDownloading = ref(false)
 
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {
@@ -224,13 +236,19 @@ async function setQuality(q) {
   store.touchQualitySwitch()
 }
 
-// 下载歌曲
+// 下载歌曲：加锁防重复点击，完成后解锁
 async function downloadSong() {
-  if (!store.currentSong) return
+  if (!store.currentSong || isDownloading.value) return
   const url = downloadUrl.value
   if (!url) return
+  isDownloading.value = true
   const filename = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
-  saveSong(url, filename)
+  try {
+    await saveSong(url, filename)
+  } finally {
+    // 无论成功失败，1.5 秒后解锁（给用户看到完成状态）
+    setTimeout(() => { isDownloading.value = false }, 1500)
+  }
 }
 
 // 监听歌曲变化，探测可用音质并更新下载地址
@@ -824,6 +842,33 @@ watch(ringSpecRef, (el) => {
   border-color: #fff;
   box-shadow: 0 0 6px rgba(255,255,255,0.4);
 }
+
+/* 桌面下载按钮：与 style-switch 内其他按钮同风格 */
+.dl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  height: 28px;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+.dl-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
+.dl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* 通用 spinner 旋转动画：桌面 + 手机端共用 */
+.dl-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: var(--accent-light);
+  border-radius: 50%;
+  animation: dl-spin 0.7s linear infinite;
+}
+@keyframes dl-spin { to { transform: rotate(360deg); } }
 .lyrics-scroll::-webkit-scrollbar { width: 4px; }
 .lyrics-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
 
