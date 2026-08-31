@@ -185,7 +185,7 @@
       <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，2秒后自动跳过</div>
     </transition>
     <transition name="fade">
-      <div v-if="vipBlockedToast" class="vip-toast blocked-toast">VIP资源无法播放，请尝试胡桃搜索~~~</div>
+      <div v-if="vipBlockedToast" class="vip-toast blocked-toast" @click="goHutaoSearch">VIP资源无法播放，点击封面尝试胡桃搜索~~~</div>
     </transition>
   </div>
 </template>
@@ -344,10 +344,24 @@ const parsedLyrics = computed(() => {
 
 // 点击封面：先关闭播放列表，再打开歌词界面
 function onCoverClick() {
+  // VIP 封锁时点击封面直接跳转胡桃搜页面搜索当前歌曲
+  if (vipBlockedToast.value) {
+    goHutaoSearch()
+    return
+  }
   if (store.showPlaylist) {
     store.closePlaylist()
   }
   goLyrics()
+}
+
+// 跳转胡桃搜页面，携带当前歌曲名作为关键词
+function goHutaoSearch() {
+  const song = store.currentSong
+  if (!song) return
+  vipBlockedToast.value = false
+  if (vipBlockedTimer) { clearTimeout(vipBlockedTimer); vipBlockedTimer = null }
+  router.push({ path: '/search', query: { q: song.title, thirdparty: '1' } })
 }
 
 // 点击播放条区域：如果点击的不是播放列表内部或播放列表按钮，关闭播放列表
@@ -1265,8 +1279,8 @@ onUnmounted(() => {
 
 /* 拿不到真实音频时的提示样式 */
 .failed-toast { background: rgba(249, 115, 22, 0.92); }
-/* VIP 歌曲拦截提示 */
-.blocked-toast { background: rgba(139, 92, 246, 0.92); }
+/* VIP 歌曲拦截提示：可点击跳转胡桃搜 */
+.blocked-toast { background: rgba(139, 92, 246, 0.92); pointer-events: auto; cursor: pointer; }
 
 /* 频谱覆盖层：置于播放条上方 */
 .spectrum-overlay {

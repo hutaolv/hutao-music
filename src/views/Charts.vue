@@ -70,7 +70,7 @@
         <span class="col-rank">
           <span class="rank-badge" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
         </span>
-        <span class="col-cover">
+        <span class="col-cover" :class="{ 'hutao-link': song.vip }" @click.stop="song.vip && goSearch(song.title)">
           <img :src="song.cover" :alt="song.title" class="row-cover" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
         </span>
           <span class="col-title">
@@ -574,6 +574,7 @@ async function toggleFav(song) {
 
 .col-rank { width: 36px; text-align: center; flex-shrink: 0; }
 .col-cover { width: 44px; flex-shrink: 0; }
+.col-cover.hutao-link { cursor: pointer; }
 .col-title { flex: 1; min-width: 0; }
 .col-artist { width: 140px; color: var(--text-secondary); flex-shrink: 0; }
 .col-duration { width: 60px; color: var(--text-muted); text-align: right; flex-shrink: 0; }

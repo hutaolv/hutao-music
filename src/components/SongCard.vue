@@ -3,7 +3,7 @@
     <div class="rank" v-if="rank !== undefined">
       <span class="rank-num" :class="rankClass">{{ rank }}</span>
     </div>
-    <div class="cover-wrap">
+    <div class="cover-wrap" :class="{ 'hutao-link': song.vip }" @click.stop="song.vip ? $emit('hutao-search', song) : null">
       <img :src="song.cover" :alt="song.title" class="cover" loading="lazy" decoding="async" @error="hideImg" />
     </div>
     <div class="info">
@@ -41,7 +41,7 @@ const props = defineProps({
   showPlay: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['play', 'add', 'fav-changed'])
+const emit = defineEmits(['play', 'add', 'fav-changed', 'hutao-search'])
 
 const isFav = ref(false)
 const platformColor = platformColors[props.song.platform] || '#6366f1'
@@ -136,6 +136,11 @@ async function toggleFav() {
 
 .cover-wrap {
   flex-shrink: 0;
+}
+
+/* VIP 歌曲封面：手型光标，提示可点击跳转胡桃搜 */
+.cover-wrap.hutao-link {
+  cursor: pointer;
 }
 
 .cover {

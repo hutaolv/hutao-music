@@ -69,7 +69,7 @@
         </div>
         <HutaoLoading v-if="loading" text="胡桃正在全力搜索中" />
         <div v-if="filteredSongs.length" class="result-list">
-          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" :show-play="true" @play="store.playSong" @add="store.addToPlaylist" />
+          <SongCard v-for="song in filteredSongs" :key="song.id" :song="song" :show-actions="true" :show-play="true" @play="store.playSong" @add="store.addToPlaylist" @hutao-search="onHutaoSearch" />
         </div>
         <p v-if="!loading && !filteredSongs.length" class="no-result">未找到相关歌曲</p>
         <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
@@ -214,6 +214,14 @@ function selectScope(scope) {
 }
 
 // 播放全部并触发按钮弹跳动画
+// VIP 歌曲封面点击：跳转胡桃搜页面搜索该歌曲
+function onHutaoSearch(song) {
+  if (!song) return
+  keyword.value = song.title
+  useThirdParty.value = true
+  doSearch()
+}
+
 function playAllFx() {
   const songs = filteredSongs.value
   if (!songs.length) return
