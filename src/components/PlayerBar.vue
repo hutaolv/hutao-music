@@ -1,10 +1,10 @@
 <template>
   <div v-show="store.currentSong" class="player-bar" @click="onPlayerBarClick">
     <div class="progress-area" ref="progressRef" :class="{ dragging: isDragging }" @click="seekProgress" @mousedown.prevent="startDrag" @touchstart.prevent="startDragTouch">
-      <span class="time">{{ formatTime(store.currentTime) }}</span>
+      <span class="time">{{ formatTime(isDragging ? dragTime : store.currentTime) }}</span>
       <div class="progress-bar">
         <div class="progress-track">
-          <div class="progress-fill" :style="{ width: displayPercent + '%' }"></div>
+          <div class="progress-fill" :class="{ 'no-transition': isDragging }" :style="{ width: displayPercent + '%' }"></div>
           <div class="progress-thumb" :style="{ left: displayPercent + '%' }"></div>
         </div>
       </div>
@@ -401,6 +401,8 @@ const progressPercent = computed(() => {
 
 // 进度条显示值：拖动时用 dragPercent，否则用 progressPercent
 const displayPercent = computed(() => isDragging.value ? dragPercent.value : progressPercent.value)
+// 拖动期间的播放时间（由 dragPercent 计算，不触发 store 重渲染）
+const dragTime = computed(() => (dragPercent.value / 100) * durationSec.value)
 
 const playModeText = computed(() => {
   switch (store.playMode) {
@@ -819,20 +821,21 @@ function onDragMoveTouch(e) {
   updateDrag(e.touches[0])
 }
 
-// 更新拖动位置：将鼠标/触摸位置转换为播放进度（仅更新拖动百分比，不立即跳转音频）
+// 更新拖动位置：将鼠标/触摸位置转换为播放进度（仅更新拖动百分比，不触发 store 响应式）
 function updateDrag(e) {
   if (!progressRef.value || !durationSec.value) return
   const rect = progressRef.value.getBoundingClientRect()
   const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   dragPercent.value = pct * 100
-  store.currentTime = pct * durationSec.value
 }
 
-// 停止拖动：移除全局事件监听，并跳转音频到拖动位置
+// 停止拖动：同步 store.currentTime 到拖动位置，跳转音频，移除全局事件监听
 function stopDrag() {
   isDragging.value = false
+  const t = (dragPercent.value / 100) * durationSec.value
+  store.currentTime = t
   if (audio && audio.src) {
-    audio.currentTime = store.currentTime
+    audio.currentTime = t
   }
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', stopDrag)
@@ -840,8 +843,10 @@ function stopDrag() {
 
 function stopDragTouch() {
   isDragging.value = false
+  const t = (dragPercent.value / 100) * durationSec.value
+  store.currentTime = t
   if (audio && audio.src) {
-    audio.currentTime = store.currentTime
+    audio.currentTime = t
   }
   document.removeEventListener('touchmove', onDragMoveTouch)
   document.removeEventListener('touchend', stopDragTouch)
@@ -980,6 +985,8 @@ onUnmounted(() => {
 .progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; }
 .progress-track { width: 100%; height: 3px; background: var(--border-color); border-radius: 2px; position: relative; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-light)); border-radius: 2px; transition: width 0.1s linear; }
+/* 拖动时禁用过渡动画，让进度条线与圆球同步 */
+.progress-fill.no-transition { transition: none; }
 .progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: var(--accent-light); border-radius: 50%; transform: translate(-50%, -50%); opacity: 0; transition: opacity 0.2s; pointer-events: none; cursor: grab; box-shadow: 0 0 8px rgba(129, 140, 248, 0.4); }
 .progress-bar:hover .progress-thumb { opacity: 1; }
 .progress-bar:active .progress-thumb { cursor: grabbing; }
