@@ -250,8 +250,23 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     if (req.headers.range) {
       res.status(206)
     }
-    Readable.fromWeb(response.body).pipe(res)
+    // 响应流可能为 null（上游超时 abort）或在 pipe 期间被中断，需挂 error handler 防止 Node crash
+    if (!response.body) {
+      if (!res.headersSent) res.status(502).json({ code: 502, message: 'upstream closed' })
+      return
+    }
+    const reader = Readable.fromWeb(response.body)
+    reader.on('error', (err) => {
+      // abort/超时导致的 TimeoutError 不需要额外处理，连接已断开
+      if (!res.destroyed) res.destroy()
+    })
+    reader.pipe(res)
   } catch (e) {
+    // AbortError/TimeoutError 是超时主动断开，非服务器错误，静默关闭连接即可
+    if (e.name === 'AbortError' || e.name === 'TimeoutError' || e.name === 'DOMException') {
+      if (!res.destroyed) res.destroy()
+      return
+    }
     if (!res.headersSent) res.status(500).json({ code: 500, message: e.message })
   }
 })

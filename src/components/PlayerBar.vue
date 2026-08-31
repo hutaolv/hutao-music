@@ -433,19 +433,38 @@ function onPlayClick() {
   store.togglePlay()
 }
 
-// 拿不到真实音频时：先重试一次，仍失败再跳下一首
+// 拿不到真实音频时：先重新解析一次，仍失败再跳下一首
 let audioRetryCount = 0
 function showPlayFailed() {
   if (playFailedTimer) clearTimeout(playFailedTimer)
-  // 首次失败：重试当前歌曲（可能网络抖动）
-  if (audioRetryCount < 1 && audio && audio.src) {
+  const song = store.currentSong
+  // 首次失败：重新调用 getSongUrl 解析（修复胡桃搜歌曲从收藏播放间歇性失败）
+  // 旧逻辑只 audio.load() 重试，但 getSongUrl 返回 null 时 audio.src 从未设置，重试无效
+  if (audioRetryCount < 1 && song) {
     audioRetryCount++
     resolving.value = true
-    playFailedTimer = setTimeout(() => {
-      resolving.value = false
-      audio.load()
-      safePlay()
-    }, 1000)
+    playFailedTimer = setTimeout(async () => {
+      // 切歌守卫：重试期间用户已切歌则放弃本轮
+      if (store.currentSong?.id !== song.id) { resolving.value = false; return }
+      const retryUrl = await getSongUrl(song, quality.value)
+      if (store.currentSong?.id !== song.id) { resolving.value = false; return }
+      if (retryUrl) {
+        audio.src = retryUrl
+        downloadUrl.value = retryUrl
+        await safePlay()
+        resolving.value = false
+        prefetchNextUrl()
+      } else {
+        // 重试仍失败，跳下一首
+        resolving.value = false
+        audioRetryCount = 0
+        playFailedToast.value = true
+        playFailedTimer = setTimeout(() => {
+          playFailedToast.value = false
+          if (store.currentSong) store.playNext()
+        }, 2000)
+      }
+    }, 1500)
     return
   }
   audioRetryCount = 0
