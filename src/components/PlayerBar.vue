@@ -55,14 +55,14 @@
               <line x1="4" y1="4" x2="9" y2="9"/>
             </svg>
           </button>
-          <button class="ctrl-btn" @click="store.playPrev">&#x23EE;</button>
+          <button class="ctrl-btn" @click="store.playPrev"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
           <button class="ctrl-btn play-btn" @click="onPlayClick">
             <!-- 解析中显示旋转圈，让用户知道正在加载而不是卡死 -->
             <span v-if="resolving && !store.isPlaying" class="loading-spinner"></span>
-            <span v-else-if="store.isPlaying">&#x23F8;</span>
-            <span v-else>&#x25B6;</span>
+            <svg v-else-if="store.isPlaying" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            <svg v-else viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           </button>
-          <button class="ctrl-btn" @click="store.playNext">&#x23ED;</button>
+          <button class="ctrl-btn" @click="store.playNext"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
           <button class="ctrl-btn spectrum-btn" :class="{ active: showSpectrum }" @click="toggleSpectrum" title="频谱开关">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
               <rect x="4" y="14" width="3" height="6" rx="1"/>
@@ -1339,7 +1339,7 @@ onUnmounted(() => {
     flex-wrap: wrap;
     align-content: center;
     gap: 2px 0;
-    padding: 0 12px;
+    padding: 22px 12px 0;
   }
 
   /* 第一行：歌曲信息占满整行 */
@@ -1369,23 +1369,23 @@ onUnmounted(() => {
   }
 
   .ctrl-btn {
-    width: 42px;
-    height: 42px;
-    font-size: 21px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
   }
 
   .play-btn {
-    width: 51px;
-    height: 51px;
-    font-size: 24px;
+    width: 41px;
+    height: 41px;
+    font-size: 19px;
     background: transparent;
   }
   .play-btn:active { background: transparent; }
 
   /* 手机端加载圈随按钮尺寸同步缩小 */
   .play-btn .loading-spinner {
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
   }
 
   .style-btn {
@@ -1408,7 +1408,7 @@ onUnmounted(() => {
   }
 
   .fav-btn {
-    font-size: 27px;
+    font-size: 22px;
     margin-left: 8px;
   }
 
