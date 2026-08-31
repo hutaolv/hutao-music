@@ -20,7 +20,7 @@
     <template v-if="showActions">
       <button class="action-btn add-btn reveal-btn" @click.stop="$emit('add', song)" title="添加到播放列表">&#x2795;</button>
     </template>
-    <button class="fav-btn" :class="favClass" @click.stop="toggleFav"><span class="fav-heart">&#x2665;</span></button>
+    <button class="fav-btn" :class="favClass" @click.stop="toggleFav"><span class="fav-heart"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span></button>
   </div>
 </template>
 
@@ -277,6 +277,9 @@ async function toggleFav() {
   opacity: 1;
   transform: translateX(0);
 }
+.fav-heart { display: inline-flex; align-items: center; justify-content: center; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.fav-btn:active .fav-heart { transform: scale(0.8); }
+.fav-btn.favorited .fav-heart { transform: scale(1.15); }
 
 /* Touch: always show buttons */
 @media (hover: none) {

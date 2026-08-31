@@ -24,7 +24,7 @@
             <div class="title">{{ store.currentSong.title }}</div>
             <div class="artist" :title="store.currentSong.artist">{{ store.currentSong.artist }}</div>
           </div>
-          <button class="fav-btn desktop-only" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
+          <button class="fav-btn desktop-only" :class="favClass" @click="toggleFav"><span class="fav-heart"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span></button>
         </div>
         <div v-else class="song-info empty">
           <div class="text">
@@ -91,11 +91,11 @@
             </button>
           </template>
           <button class="ctrl-btn playlist-toggle-btn" @click="store.togglePlaylist" :class="{ active: store.showPlaylist }">&#x2630;</button>
+          <button class="fav-btn mobile-only" :class="favClass" @click="toggleFav"><span class="fav-heart"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span></button>
         </div>
       </div>
 
       <div class="player-right">
-        <button class="fav-btn mobile-only" :class="favClass" @click="toggleFav"><span class="fav-heart">&#x2665;</span></button>
         <div class="quality-wrap desktop-only" ref="qualityWrap">
           <button class="ctrl-btn quality-btn" :class="{ boosted: quality !== 'standard' }" @click.stop="toggleQualityMenu" title="音质">{{ qualityLabel }} <span class="quality-caret">&#x25BE;</span></button>
           <transition name="fade">
@@ -1036,6 +1036,9 @@ onUnmounted(() => {
 .fav-btn { font-size: 18px; color: var(--text-muted); transition: color 0.2s, transform 0.2s; margin-left: auto; }
 .fav-btn:hover { color: var(--text-secondary); }
 .fav-btn.favorited { color: #ef4444; }
+.fav-heart { display: inline-flex; align-items: center; justify-content: center; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.fav-btn:active .fav-heart { transform: scale(0.8); }
+.fav-btn.favorited .fav-heart { transform: scale(1.15); }
 
 .player-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .controls { display: flex; align-items: center; gap: 16px; }
@@ -1360,28 +1363,29 @@ onUnmounted(() => {
   }
 
   .controls {
-    gap: 8px;
+    gap: 10px;
     flex-wrap: nowrap;
     justify-content: center;
   }
 
   .ctrl-btn {
-    width: 28px;
-    height: 28px;
-    font-size: 14px;
+    width: 42px;
+    height: 42px;
+    font-size: 21px;
   }
 
   .play-btn {
-    width: 34px;
-    height: 34px;
+    width: 51px;
+    height: 51px;
+    font-size: 24px;
     background: transparent;
   }
   .play-btn:active { background: transparent; }
 
   /* 手机端加载圈随按钮尺寸同步缩小 */
   .play-btn .loading-spinner {
-    width: 15px;
-    height: 15px;
+    width: 22px;
+    height: 22px;
   }
 
   .style-btn {
@@ -1404,9 +1408,8 @@ onUnmounted(() => {
   }
 
   .fav-btn {
-    font-size: 20px;
-    margin-left: 10px;
-    margin-right: 4px;
+    font-size: 27px;
+    margin-left: 8px;
   }
 
   .mobile-only {
