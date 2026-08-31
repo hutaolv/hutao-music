@@ -53,7 +53,6 @@ const winSize = ref(localStorage.getItem('musichub_dl_size') || 'medium')
 
 let isDragging = false
 let startX = 0, startY = 0
-let offsetX = 0, offsetY = 0
 
 const colors = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#ffffff']
 
@@ -113,9 +112,6 @@ function onMouseDown(e) {
   containerRef.value.style.cursor = 'grabbing'
   startX = e.clientX
   startY = e.clientY
-  const rect = containerRef.value.getBoundingClientRect()
-  offsetX = rect.left
-  offsetY = rect.top
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
 }
@@ -128,16 +124,14 @@ function onTouchStart(e) {
   isDragging = true
   startX = touch.clientX
   startY = touch.clientY
-  const rect = containerRef.value.getBoundingClientRect()
-  offsetX = rect.left
-  offsetY = rect.top
   document.addEventListener('touchmove', onTouchMove, { passive: false })
   document.addEventListener('touchend', onTouchEnd)
 }
 
 function onMouseMove(e) {
   if (!isDragging) return
-  winPos.value = { top: offsetY + e.clientY - startY, left: offsetX + e.clientX - startX }
+  // 直接操作 DOM transform，不走 Vue 响应式，避免每帧 reflow
+  containerRef.value.style.transform = `translate(${e.clientX - startX}px, ${e.clientY - startY}px)`
 }
 
 // touchmove 必须 preventDefault 阻止页面滚动，否则拖拽和滚动会冲突
@@ -145,26 +139,36 @@ function onTouchMove(e) {
   if (!isDragging) return
   e.preventDefault()
   const touch = e.touches[0]
-  winPos.value = { top: offsetY + touch.clientY - startY, left: offsetX + touch.clientX - startX }
+  // 直接操作 DOM transform，不走 Vue 响应式，避免每帧 reflow
+  containerRef.value.style.transform = `translate(${touch.clientX - startX}px, ${touch.clientY - startY}px)`
 }
 
 function onMouseUp() {
   isDragging = false
   if (containerRef.value) {
     containerRef.value.style.cursor = 'grab'
+    // 从 transform 偏移量反算最终位置，同步到 Vue 状态
     const rect = containerRef.value.getBoundingClientRect()
-    setDesktopLyricsPos({ top: rect.top, left: rect.left })
+    const finalTop = rect.top
+    const finalLeft = rect.left
+    containerRef.value.style.transform = ''
+    winPos.value = { top: finalTop, left: finalLeft }
+    setDesktopLyricsPos({ top: finalTop, left: finalLeft })
   }
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
 }
 
-// 触屏松手：保存最终位置，移除监听
+// 触屏松手：保存最终位置，清除 transform，移除监听
 function onTouchEnd() {
   isDragging = false
   if (containerRef.value) {
     const rect = containerRef.value.getBoundingClientRect()
-    setDesktopLyricsPos({ top: rect.top, left: rect.left })
+    const finalTop = rect.top
+    const finalLeft = rect.left
+    containerRef.value.style.transform = ''
+    winPos.value = { top: finalTop, left: finalLeft }
+    setDesktopLyricsPos({ top: finalTop, left: finalLeft })
   }
   document.removeEventListener('touchmove', onTouchMove)
   document.removeEventListener('touchend', onTouchEnd)
@@ -189,6 +193,7 @@ onUnmounted(() => {
   user-select: none;
   pointer-events: auto;
   cursor: grab;
+  will-change: transform;
 }
 .desktop-header {
   display: flex;
