@@ -101,7 +101,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
-import { fetchCharts, fetchChartsMore } from '../services/api'
+import { fetchCharts, fetchChartsMore, thirdPartySearch } from '../services/api'
 import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
 import HutaoLoading from '../components/HutaoLoading.vue'
 
@@ -148,11 +148,24 @@ const loading = ref(false)
 const playingAll = ref(false)
 
 // 播放全部并触发按钮弹跳动画
-function playAllFx(songs) {
+// VIP 分区时通过胡桃搜逐首搜索可播放源，再批量播放
+async function playAllFx(songs) {
   if (!songs?.length) return
   playingAll.value = true
-  store.playAll(songs)
-  setTimeout(() => { playingAll.value = false }, 350)
+  try {
+    if (vipFilter.value === 'vip') {
+      // VIP 歌曲逐首通过第三方搜索获取可播放源
+      const results = await Promise.allSettled(
+        songs.map(s => thirdPartySearch(s.title, activePlatform.value).then(d => d?.songs?.[0] || null))
+      )
+      const playable = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
+      if (playable.length) store.playAll(playable)
+    } else {
+      store.playAll(songs)
+    }
+  } finally {
+    setTimeout(() => { playingAll.value = false }, 350)
+  }
 }
 
 // 点击胡桃跳转搜索页，携带歌曲名和平台参数
