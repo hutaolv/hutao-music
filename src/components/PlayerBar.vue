@@ -1044,8 +1044,9 @@ onUnmounted(() => {
 .player-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .controls { display: flex; align-items: center; gap: 16px; }
 
-.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; background: transparent; }
+.ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; background: transparent; -webkit-tap-highlight-color: transparent; }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.ctrl-btn:active { transform: scale(0.85); transition: transform 0.08s; }
 .ctrl-btn.active { color: var(--accent-light); background: transparent; }
 .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
