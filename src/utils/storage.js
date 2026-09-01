@@ -78,8 +78,17 @@ function getAllRecords(storeName) {
 
 // 批量写入记录，并把 store 内不在新列表中的旧记录删除
 function putRecords(storeName, records) {
-  return withStore(storeName, 'readwrite', (store) => {
-    for (const r of records) store.put(r)
+  return withStore(storeName, 'readwrite', (store, finish) => {
+    const req = store.getAllKeys()
+    req.onsuccess = () => {
+      const newKeys = new Set(records.map(r => r.id))
+      for (const key of req.result) {
+        if (!newKeys.has(key)) store.delete(key)
+      }
+      for (const r of records) store.put(r)
+      finish()
+    }
+    req.onerror = () => finish()
   })
 }
 
