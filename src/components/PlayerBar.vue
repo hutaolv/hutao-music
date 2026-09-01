@@ -741,7 +741,8 @@ watch(() => store.isPlaying, (playing) => {
     // 用户手势触发播放时同步恢复 AudioContext（iOS 自动挂起），频谱才有数据
     resumeAudio()
     setSpectrumActive(true)
-    if (audio.src) {
+    // 切歌期间 URL 正在解析，不调 safePlay()（会用旧 audio.src 导致失败并重置 isPlaying）
+    if (audio.src && !resolving.value) {
       safePlay()
     }
   } else {

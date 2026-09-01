@@ -61,9 +61,9 @@ export const usePlayerStore = defineStore('player', () => {
     } else {
       currentIndex.value = (currentIndex.value + 1) % playlist.value.length
     }
+    isPlaying.value = true
     currentSong.value = playlist.value[currentIndex.value]
     recordRecent(currentSong.value)
-    isPlaying.value = true
   }
 
   function playPrev() {
@@ -73,9 +73,9 @@ export const usePlayerStore = defineStore('player', () => {
     } else {
       currentIndex.value = (currentIndex.value - 1 + playlist.value.length) % playlist.value.length
     }
+    isPlaying.value = true
     currentSong.value = playlist.value[currentIndex.value]
     recordRecent(currentSong.value)
-    isPlaying.value = true
   }
 
   function addToPlaylist(song) {
