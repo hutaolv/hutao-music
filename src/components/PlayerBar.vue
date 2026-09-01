@@ -199,6 +199,8 @@ import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
 import { downloadSong as saveSong } from '../utils/download'
+import { MediaSession } from '@capgo/capacitor-media-session'
+import { Capacitor } from '@capacitor/core'
 import Playlist from './Playlist.vue'
 import AudioVisualizer from './AudioVisualizer.vue'
 
@@ -522,6 +524,19 @@ function initAudio() {
   setGraphVolume(store.volume)
   setSpectrumActive(store.isPlaying)
   audio.addEventListener('timeupdate', updateLyrics)
+  // 定时同步播放进度到原生 MediaSession（锁屏进度条），节流到每秒一次减少 bridge 调用
+  let lastPosSync = 0
+  audio.addEventListener('timeupdate', () => {
+    if (!Capacitor.isNativePlatform() || !audio) return
+    const now = Date.now()
+    if (now - lastPosSync < 1000) return
+    lastPosSync = now
+    MediaSession.setPositionState({
+      duration: audio.duration || 0,
+      position: audio.currentTime || 0,
+      playbackRate: audio.playbackRate || 1
+    }).catch(() => {})
+  })
   audio.addEventListener('ended', onEnded)
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
@@ -631,25 +646,71 @@ async function prefetchNextUrl() {
 }
 
 // 媒体会话：锁屏/通知栏显示歌曲信息与播放控制，也是 iOS Safari 后台持续播放的必要条件
+// 使用 @capgo/capacitor-media-session 插件提供原生 MediaSession 支持
 function setupMediaSession() {
-  if (!('mediaSession' in navigator)) return
-  const update = () => {
+  // 更新元数据与播放状态
+  const update = async () => {
     if (!store.currentSong) return
     const cover = store.currentSong.cover
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: store.currentSong.title || '未知歌曲',
-      artist: store.currentSong.artist || '未知歌手',
-      album: store.currentSong.album || '胡桃音悦',
-      artwork: cover ? [{ src: toAbsolute(cover), sizes: '512x512', type: 'image/jpeg' }] : []
-    })
-    navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused'
+    const artwork = cover ? [{ src: toAbsolute(cover), sizes: '512x512', type: 'image/jpeg' }] : []
+    const state = store.isPlaying ? 'playing' : 'paused'
+    if (Capacitor.isNativePlatform()) {
+      // Android/iOS：通过 Capacitor 插件设置原生媒体会话
+      try {
+        await MediaSession.setMetadata({
+          title: store.currentSong.title || '未知歌曲',
+          artist: store.currentSong.artist || '未知歌手',
+          album: store.currentSong.album || '胡桃音悦',
+          artwork
+        })
+        await MediaSession.setPlaybackState({ playbackState: state })
+        // 同步播放进度到原生（锁屏进度条显示）
+        if (audio) {
+          await MediaSession.setPositionState({
+            duration: audio.duration || 0,
+            position: audio.currentTime || 0,
+            playbackRate: audio.playbackRate || 1
+          })
+        }
+      } catch { /* 插件调用失败时静默 */ }
+    } else if ('mediaSession' in navigator) {
+      // Web：使用浏览器原生 Media Session API
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: store.currentSong.title || '未知歌曲',
+          artist: store.currentSong.artist || '未知歌手',
+          album: store.currentSong.album || '胡桃音悦',
+          artwork
+        })
+        navigator.mediaSession.playbackState = state
+      } catch { /* 忽略 */ }
+    }
   }
-  try {
-    navigator.mediaSession.setActionHandler('play', () => store.togglePlay())
-    navigator.mediaSession.setActionHandler('pause', () => store.togglePlay())
-    navigator.mediaSession.setActionHandler('nexttrack', () => store.playNext())
-    navigator.mediaSession.setActionHandler('previoustrack', () => store.playPrev())
-  } catch { /* 个别平台不支持个别 action，忽略 */ }
+  // 注册媒体控制回调（上一首/播放暂停/下一首）
+  const registerHandlers = async () => {
+    const handler = (action) => () => {
+      if (action === 'play') store.togglePlay()
+      else if (action === 'pause') store.togglePlay()
+      else if (action === 'nexttrack') store.playNext()
+      else if (action === 'previoustrack') store.playPrev()
+    }
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await MediaSession.setActionHandler({ action: 'play' }, handler('play'))
+        await MediaSession.setActionHandler({ action: 'pause' }, handler('pause'))
+        await MediaSession.setActionHandler({ action: 'nexttrack' }, handler('nexttrack'))
+        await MediaSession.setActionHandler({ action: 'previoustrack' }, handler('previoustrack'))
+      } catch { /* 个别平台不支持个别 action，忽略 */ }
+    } else if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler('play', handler('play'))
+        navigator.mediaSession.setActionHandler('pause', handler('pause'))
+        navigator.mediaSession.setActionHandler('nexttrack', handler('nexttrack'))
+        navigator.mediaSession.setActionHandler('previoustrack', handler('previoustrack'))
+      } catch { /* 个别平台不支持个别 action，忽略 */ }
+    }
+  }
+  registerHandlers()
   watch(() => [store.currentSong, store.isPlaying], update)
 }
 
