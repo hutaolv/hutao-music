@@ -267,11 +267,22 @@ watch(() => store.qualityVersion, async () => {
 })
 
 // 封面加载失败或换歌后重置失败标记
+// 加防抖：短暂网络波动不立即放弃，延迟2秒确认真失败才隐藏
+let coverErrorTimer = null
 function onImgError() {
-  coverBroken.value = true
+  clearTimeout(coverErrorTimer)
+  coverErrorTimer = setTimeout(() => { coverBroken.value = true }, 2000)
 }
 
+// 换歌时立即重置（清除定时器 + 重置标记），确保新歌有加载封面的机会
 watch(() => store.currentSong?.id, () => {
+  clearTimeout(coverErrorTimer)
+  coverBroken.value = false
+})
+
+// 同一封面URL重新应用时（如重播）也重置，给图片重试的机会
+watch(() => store.currentSong?.cover, () => {
+  clearTimeout(coverErrorTimer)
   coverBroken.value = false
 })
 
