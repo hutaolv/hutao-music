@@ -8,10 +8,13 @@ function recordRecent(song) {
 }
 
 export const usePlayerStore = defineStore('player', () => {
-  const currentSong = ref(getCurrentSong())
+  const currentSong = ref(null)
   const playlist = ref(getPlaylist())
   const currentIndex = ref(-1)
   const isPlaying = ref(false)
+  // 用户主动播放意图标记：playAll/playNext 等设置为 true，
+  // currentSong watcher 中发现此标记时保留 isPlaying=true，异步获取 URL 后自动播放
+  const pendingUserPlay = ref(false)
   const volume = ref(getVolume())
   const currentTime = ref(0)
   const duration = ref(0)
@@ -45,7 +48,7 @@ export const usePlayerStore = defineStore('player', () => {
     }
     savePlaylist(playlist.value)
     recordRecent(song)
-    isPlaying.value = true
+    pendingUserPlay.value = true
   }
 
   function togglePlay() {
@@ -61,7 +64,7 @@ export const usePlayerStore = defineStore('player', () => {
     } else {
       currentIndex.value = (currentIndex.value + 1) % playlist.value.length
     }
-    isPlaying.value = true
+    pendingUserPlay.value = true
     currentSong.value = playlist.value[currentIndex.value]
     recordRecent(currentSong.value)
   }
@@ -73,7 +76,7 @@ export const usePlayerStore = defineStore('player', () => {
     } else {
       currentIndex.value = (currentIndex.value - 1 + playlist.value.length) % playlist.value.length
     }
-    isPlaying.value = true
+    pendingUserPlay.value = true
     currentSong.value = playlist.value[currentIndex.value]
     recordRecent(currentSong.value)
   }
@@ -138,7 +141,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentSong.value = songs[0]
     savePlaylist(playlist.value)
     recordRecent(currentSong.value)
-    isPlaying.value = true
+    pendingUserPlay.value = true
   }
 
   // 通知收藏列表变更（首页据此刷新"我的喜欢"）
@@ -180,7 +183,7 @@ export const usePlayerStore = defineStore('player', () => {
   })
 
   return {
-    currentSong, playlist, currentIndex, isPlaying, volume, currentTime, duration,
+    currentSong, playlist, currentIndex, isPlaying, pendingUserPlay, volume, currentTime, duration,
     playMode,     showPlaylist, playModes, nextMode,
     rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion, qualityVersion, lyricColor,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,

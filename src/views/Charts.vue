@@ -148,18 +148,27 @@ const loading = ref(false)
 const playingAll = ref(false)
 
 // 播放全部并触发按钮弹跳动画
-// VIP 分区时通过胡桃搜逐首搜索可播放源，再批量播放
+// VIP 分区时通过胡桃搜逐首搜索可播放源，边搜边播放，不等全部搜完
 async function playAllFx(songs) {
   if (!songs?.length) return
   playingAll.value = true
   try {
     if (vipFilter.value === 'vip') {
-      // VIP 歌曲逐首通过第三方搜索获取可播放源
-      const results = await Promise.allSettled(
-        songs.map(s => thirdPartySearch(s.title, activePlatform.value).then(d => d?.songs?.[0] || null))
-      )
-      const playable = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
-      if (playable.length) store.playAll(playable)
+      // 逐首搜索，找到一首立即加入播放列表并播放，用户无需等待全部搜完
+      const playable = []
+      for (const s of songs) {
+        try {
+          const data = await thirdPartySearch(s.title, activePlatform.value)
+          const match = data?.songs?.[0]
+          if (match) {
+            playable.push(match)
+            // 第一首找到后立即开始播放，后续搜索结果追加到播放列表
+            if (playable.length === 1) store.playAll(playable)
+            else store.addToPlaylist(match)
+          }
+        } catch { /* 单首搜索失败不影响其他 */ }
+      }
+      // 如果全部搜完一首都没找到，不做任何操作
     } else {
       store.playAll(songs)
     }

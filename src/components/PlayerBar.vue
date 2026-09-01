@@ -35,7 +35,7 @@
       </div>
 
       <div class="player-center">
-        <div class="controls">
+        <div class="controls" @touchstart.passive="onControlsTouch">
           <button class="ctrl-btn" @click="store.togglePlayMode" :title="playModeText">
             <!-- 顺序播放：列表+播放箭头 -->
             <svg v-if="store.playMode === 'sequence'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -430,23 +430,40 @@ async function safePlay() {
   try {
     await audio.play()
     store.isPlaying = true
-    pendingUserPlay = false
+    store.pendingUserPlay = false
     return true
   } catch {
     store.isPlaying = false
-    pendingUserPlay = false
+    store.pendingUserPlay = false
     return false
   }
 }
 
-// 用户主动播放意图标记：playAll/playNext 等设置 isPlaying=true，
-// watcher 中发现此标记时不设 isPlaying=false，异步获取 URL 后自动播放
-let pendingUserPlay = false
+// 用户主动播放意图标记已移至 store.pendingUserPlay，
+// playAll/playNext 等直接设置，currentSong watcher 据此决定是否自动播放
 
 // 播放按钮点击：解析期间忽略重复点击，避免对旧音频源误操作
 function onPlayClick() {
   if (resolving.value) return
   store.togglePlay()
+}
+
+// 手机端触摸按钮后强制清除 :active 卡住状态
+// 原理：touchstart 时加 .btn-touch 类用 !important 覆盖 :active 的 transform，
+// touchend/touchcancel 后延迟清除类，期间 DOM 更新丢失 touchend 也不影响
+function onControlsTouch(e) {
+  const btn = e.target.closest('.ctrl-btn')
+  if (!btn) return
+  btn.classList.add('btn-touch')
+  const clear = () => {
+    btn.classList.remove('btn-touch')
+    btn.removeEventListener('touchend', clear)
+    btn.removeEventListener('touchcancel', clear)
+  }
+  btn.addEventListener('touchend', clear, { once: true })
+  btn.addEventListener('touchcancel', clear, { once: true })
+  // 兜底：touchend 丢失时 200ms 后强制清除
+  setTimeout(clear, 200)
 }
 
 // 拿不到真实音频时：先重新解析一次，仍失败再跳下一首
@@ -651,14 +668,14 @@ watch(() => store.currentSong, async (song) => {
   audioRetryCount = 0
   if (audio && !audio.paused) {
     audio.pause()
-    if (!pendingUserPlay) store.isPlaying = false
+    if (!store.pendingUserPlay) store.isPlaying = false
   }
   if (song) {
     // VIP 歌曲拦截：显示提示，5秒后自动跳下一首
     if (song.vip) {
       vipBlockedToast.value = true
       store.isPlaying = false
-      pendingUserPlay = false
+      store.pendingUserPlay = false
       if (vipBlockedTimer) clearTimeout(vipBlockedTimer)
       vipBlockedTimer = setTimeout(() => {
         vipBlockedToast.value = false
@@ -737,7 +754,7 @@ watch(() => store.currentSong, async (song) => {
 watch(() => store.isPlaying, (playing) => {
   if (!audio) return
   if (playing) {
-    pendingUserPlay = true
+    // pendingUserPlay 由 store 的 playNext/playPrev/playAll/playSong 设置，此处不再修改
     // 用户手势触发播放时同步恢复 AudioContext（iOS 自动挂起），频谱才有数据
     resumeAudio()
     setSpectrumActive(true)
@@ -746,7 +763,6 @@ watch(() => store.isPlaying, (playing) => {
       safePlay()
     }
   } else {
-    pendingUserPlay = false
     setSpectrumActive(false)
     audio.pause()
   }
@@ -1047,6 +1063,7 @@ onUnmounted(() => {
 .ctrl-btn { font-size: 18px; color: var(--text-secondary); transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; background: transparent; -webkit-tap-highlight-color: transparent; }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .ctrl-btn:active { transform: scale(0.85); transition: transform 0.08s; }
+.ctrl-btn.btn-touch { transform: scale(1) !important; transition: none !important; }
 .ctrl-btn.active { color: var(--accent-light); background: transparent; }
 .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
