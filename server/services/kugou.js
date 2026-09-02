@@ -125,7 +125,11 @@ async function fetchRankBatch(rank, offset) {
       console.error(`KuGou rank ${rank.name} page ${p} error:`, e.message)
     }
   }
-  if (!songs.length) return null
+  // mobile API 在海外 IP 不返回 songs，fallback 到 PC 网页版抓取
+  if (!songs.length) {
+    console.log(`KuGou rank ${rank.name}: mobile API empty, falling back to PC page`)
+    return null
+  }
   songs = songs.slice(offset % RANK_RAW_PAGE, offset % RANK_RAW_PAGE + RANK_PAGE_SIZE)
   if (!songs.length) return null
   return {
@@ -160,17 +164,26 @@ export async function getToplist(page = 1, sublistIndex) {
 
   try {
     if (rank.type === 'pc') {
+      // PC 榜单直接抓网页版
       const songs = await fetchRankPage(rank.id)
       if (songs) {
         result[idx].songs = songs
         result[idx].cover = songs[0]?.cover || ''
       }
     } else {
+      // 先尝试 mobile API，海外 IP 返回空时 fallback 到 PC 网页版
       const data = await fetchRankBatch(rank, offset)
       if (data) {
         result[idx].songs = data.songs
         result[idx].cover = data.cover || ''
         result[idx].hasMore = data.hasMore
+      } else {
+        console.log(`KuGou rank ${rank.name}: trying PC fallback`)
+        const songs = await fetchRankPage(rank.id)
+        if (songs) {
+          result[idx].songs = songs
+          result[idx].cover = songs[0]?.cover || ''
+        }
       }
     }
   } catch (e) {
