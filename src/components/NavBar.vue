@@ -20,6 +20,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { Capacitor } from '@capacitor/core'
 
 const navItems = [
   { path: '/', name: '首页' },
@@ -28,7 +29,9 @@ const navItems = [
 ]
 
 // APK 内不显示下载按钮（用户已在用 APK）
-const isApp = computed(() => typeof window !== 'undefined' && !!window.Capacitor)
+// 使用 isNativePlatform() 精确判断：@capacitor/core 在 web 构建中也会设置 window.Capacitor，
+// 导致 !!window.Capacitor 在网页版也为 true，误隐藏下载按钮
+const isApp = computed(() => Capacitor.isNativePlatform())
 </script>
 
 <style scoped>

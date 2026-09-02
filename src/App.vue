@@ -87,6 +87,7 @@ import { ref, onMounted } from 'vue'
 import NavBar from './components/NavBar.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import DesktopLyrics from './components/DesktopLyrics.vue'
+import { Capacitor } from '@capacitor/core'
 import { APP_VERSION } from './version'
 import { fetchLatestVersion } from './services/api'
 
@@ -123,7 +124,7 @@ function downloadUpdate() {
 }
 
 onMounted(() => {
-  if ('Capacitor' in window) checkForUpdate()
+  if (Capacitor.isNativePlatform()) checkForUpdate()
 })
 </script>
 
