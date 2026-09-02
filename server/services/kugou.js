@@ -75,83 +75,22 @@ function sizedImg(url) {
   return url.replace(/\{size\}/i, '240').replace(/^http:/i, 'https:')
 }
 
-// 获取歌曲封面：优先接口返回的真实封面图 Image，其次歌手头像，都没有留空由前端占位
-// （按专辑ID拼 /stdmusic/{id}.jpg 返回的是 0 字节占位图，不再使用）
-function coverOf(s) {
-  if (s.Image) return sizedImg(s.Image)
-  const av = s.authors?.[0]?.sizable_avatar
-  if (av) return sizedImg(av)
-  return ''
-}
 
-// 归一化歌曲对象（榜单接口字段）
-function toSong(s) {
-  const author = (s.authors?.[0]?.author_name || '').replace(/&/g, '/')
-  let title = s.songname || '未知歌曲'
-  // 部分榜单 songname 是"歌名--歌手"格式，去掉歌手后缀（歌名本身很少含 --）
-  if (author && title.endsWith(`--${author}`)) title = title.slice(0, -(author.length + 2))
-  return {
-    id: `kugou_${s.hash}`,
-    platformId: s.hash || '',
-    title,
-    artist: author,
-    artistId: '',
-    album: '',
-    cover: coverOf(s),
-    duration: formatDuration(Number(s.duration) || 0),
-    durationMs: (Number(s.duration) || 0) * 1000,
-    platform: '酷狗音乐',
-    audioUrl: '',
-    vip: Number(s.privilege) === 10
-  }
-}
 
-// 酷狗排行榜接口固定每页 30 条（total 500）。前端按 50 条/批翻页，这里把多个接口页拼接成一致批
-const RANK_PAGE_SIZE = 50
-const RANK_RAW_PAGE = 30
 
-async function fetchRankBatch(rank, offset) {
-  const start = Math.floor(offset / RANK_RAW_PAGE) + 1
-  const end = Math.ceil((offset + RANK_PAGE_SIZE) / RANK_RAW_PAGE)
-  let songs = []
-  let total = 0
-  for (let p = start; p <= end; p++) {
-    try {
-      const { data } = await axios.get(`https://m.kugou.com/rank/info/?rankid=${rank.id}&page=${p}&json=true`, { headers, timeout: 10000 })
-      const list = data?.songs?.list
-      total = Number(data?.songs?.total) || 0
-      if (Array.isArray(list)) songs = songs.concat(list)
-    } catch (e) {
-      console.error(`KuGou rank ${rank.name} page ${p} error:`, e.message)
-    }
-  }
-  // mobile API 在海外 IP 不返回 songs，fallback 到 PC 网页版抓取
-  if (!songs.length) {
-    console.log(`KuGou rank ${rank.name}: mobile API empty, falling back to PC page`)
-    return null
-  }
-  songs = songs.slice(offset % RANK_RAW_PAGE, offset % RANK_RAW_PAGE + RANK_PAGE_SIZE)
-  if (!songs.length) return null
-  return {
-    name: rank.name,
-    cover: songs[0]?.cover || '',
-    songs: songs.map(toSong),
-    // 还剩余未加载的批数（≥50 才算还有更多）
-    hasMore: offset + RANK_PAGE_SIZE < total
-  }
-}
+
+
 
 // 所有酷狗榜单配置（统一列表，用于返回元数据）
+// 全部走 PC 网页版抓取，mobile API 在海外 IP 不返回歌曲数据
 const ALL_KUGOU_RANKS = [
-  ...RANK_IDS.map(r => ({ ...r, type: 'mobile' })),
-  ...PC_RANK_IDS.map(r => ({ ...r, type: 'pc' }))
+  ...RANK_IDS.map(r => ({ ...r })),
+  ...PC_RANK_IDS.map(r => ({ ...r }))
 ]
 
-// 获取酷狗音乐排行榜
+// 获取酷狗音乐排行榜（全部走 PC 网页版）
 // sublistIndex=null 只返回榜单名+封面（元数据），指定索才拉歌曲
 export async function getToplist(page = 1, sublistIndex) {
-  const offset = (page - 1) * RANK_PAGE_SIZE
-
   // 无 sublistIndex：只返回元数据
   if (sublistIndex == null) {
     return ALL_KUGOU_RANKS.map(r => ({ name: r.name, cover: '', songs: [] }))
@@ -163,28 +102,10 @@ export async function getToplist(page = 1, sublistIndex) {
   const result = ALL_KUGOU_RANKS.map(r => ({ name: r.name, cover: '', songs: [] }))
 
   try {
-    if (rank.type === 'pc') {
-      // PC 榜单直接抓网页版
-      const songs = await fetchRankPage(rank.id)
-      if (songs) {
-        result[idx].songs = songs
-        result[idx].cover = songs[0]?.cover || ''
-      }
-    } else {
-      // 先尝试 mobile API，海外 IP 返回空时 fallback 到 PC 网页版
-      const data = await fetchRankBatch(rank, offset)
-      if (data) {
-        result[idx].songs = data.songs
-        result[idx].cover = data.cover || ''
-        result[idx].hasMore = data.hasMore
-      } else {
-        console.log(`KuGou rank ${rank.name}: trying PC fallback`)
-        const songs = await fetchRankPage(rank.id)
-        if (songs) {
-          result[idx].songs = songs
-          result[idx].cover = songs[0]?.cover || ''
-        }
-      }
+    const songs = await fetchRankPage(rank.id)
+    if (songs) {
+      result[idx].songs = songs
+      result[idx].cover = songs[0]?.cover || ''
     }
   } catch (e) {
     console.error(`KuGou rank ${rank.name} error:`, e.message)
