@@ -3,6 +3,7 @@
 
 import axios from 'axios'
 import https from 'https'
+import { log } from '../logger.js'
 
 // 公共请求头
 const headers = {
@@ -26,8 +27,8 @@ async function tryApi(name, fn) {
 }
 
 // 并行尝试多个 API，返回第一个成功的播放地址
-// 参数：apis - API 数组，songId - 歌曲ID，quality - 音质档位
-export async function fetchWithFallback(apis, songId, quality) {
+// 参数：apis - API 数组，songId - 歌曲ID，quality - 音质档位，ip - 客户端IP（日志埋点用）
+export async function fetchWithFallback(apis, songId, quality, ip) {
   if (apis.length === 0) return null
   if (apis.length === 1) return tryApi(apis[0].name, () => apis[0].fetch(songId, quality))
   // 并行发起，第一个成功的立即返回，其余静默丢弃
@@ -38,7 +39,7 @@ export async function fetchWithFallback(apis, songId, quality) {
       tryApi(api.name, () => api.fetch(songId, quality)).then(result => {
         if (!settled && result) {
           settled = true
-          console.log(`[ThirdParty] ${api.name} success for ${songId}`)
+          log(`[${ip || '-'}] [ThirdParty] ${api.name} success for ${songId}`)
           resolve(result)
         }
         if (--remaining === 0 && !settled) resolve(null)

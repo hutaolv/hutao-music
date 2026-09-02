@@ -12,8 +12,16 @@ import { qqThirdPartyApis } from '../services/hutao-qq.js'
 import { kuwoThirdPartyApis } from '../services/hutao-kuwo.js'
 import { kugouThirdPartyApis } from '../services/hutao-kugou.js'
 import { fetchWithFallback } from '../services/thirdPartyApis.js'
+import { log } from '../logger.js'
 
 const router = Router()
+
+// 提取客户端真实IP：优先 X-Forwarded-For，回退 remoteAddress
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for']
+  const raw = xff ? String(xff).split(',')[0].trim() : (req.socket?.remoteAddress || '')
+  return raw.replace(/^::ffff:/, '').replace(/^::1$/, '127.0.0.1')
+}
 
 // 播放地址缓存：同一首歌10分钟内不重复请求
 // （主流平台签名直链实际有效期普遍在20分钟左右，10分钟取中间安全值）
@@ -73,7 +81,7 @@ async function detectQualitiesCached(detector, cacheKey) {
 
 // 第三方API并行探测三个音质档位（带缓存）。机制与原三处内联代码一致：
 // 每档位5秒超时保护，全部失败时兜底返回标准音质
-async function probeQualitiesByApis(apis, songId, cacheKey) {
+async function probeQualitiesByApis(apis, songId, cacheKey, ip) {
   const cached = getCachedQualities(cacheKey)
   if (cached) return cached
   const probes = [
@@ -83,7 +91,7 @@ async function probeQualitiesByApis(apis, songId, cacheKey) {
   ]
   const results = await Promise.allSettled(probes.map(p =>
     Promise.race([
-      fetchWithFallback(apis, songId, p.quality),
+      fetchWithFallback(apis, songId, p.quality, ip),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
     ]).then(r => ({ q: p.q, ok: !!r?.url })).catch(() => ({ q: p.q, ok: false }))
   ))
@@ -98,7 +106,7 @@ async function probeQualitiesByApis(apis, songId, cacheKey) {
 // 反超窗口只在"官方仍在途中"时生效：若官方已明确失败，第三方结果立即采用，
 // 不白等窗口期（QQ 无版权歌的常见场景，官方会秒回 null）。
 // 任一路抛错视为该路失败，不影响另一路
-function raceDualPath(preferredFn, fallbackFn, graceMs = 600) {
+function raceDualPath(preferredFn, fallbackFn, graceMs = 600, ip) {
   const t0 = Date.now()
   const pPreferred = (async () => { try { return await preferredFn() } catch { return null } })()
   const pFallback = (async () => { try { return await fallbackFn() } catch { return null } })()
@@ -112,7 +120,7 @@ function raceDualPath(preferredFn, fallbackFn, graceMs = 600) {
       if (settled || !value?.url) return
       settled = true
       if (timer) clearTimeout(timer)
-      console.log(`[Race] ${tag} 胜出，耗时 ${Date.now() - t0}ms`)
+      log(`[${ip || '-'}] [Race] ${tag} 胜出，耗时 ${Date.now() - t0}ms`)
       resolve(value)
     }
 
@@ -171,12 +179,12 @@ async function searchKuwoId(title, artist) {
 }
 
 // 用酷我ID走第三方API解析播放地址；目标音质拿不到时逐级回退标准。返回 { url } 或 null
-async function resolveKuwoById(kuwoId, q) {
+async function resolveKuwoById(kuwoId, q, ip) {
   try {
-    const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q)
+    const result = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, q, ip)
     let u = result?.url || null
     if (!u && q !== 'standard') {
-      const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard')
+      const fb = await fetchWithFallback(kuwoThirdPartyApis, kuwoId, 'standard', ip)
       u = fb?.url || null
     }
     return u ? { url: u } : null
@@ -184,11 +192,11 @@ async function resolveKuwoById(kuwoId, q) {
 }
 
 // 搜索+解析一步到位：QQ 官方失败时的完整兜底链
-async function resolveViaKuwoSearch(title, artist, q) {
+async function resolveViaKuwoSearch(title, artist, q, ip) {
   const kuwoId = await searchKuwoId(title, artist)
   if (!kuwoId) return null
-  console.log('[KuwoFallback] 命中酷我:', kuwoId)
-  return resolveKuwoById(kuwoId, q)
+  log(`[${ip || '-'}] [KuwoFallback] 命中酷我: ${kuwoId}`)
+  return resolveKuwoById(kuwoId, q, ip)
 }
 
 // 清洗歌词文本里的 HTML 实体（如 &nbsp; &amp; &lt; &#39;），避免原样显示
@@ -207,7 +215,8 @@ function sanitizeLyricsText(text) {
 
 router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source } = req.query
-  console.log('[SongURL]', { platform, id, source, quality, mid, mediaMid, title: req.query.title })
+  const ip = getClientIp(req)
+  log(`[${ip}] [SongURL]`, { platform, id, source, quality, mid, mediaMid, title: req.query.title })
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }
@@ -217,7 +226,7 @@ router.get('/url', async (req, res) => {
   if (detect !== '1') {
     const cached = getCachedUrl(cacheKey)
     if (cached) {
-      console.log('[SongURL] cache hit', cacheKey)
+      log(`[${ip}] [SongURL] cache hit`, cacheKey)
       return res.json({ code: 200, data: { url: cached } })
     }
   }
@@ -254,9 +263,9 @@ router.get('/url', async (req, res) => {
           if (kuwoId) {
             // 探测结果走缓存：同一首歌30分钟内不重复打上游（P1）
             if (detect === '1') {
-              availableQualities = await probeQualitiesByApis(kuwoThirdPartyApis, kuwoId, qualityKey)
+              availableQualities = await probeQualitiesByApis(kuwoThirdPartyApis, kuwoId, qualityKey, ip)
             }
-            const r = await resolveKuwoById(kuwoId, q)
+            const r = await resolveKuwoById(kuwoId, q, ip)
             url = r?.url || null
           }
         }
@@ -264,12 +273,12 @@ router.get('/url', async (req, res) => {
       } else {
         const thirdPartyApis = platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
         if (detect === '1') {
-          availableQualities = await probeQualitiesByApis(thirdPartyApis, id, qualityKey)
+          availableQualities = await probeQualitiesByApis(thirdPartyApis, id, qualityKey, ip)
         }
-        const result = await fetchWithFallback(thirdPartyApis, id, q)
+        const result = await fetchWithFallback(thirdPartyApis, id, q, ip)
         url = result?.url || null
         if (!url && q !== 'standard') {
-          const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard')
+          const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard', ip)
           url = fallback?.url || null
         }
       }
@@ -301,9 +310,9 @@ router.get('/url', async (req, res) => {
             const title = req.query.title || ''
             const artist = req.query.artist || ''
             if (!title) return Promise.resolve(null)
-            return resolveViaKuwoSearch(title, artist, q)
+            return resolveViaKuwoSearch(title, artist, q, ip)
           }
-          const raced = await raceDualPath(officialFn, fallbackFn, 600)
+          const raced = await raceDualPath(officialFn, fallbackFn, 600, ip)
           url = raced?.url || null
           break
         }
@@ -332,10 +341,10 @@ router.get('/url', async (req, res) => {
           break
         case '酷我音乐':
           // 酷我音乐官方播放 API 需要加密，暂时使用第三方 API
-          const kuwoResult = await fetchWithFallback(kuwoThirdPartyApis, id, q)
+          const kuwoResult = await fetchWithFallback(kuwoThirdPartyApis, id, q, ip)
           url = kuwoResult?.url || null
           if (!url && q !== 'standard') {
-            const fallback = await fetchWithFallback(kuwoThirdPartyApis, id, 'standard')
+            const fallback = await fetchWithFallback(kuwoThirdPartyApis, id, 'standard', ip)
             url = fallback?.url || null
           }
           break
@@ -349,11 +358,11 @@ router.get('/url', async (req, res) => {
           }
           const fallbackFn = async () => {
             const results = await Promise.all(
-              [...new Set([q, 'standard'])].map(qq => fetchWithFallback(kugouThirdPartyApis, id, qq))
+              [...new Set([q, 'standard'])].map(qq => fetchWithFallback(kugouThirdPartyApis, id, qq, ip))
             )
             return results.find(r => r?.url) || null
           }
-          const raced = await raceDualPath(officialFn, fallbackFn, 600)
+          const raced = await raceDualPath(officialFn, fallbackFn, 600, ip)
           url = raced?.url || null
           break
         }

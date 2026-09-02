@@ -7,17 +7,26 @@ import * as migu from '../services/migu.js'
 import * as kuwo from '../services/kuwo.js'
 import * as kugou from '../services/kugou.js'
 import { searchWithThirdParty } from '../services/hutao-search.js'
+import { warn } from '../logger.js'
 
 const router = Router()
+
+// 提取客户端真实IP
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for']
+  const raw = xff ? String(xff).split(',')[0].trim() : (req.socket?.remoteAddress || '')
+  return raw.replace(/^::ffff:/, '').replace(/^::1$/, '127.0.0.1')
+}
 
 // 胡桃搜 - 第三方 API 搜索
 router.get('/thirdparty', async (req, res) => {
   const { keyword, platform } = req.query
+  const ip = getClientIp(req)
   if (!keyword) {
     return res.json({ code: 400, message: 'keyword required' })
   }
   try {
-    const songs = await searchWithThirdParty(keyword, platform)
+    const songs = await searchWithThirdParty(keyword, platform, ip)
     res.json({ code: 200, data: { songs } })
   } catch (e) {
     res.status(500).json({ code: 500, message: e.message })
@@ -36,7 +45,7 @@ const serviceMap = {
 }
 
 // 酷我官方搜索接口不稳定：6 秒超时或无结果时，自动兜底第三方搜索（胡桃搜逻辑）
-async function searchKuwoWithFallback(keyword) {
+async function searchKuwoWithFallback(keyword, ip) {
   try {
     const songs = await Promise.race([
       kuwo.searchSongs(keyword),
@@ -46,12 +55,13 @@ async function searchKuwoWithFallback(keyword) {
   } catch {
     // 官方搜索超时/异常，走第三方兜底
   }
-  console.warn(`Kuwo official search timeout/empty for "${keyword}", fallback to third-party`)
-  return searchWithThirdParty(keyword, '酷我音乐')
+  warn(`Kuwo official search timeout/empty for "${keyword}", fallback to third-party`)
+  return searchWithThirdParty(keyword, '酷我音乐', ip)
 }
 
 router.get('/', async (req, res) => {
   const { keyword, type, platform, scope } = req.query
+  const ip = getClientIp(req)
   if (!keyword) {
     return res.json({ code: 400, message: 'keyword required' })
   }
@@ -84,7 +94,7 @@ router.get('/', async (req, res) => {
           results.hasMore = result.hasMore
         } else if (platform === '酷我音乐') {
           // 酷我：官方搜索 6s 超时/无结果时自动兜底第三方搜索
-          results.songs = await searchKuwoWithFallback(keyword)
+          results.songs = await searchKuwoWithFallback(keyword, ip)
         } else if (platform === '酷狗音乐') {
           // 酷狗搜索支持分页（每批50首）
           const pageNum = Number(req.query.page) || 1

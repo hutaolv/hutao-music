@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { log } from '../logger.js'
 
 // 公共请求头
 const headers = {
@@ -100,7 +101,8 @@ export const thirdPartySearchApis = [
 // 参数：keyword - 搜索关键词，platform - 目标平台（QQ音乐/网易云音乐等）
 // 根据选择的平台优先使用对应的搜索 API
 // 返回：包含 title、artist、album、duration、platformId（官方ID，用于歌词）、isThirdParty 标识的歌曲数组
-export async function searchWithThirdParty(keyword, platform) {
+// 参数：keyword - 搜索关键词，platform - 目标平台，ip - 客户端IP（日志埋点用）
+export async function searchWithThirdParty(keyword, platform, ip) {
   // 根据平台调整搜索 API 优先级：选择哪个平台就优先用那个平台的搜索接口
   const apiMap = {
     'QQ音乐': ['qq-official', 'kuwo', 'netease-meting'],
@@ -120,7 +122,7 @@ export async function searchWithThirdParty(keyword, platform) {
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
       ])
       if (result?.length) {
-        console.log(`[ThirdParty] search ${api.name} success for "${keyword}", got ${result.length} results`)
+        log(`[${ip || '-'}] [ThirdParty] search ${api.name} success for "${keyword}", got ${result.length} results`)
         // 同时搜索官方 API 获取官方 ID 与时长，用于歌词获取和时长回填
         const officialIds = await getOfficialIds(keyword, platform, result)
         // 第三方搜索源的平台：kuwo 返回的是目标平台标签，实际资源来自酷我
