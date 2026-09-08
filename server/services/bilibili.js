@@ -41,10 +41,14 @@ async function getBuvid() {
     if (data?.data?.b_3 && data?.data?.b_4) {
       cachedBuvid = { buvid3: data.data.b_3, buvid4: data.data.b_4 }
       buvidTs = Date.now()
+      console.log('[Bili] buvid3 from SPI:', data.data.b_3.slice(0, 8) + '...')
       return cachedBuvid
     }
-  } catch {}
+  } catch (e) {
+    console.error('[Bili] SPI failed:', e.message)
+  }
   // 降级：随机生成
+  console.log('[Bili] buvid3 fallback to random')
   return { buvid3: `${randomHex(32)}infoc`, buvid4: `${randomHex(32)}infoc` }
 }
 
@@ -322,22 +326,24 @@ export async function getSongUrl(auid) {
 export async function getVideoUrl(bvid) {
   if (!bvid) return null
   try {
+    const headers = await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`)
     const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
-      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      headers,
       params: { bvid },
       timeout: 8000
     })
     const cid = view.data?.data?.cid
     if (!cid) return null
+    const plHeaders = await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`)
     const pl = await axios.get('https://api.bilibili.com/x/player/playurl', {
-      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      headers: plHeaders,
       params: { bvid, cid, fnval: 16, fourk: 1 },
       timeout: 8000
     })
     const baseUrl = pl.data?.data?.dash?.audio?.[0]?.baseUrl
     if (baseUrl) return `/api/proxy/audio?url=${encodeURIComponent(baseUrl)}`
   } catch (e) {
-    console.error('Bilibili getVideoUrl error:', e.message)
+    console.error('Bilibili getVideoUrl error:', e.message, e.response?.status || '')
   }
   return null
 }
