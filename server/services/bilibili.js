@@ -26,10 +26,33 @@ function randomHex(len) {
   return s
 }
 
+// 从 B站 SPI 接口获取真实的 buvid3/buvid4（有效期较长，缓存复用）
+let cachedBuvid = null
+let buvidTs = 0
+const BUVID_TTL = 3600_000 // 1小时刷新一次
+
+async function getBuvid() {
+  if (cachedBuvid && Date.now() - buvidTs < BUVID_TTL) return cachedBuvid
+  try {
+    const { data } = await axios.get('https://api.bilibili.com/x/frontend/finger/spi', {
+      headers: { 'User-Agent': USER_AGENTS[0] },
+      timeout: 5000
+    })
+    if (data?.data?.b_3 && data?.data?.b_4) {
+      cachedBuvid = { buvid3: data.data.b_3, buvid4: data.data.b_4 }
+      buvidTs = Date.now()
+      return cachedBuvid
+    }
+  } catch {}
+  // 降级：随机生成
+  return { buvid3: `${randomHex(32)}infoc`, buvid4: `${randomHex(32)}infoc` }
+}
+
 // 每次调用生成一组全新的设备指纹 Cookie（buvid3/buvid4/_uuid 等）+ 随机 UA，
-// 让每个请求都像是来自不同访客，避免 B 站按固定指纹/IP 高频触发 412 风控
-function buildBiliHeaders(referer) {
+// buvid3/buvid4 优先从 B站 SPI 接口获取真实值，避免 412 风控
+async function buildBiliHeaders(referer) {
   const now = Math.floor(Date.now() / 1000)
+  const buvid = await getBuvid()
   return {
     'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
     'Referer': referer,
@@ -37,8 +60,8 @@ function buildBiliHeaders(referer) {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     'Cookie': [
-      `buvid3=${randomHex(32)}infoc`,
-      `buvid4=${randomHex(32)}infoc`,
+      `buvid3=${buvid.buvid3}`,
+      `buvid4=${buvid.buvid4}`,
       `b_nut=${now}`,
       `_uuid=${randomHex(32)}`,
       `b_lsid=${randomHex(8)}`,
@@ -81,7 +104,7 @@ function formatDurationStr(str) {
 async function fetchAudioMenu(sid, name) {
   const url = `https://api.bilibili.com/audio/music-service-c/web/song/of-menu?sid=${sid}&pn=1&ps=50`
   const res = await fetch(url, {
-    headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+    headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
     signal: AbortSignal.timeout(8000)
   })
   const json = await res.json()
@@ -133,7 +156,7 @@ export async function getToplist(order, sublistIndex) {
     } else {
       // B站排行榜（视频排行兜底）
       const { data } = await axios.get('https://api.bilibili.com/x/web-interface/ranking/v2', {
-        headers: buildBiliHeaders('https://www.bilibili.com/'),
+        headers: await buildBiliHeaders('https://www.bilibili.com/'),
         params: { type: 3 },
         timeout: 8000
       })
@@ -197,7 +220,7 @@ export async function searchArtists(keyword, limit = 20) {
       if (!uid) { a.songCount = 0; return }
       try {
         const res = await axios.get('https://api.bilibili.com/audio/music-service/web/song/upper', {
-          headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+          headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
           params: { uid, pn: 1, ps: 50 },
           timeout: 8000
         })
@@ -222,7 +245,7 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
   if (!uid) return { songs: [], hasMore: false }
   try {
     const res = await axios.get('https://api.bilibili.com/audio/music-service/web/song/upper', {
-      headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+      headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
       params: { uid, pn: page, ps: 50 },
       timeout: 8000
     })
@@ -242,7 +265,7 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
     // 并行补充时长信息
     const enriched = await Promise.allSettled(list.map(v =>
       axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
-        headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+        headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
         params: { sid: v.id },
         timeout: 8000
       }).then(r => r.data?.data)
@@ -281,7 +304,7 @@ export async function getSongUrl(auid) {
   if (!auid) return null
   try {
     const res = await axios.get('https://api.bilibili.com/audio/music-service-c/web/url', {
-      headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+      headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
       params: { sid: auid },
       timeout: 8000
     })
@@ -299,14 +322,14 @@ export async function getVideoUrl(bvid) {
   if (!bvid) return null
   try {
     const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
-      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
       params: { bvid },
       timeout: 8000
     })
     const cid = view.data?.data?.cid
     if (!cid) return null
     const pl = await axios.get('https://api.bilibili.com/x/player/playurl', {
-      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
       params: { bvid, cid, fnval: 16, fourk: 1 },
       timeout: 8000
     })
@@ -338,7 +361,7 @@ function getMixinKey(imgKey, subKey) {
 // 从 nav 接口拿 wbi 密钥，对参数做 WBI 签名返回带 wts/w_rid 的参数对象
 async function wbiSign(params) {
   const { data } = await axios.get('https://api.bilibili.com/x/web-interface/nav', {
-    headers: buildBiliHeaders('https://www.bilibili.com/'),
+    headers: await buildBiliHeaders('https://www.bilibili.com/'),
     timeout: 8000
   })
   const img = data?.data?.wbi_img?.img_url || ''
@@ -359,7 +382,7 @@ async function fetchVideoSubtitle(bvid, aid, cid) {
   try {
     const signed = await wbiSign({ aid, cid })
     const res = await axios.get('https://api.bilibili.com/x/player/wbi/v2', {
-      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
       params: signed,
       timeout: 8000
     })
@@ -368,7 +391,7 @@ async function fetchVideoSubtitle(bvid, aid, cid) {
     const sub = subtitles.find(s => s.ai_status === 2) || subtitles[0]
     const url = sub.subtitle_url.startsWith('//') ? 'https:' + sub.subtitle_url : sub.subtitle_url
     const { data: subBody } = await axios.get(url, {
-      headers: buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
       timeout: 8000
     })
     if (!Array.isArray(subBody?.body) || !subBody.body.length) return null
@@ -387,7 +410,7 @@ async function fetchVideoSubtitle(bvid, aid, cid) {
 export async function getLyrics(id, lyricUrl) {
   if (lyricUrl) {
     try {
-      const res = await axios.get(lyricUrl, { headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
+      const res = await axios.get(lyricUrl, { headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
       return { lyrics: res.data || '', transLyrics: '' }
     } catch (e) {
       console.error('Bilibili lyrics fetch error:', e.message)
@@ -396,13 +419,13 @@ export async function getLyrics(id, lyricUrl) {
   if (id) {
     try {
       const res = await axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
-        headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+        headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
         params: { sid: id },
         timeout: 8000
       })
       const lrcUrl = res.data?.data?.lyric
       if (lrcUrl) {
-        const lrc = await axios.get(lrcUrl, { headers: buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
+        const lrc = await axios.get(lrcUrl, { headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
         return { lyrics: lrc.data || '', transLyrics: '' }
       }
     } catch (e) {
@@ -411,7 +434,7 @@ export async function getLyrics(id, lyricUrl) {
     // 搜索到的视频歌曲没有音频馆 sid：优先取视频 CC 字幕，再回退把弹幕转成 LRC 歌词
     try {
       const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
-        headers: buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
+        headers: await buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
         params: { bvid: id },
         timeout: 8000
       })
@@ -422,7 +445,7 @@ export async function getLyrics(id, lyricUrl) {
         if (subtitleLrc) return { lyrics: subtitleLrc, transLyrics: '' }
         // 字幕不可用时回退弹幕
         const dm = await axios.get('https://api.bilibili.com/x/v1/dm/list.so', {
-          headers: buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
+          headers: await buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
           params: { oid: cid },
           timeout: 8000,
           responseType: 'text'
@@ -464,7 +487,7 @@ export async function search(query, scope = 'music', page = 1) {
     const params = { search_type: 'video', keyword: query, order: 'click', duration: 0, page, page_size: BILI_PAGE_SIZE }
     if (scope === 'music') params.tids = 3
     const { data } = await axios.get('https://api.bilibili.com/x/web-interface/search/type', {
-      headers: buildBiliHeaders(`https://www.bilibili.com/search?keyword=${encodeURIComponent(query)}`),
+      headers: await buildBiliHeaders(`https://www.bilibili.com/search?keyword=${encodeURIComponent(query)}`),
       params
     })
     const items = data?.data?.result || []
