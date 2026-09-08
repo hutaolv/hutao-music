@@ -336,12 +336,26 @@ export async function getVideoUrl(bvid) {
     const cid = viewData?.data?.cid
     if (!cid) return null
 
+    // 优先取 dash 音频流（纯音频，节省带宽）
     const plUrl = `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&fnval=16&fourk=1`
     const plRes = await fetch(plUrl, { headers, signal: AbortSignal.timeout(8000) })
-    if (!plRes.ok) return null
-    const plData = await plRes.json()
-    const baseUrl = plData?.data?.dash?.audio?.[0]?.baseUrl
-    if (baseUrl) return `/api/proxy/audio?url=${encodeURIComponent(baseUrl)}`
+    if (plRes.ok) {
+      const plData = await plRes.json()
+      const audioUrl = plData?.data?.dash?.audio?.[0]?.baseUrl
+      if (audioUrl) return `/api/proxy/audio?url=${encodeURIComponent(audioUrl)}`
+      // dash 没有音频流时，取视频直链当音频播放（浪费带宽但能出声）
+      const videoUrl = plData?.data?.dash?.video?.[0]?.baseUrl
+      if (videoUrl) return `/api/proxy/audio?url=${encodeURIComponent(videoUrl)}`
+    }
+
+    // dash 不可用时降级为 flv/mp4 直链
+    const flvUrl = `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&fnval=0`
+    const flvRes = await fetch(flvUrl, { headers, signal: AbortSignal.timeout(8000) })
+    if (flvRes.ok) {
+      const flvData = await flvRes.json()
+      const directUrl = flvData?.data?.durl?.[0]?.url
+      if (directUrl) return `/api/proxy/audio?url=${encodeURIComponent(directUrl)}`
+    }
   } catch (e) {
     console.error('Bilibili getVideoUrl error:', e.message)
   }
