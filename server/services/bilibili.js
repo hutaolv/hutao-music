@@ -41,14 +41,10 @@ async function getBuvid() {
     if (data?.data?.b_3 && data?.data?.b_4) {
       cachedBuvid = { buvid3: data.data.b_3, buvid4: data.data.b_4 }
       buvidTs = Date.now()
-      console.log('[Bili] buvid3 from SPI:', data.data.b_3.slice(0, 8) + '...')
       return cachedBuvid
     }
-  } catch (e) {
-    console.error('[Bili] SPI failed:', e.message)
-  }
+  } catch {}
   // 降级：随机生成
-  console.log('[Bili] buvid3 fallback to random')
   return { buvid3: `${randomHex(32)}infoc`, buvid4: `${randomHex(32)}infoc` }
 }
 
@@ -323,20 +319,27 @@ export async function getSongUrl(auid) {
 
 // 获取 B站视频歌曲的真实音频：搜索到的音乐视频没有音频馆 sid，
 // 按 bvid 拿 cid 后请求 playurl 的 dash 音频流，经代理播放（带 Referer 防盗链）
+// playurl 接口对海外 IP 风控严格，使用精简 headers 避免额外 cookie 指纹触发 412
 export async function getVideoUrl(bvid) {
   if (!bvid) return null
   try {
-    const headers = await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`)
+    const buvid = await getBuvid()
+    // 精简 headers：只保留 UA + Referer + buvid cookie，避免多余指纹触发 412
+    const cookie = `buvid3=${buvid.buvid3}; buvid4=${buvid.buvid4}`
+    const minimalHeaders = {
+      'User-Agent': USER_AGENTS[0],
+      'Referer': `https://www.bilibili.com/video/${bvid}`,
+      'Cookie': cookie
+    }
     const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
-      headers,
+      headers: minimalHeaders,
       params: { bvid },
       timeout: 8000
     })
     const cid = view.data?.data?.cid
     if (!cid) return null
-    const plHeaders = await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`)
     const pl = await axios.get('https://api.bilibili.com/x/player/playurl', {
-      headers: plHeaders,
+      headers: { ...minimalHeaders, 'Referer': `https://www.bilibili.com/video/${bvid}` },
       params: { bvid, cid, fnval: 16, fourk: 1 },
       timeout: 8000
     })
