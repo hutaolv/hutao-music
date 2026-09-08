@@ -319,7 +319,12 @@ router.get('/url', async (req, res) => {
         case 'B站':
           // 音频馆歌曲走 auid；搜索到的音乐视频按 bvid 取真实的视频音频流
           if (req.query.auid) url = await bilibili.getSongUrl(req.query.auid)
+          // 海外服务器 B站视频 API 被 412 封锁，失败时用标题搜酷我作为降级
           if (!url && req.query.bvid) url = await bilibili.getVideoUrl(req.query.bvid)
+          if (!url && req.query.title) {
+            const fb = await resolveViaKuwoSearch(req.query.title, req.query.artist || '', q, ip)
+            url = fb?.url || null
+          }
           break
         case '抖音':
         case '汽水音乐':
