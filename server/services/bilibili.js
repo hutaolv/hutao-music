@@ -319,34 +319,44 @@ export async function getSongUrl(auid) {
 
 // 获取 B站视频歌曲的真实音频：搜索到的音乐视频没有音频馆 sid，
 // 按 bvid 拿 cid 后请求 playurl 的 dash 音频流，经代理播放（带 Referer 防盗链）
-// playurl 接口对海外 IP 风控严格，使用精简 headers 避免额外 cookie 指纹触发 412
+// playurl 接口对海外 IP 风控严格；axios 的默认 headers/TLS 指纹会触发 412，
+// 改用原生 fetch（已验证可正常访问）
 export async function getVideoUrl(bvid) {
   if (!bvid) return null
   try {
     const buvid = await getBuvid()
-    // 精简 headers：只保留 UA + Referer + buvid cookie，避免多余指纹触发 412
     const cookie = `buvid3=${buvid.buvid3}; buvid4=${buvid.buvid4}`
-    const minimalHeaders = {
-      'User-Agent': USER_AGENTS[0],
-      'Referer': `https://www.bilibili.com/video/${bvid}`,
-      'Cookie': cookie
+    const ua = USER_AGENTS[0]
+    const ref = `https://www.bilibili.com/video/${bvid}`
+
+    // 用 fetch 代替 axios，避免 axios 默认 headers/TLS 指纹触发 412
+    const viewUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`
+    const viewRes = await fetch(viewUrl, {
+      headers: { 'User-Agent': ua, 'Referer': ref, 'Cookie': cookie },
+      signal: AbortSignal.timeout(8000)
+    })
+    if (!viewRes.ok) {
+      console.error('Bilibili view error: HTTP', viewRes.status)
+      return null
     }
-    const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
-      headers: minimalHeaders,
-      params: { bvid },
-      timeout: 8000
-    })
-    const cid = view.data?.data?.cid
+    const viewData = await viewRes.json()
+    const cid = viewData?.data?.cid
     if (!cid) return null
-    const pl = await axios.get('https://api.bilibili.com/x/player/playurl', {
-      headers: { ...minimalHeaders, 'Referer': `https://www.bilibili.com/video/${bvid}` },
-      params: { bvid, cid, fnval: 16, fourk: 1 },
-      timeout: 8000
+
+    const plUrl = `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&fnval=16&fourk=1`
+    const plRes = await fetch(plUrl, {
+      headers: { 'User-Agent': ua, 'Referer': ref, 'Cookie': cookie },
+      signal: AbortSignal.timeout(8000)
     })
-    const baseUrl = pl.data?.data?.dash?.audio?.[0]?.baseUrl
+    if (!plRes.ok) {
+      console.error('Bilibili playurl error: HTTP', plRes.status)
+      return null
+    }
+    const plData = await plRes.json()
+    const baseUrl = plData?.data?.dash?.audio?.[0]?.baseUrl
     if (baseUrl) return `/api/proxy/audio?url=${encodeURIComponent(baseUrl)}`
   } catch (e) {
-    console.error('Bilibili getVideoUrl error:', e.message, e.response?.status || '')
+    console.error('Bilibili getVideoUrl error:', e.message)
   }
   return null
 }
