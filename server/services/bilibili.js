@@ -263,9 +263,10 @@ export async function getArtistSongs(artistId, artistName, page = 1) {
       return { songs: [], hasMore: false }
     }
     // 并行补充时长信息
+    const biliHeaders = await buildBiliHeaders('https://www.bilibili.com/audio/am10627')
     const enriched = await Promise.allSettled(list.map(v =>
       axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
-        headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+        headers: biliHeaders,
         params: { sid: v.id },
         timeout: 8000
       }).then(r => r.data?.data)
