@@ -8,6 +8,11 @@ services:
       # 显式设置东八区后，凌晨归档即对应北京时间 0 点。
       # Node.js 自带 ICU 时区数据，alpine 基础镜像无需额外安装 tzdata 包
       - TZ=Asia/Shanghai
+    dns:
+      # 国内 DNS，避免 Google DNS 将 B站 API 解析到海外封锁的 CDN 节点
+      - 223.5.5.5
+      - 223.6.6.6
+      - 114.114.114.114
     ports:
       - "3001:3001"
     restart: unless-stopped
