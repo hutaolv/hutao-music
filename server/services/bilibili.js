@@ -319,41 +319,23 @@ export async function getSongUrl(auid) {
 
 // 获取 B站视频歌曲的真实音频：搜索到的音乐视频没有音频馆 sid，
 // 按 bvid 拿 cid 后请求 playurl 的 dash 音频流，经代理播放（带 Referer 防盗链）
-// playurl 接口对海外 IP 风控严格；axios 的默认 headers/TLS 指纹会触发 412，
-// 改用原生 fetch（已验证可正常访问）
 export async function getVideoUrl(bvid) {
   if (!bvid) return null
   try {
-    const buvid = await getBuvid()
-    const cookie = `buvid3=${buvid.buvid3}; buvid4=${buvid.buvid4}`
-    const ua = USER_AGENTS[0]
-    const ref = `https://www.bilibili.com/video/${bvid}`
-
-    // 用 fetch 代替 axios，避免 axios 默认 headers/TLS 指纹触发 412
-    const viewUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`
-    const viewRes = await fetch(viewUrl, {
-      headers: { 'User-Agent': ua, 'Referer': ref, 'Cookie': cookie },
-      signal: AbortSignal.timeout(8000)
+    const headers = await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`)
+    const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
+      headers,
+      params: { bvid },
+      timeout: 8000
     })
-    if (!viewRes.ok) {
-      console.error('Bilibili view error: HTTP', viewRes.status)
-      return null
-    }
-    const viewData = await viewRes.json()
-    const cid = viewData?.data?.cid
+    const cid = view.data?.data?.cid
     if (!cid) return null
-
-    const plUrl = `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&fnval=16&fourk=1`
-    const plRes = await fetch(plUrl, {
-      headers: { 'User-Agent': ua, 'Referer': ref, 'Cookie': cookie },
-      signal: AbortSignal.timeout(8000)
+    const pl = await axios.get('https://api.bilibili.com/x/player/playurl', {
+      headers,
+      params: { bvid, cid, fnval: 16, fourk: 1 },
+      timeout: 8000
     })
-    if (!plRes.ok) {
-      console.error('Bilibili playurl error: HTTP', plRes.status)
-      return null
-    }
-    const plData = await plRes.json()
-    const baseUrl = plData?.data?.dash?.audio?.[0]?.baseUrl
+    const baseUrl = pl.data?.data?.dash?.audio?.[0]?.baseUrl
     if (baseUrl) return `/api/proxy/audio?url=${encodeURIComponent(baseUrl)}`
   } catch (e) {
     console.error('Bilibili getVideoUrl error:', e.message)
@@ -398,28 +380,22 @@ async function wbiSign(params) {
 }
 
 // 获取视频 CC 字幕并转成 LRC（优先 AI 已生成字幕），取不到返回 null
-// 获取视频 CC 字幕并转为 LRC 格式；使用 fetch 避免 412
 async function fetchVideoSubtitle(bvid, aid, cid) {
   try {
-    const buvid = await getBuvid()
-    const cookie = `buvid3=${buvid.buvid3}; buvid4=${buvid.buvid4}`
-    const ua = USER_AGENTS[0]
-    const ref = `https://www.bilibili.com/video/${bvid}`
-    const headers = { 'User-Agent': ua, 'Referer': ref, 'Cookie': cookie }
-
     const signed = await wbiSign({ aid, cid })
-    const qs = new URLSearchParams(signed).toString()
-    const viewUrl = `https://api.bilibili.com/x/player/wbi/v2?${qs}`
-    const viewRes = await fetch(viewUrl, { headers, signal: AbortSignal.timeout(8000) })
-    if (!viewRes.ok) return null
-    const viewData = await viewRes.json()
-    const subtitles = viewData?.data?.subtitle?.subtitles || []
+    const res = await axios.get('https://api.bilibili.com/x/player/wbi/v2', {
+      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      params: signed,
+      timeout: 8000
+    })
+    const subtitles = res.data?.data?.subtitle?.subtitles || []
     if (!subtitles.length) return null
     const sub = subtitles.find(s => s.ai_status === 2) || subtitles[0]
     const url = sub.subtitle_url.startsWith('//') ? 'https:' + sub.subtitle_url : sub.subtitle_url
-    const subRes = await fetch(url, { headers: { 'User-Agent': ua, 'Referer': ref }, signal: AbortSignal.timeout(8000) })
-    if (!subRes.ok) return null
-    const subBody = await subRes.json()
+    const { data: subBody } = await axios.get(url, {
+      headers: await buildBiliHeaders(`https://www.bilibili.com/video/${bvid}`),
+      timeout: 8000
+    })
     if (!Array.isArray(subBody?.body) || !subBody.body.length) return null
     const lines = []
     for (const l of subBody.body) {
@@ -434,68 +410,60 @@ async function fetchVideoSubtitle(bvid, aid, cid) {
 }
 
 // 获取 B站歌词：优先 LRC 直链，其次音频馆歌词接口，最后回退弹幕转 LRC
-// 与 getVideoUrl 一致，使用 fetch 替代 axios 避免 412
 export async function getLyrics(id, lyricUrl) {
   if (lyricUrl) {
     try {
-      const res = await fetch(lyricUrl, {
-        headers: { 'User-Agent': USER_AGENTS[0], 'Referer': 'https://www.bilibili.com/' },
-        signal: AbortSignal.timeout(8000)
-      })
-      if (res.ok) return { lyrics: await res.text(), transLyrics: '' }
+      const res = await axios.get(lyricUrl, { headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
+      return { lyrics: res.data || '', transLyrics: '' }
     } catch (e) {
       console.error('Bilibili lyrics fetch error:', e.message)
     }
   }
   if (id) {
-    const buvid = await getBuvid()
-    const cookie = `buvid3=${buvid.buvid3}; buvid4=${buvid.buvid4}`
-    const ua = USER_AGENTS[0]
     try {
-      const infoHeaders = { 'User-Agent': ua, 'Referer': 'https://www.bilibili.com/audio/am10627', 'Cookie': cookie }
-      const infoUrl = `https://api.bilibili.com/audio/music-service-c/web/song/info?sid=${id}`
-      const infoRes = await fetch(infoUrl, { headers: infoHeaders, signal: AbortSignal.timeout(8000) })
-      if (infoRes.ok) {
-        const infoData = await infoRes.json()
-        const lrcUrl = infoData?.data?.lyric
-        if (lrcUrl) {
-          const lrcRes = await fetch(lrcUrl, { headers: { 'User-Agent': ua, 'Referer': 'https://www.bilibili.com/' }, signal: AbortSignal.timeout(8000) })
-          if (lrcRes.ok) return { lyrics: await lrcRes.text(), transLyrics: '' }
-        }
+      const res = await axios.get('https://api.bilibili.com/audio/music-service-c/web/song/info', {
+        headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'),
+        params: { sid: id },
+        timeout: 8000
+      })
+      const lrcUrl = res.data?.data?.lyric
+      if (lrcUrl) {
+        const lrc = await axios.get(lrcUrl, { headers: await buildBiliHeaders('https://www.bilibili.com/audio/am10627'), timeout: 8000 })
+        return { lyrics: lrc.data || '', transLyrics: '' }
       }
     } catch (e) {
       console.error('Bilibili lyrics info error:', e.message)
     }
     // 搜索到的视频歌曲没有音频馆 sid：优先取视频 CC 字幕，再回退把弹幕转成 LRC 歌词
     try {
-      const ref = `https://www.bilibili.com/video/${id}`
-      const headers = { 'User-Agent': ua, 'Referer': ref, 'Cookie': cookie }
-
-      const viewUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(id)}`
-      const viewRes = await fetch(viewUrl, { headers, signal: AbortSignal.timeout(8000) })
-      if (!viewRes.ok) return null
-      const viewData = await viewRes.json()
-      const vinfo = viewData?.data
+      const view = await axios.get('https://api.bilibili.com/x/web-interface/view', {
+        headers: await buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
+        params: { bvid: id },
+        timeout: 8000
+      })
+      const vinfo = view.data?.data
       const cid = vinfo?.cid
       if (cid) {
         const subtitleLrc = await fetchVideoSubtitle(id, vinfo?.aid, cid)
         if (subtitleLrc) return { lyrics: subtitleLrc, transLyrics: '' }
         // 字幕不可用时回退弹幕
-        const dmUrl = `https://api.bilibili.com/x/v1/dm/list.so?oid=${cid}`
-        const dmRes = await fetch(dmUrl, { headers, signal: AbortSignal.timeout(8000) })
-        if (dmRes.ok) {
-          const xml = await dmRes.text()
-          const lines = []
-          const re = /<d p="([^"]*)">([\s\S]*?)<\/d>/g
-          let m
-          while ((m = re.exec(xml))) {
-            const t = parseFloat(m[1].split(',')[0])
-            const text = m[2].replace(/&[^;]+;/g, '').trim()
-            if (!text) continue
-            lines.push(formatLrcTime(t) + text)
-          }
-          if (lines.length) return { lyrics: lines.join('\n'), transLyrics: '' }
+        const dm = await axios.get('https://api.bilibili.com/x/v1/dm/list.so', {
+          headers: await buildBiliHeaders(`https://www.bilibili.com/video/${id}`),
+          params: { oid: cid },
+          timeout: 8000,
+          responseType: 'text'
+        })
+        const xml = typeof dm.data === 'string' ? dm.data : Buffer.from(dm.data).toString('utf8')
+        const lines = []
+        const re = /<d p="([^"]*)">([\s\S]*?)<\/d>/g
+        let m
+        while ((m = re.exec(xml))) {
+          const t = parseFloat(m[1].split(',')[0])
+          const text = m[2].replace(/&[^;]+;/g, '').trim()
+          if (!text) continue
+          lines.push(formatLrcTime(t) + text)
         }
+        if (lines.length) return { lyrics: lines.join('\n'), transLyrics: '' }
       }
     } catch (e) {
       console.error('Bilibili danmaku lyrics error:', e.message)
