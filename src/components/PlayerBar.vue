@@ -112,13 +112,18 @@
         <button class="ctrl-btn desktop-lyrics-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
         </button>
-        <button v-if="downloadUrl" class="ctrl-btn download-btn desktop-only" :disabled="isDownloading" @click="downloadSong" title="下载歌曲">
+        <button v-if="downloadUrl && !store.currentSong?.fromDownload" class="ctrl-btn download-btn desktop-only" :disabled="isDownloading" @click="downloadSong" title="下载歌曲">
           <svg v-if="!isDownloading" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
           <span v-else class="dl-spinner-desktop"></span>
+        </button>
+        <button v-else-if="store.currentSong?.fromDownload" class="ctrl-btn download-btn desktop-only downloaded" title="本地歌曲">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </button>
         <div class="volume-wrap" ref="volumeWrapRef">
           <button class="ctrl-btn" @click.stop="toggleVolumePopup" @mouseenter="showVolumePopup = true">&#x1F50A;</button>
@@ -194,7 +199,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { getFavorites, addFavorite, removeFavorite } from '../utils/storage'
+import { getFavorites, addFavorite, removeFavorite, getDownloadBlob, addDownload } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
@@ -302,13 +307,28 @@ async function setQuality(q) {
 }
 
 // 下载歌曲：加锁防重复点击，完成后解锁
+// 同时保存到 IndexedDB（供"我的下载"列表使用）和本地文件系统
 async function downloadSong() {
   if (!store.currentSong || isDownloading.value) return
   const url = downloadUrl.value
   if (!url) return
   isDownloading.value = true
-  const filename = `${store.currentSong.title} - ${store.currentSong.artist}.mp3`
+  const song = store.currentSong
+  const filename = `${song.title} - ${song.artist}.mp3`
   try {
+    // 下载音频文件
+    const res = await fetch(url)
+    const blob = await res.blob()
+    // 保存到 IndexedDB（供"我的下载"离线播放）
+    const dlSong = {
+      ...song,
+      id: song.id.startsWith('download_') ? song.id : `download_${song.id}`,
+      fromDownload: true,
+      mimeType: blob.type || 'audio/mpeg',
+      fileSize: blob.size
+    }
+    await addDownload(dlSong, blob)
+    // 保存到本地文件系统
     await saveSong(url, filename)
   } finally {
     setTimeout(() => { isDownloading.value = false }, 1500)
@@ -421,6 +441,8 @@ let playFailedTimer = null
 let vipBlockedTimer = null
 let audio = null
 let unregisterMiniSpec = null
+// 下载歌曲的 Blob URL（播放时创建，切歌时释放）
+let currentBlobUrl = null
 
 // 直链解析进行中标记：点播到开播之间为 true，播放按钮显示旋转圈反馈
 const resolving = ref(false)
@@ -635,8 +657,8 @@ function getNextSong() {
 async function prefetchNextUrl() {
   const next = getNextSong()
   if (!next || next.id === store.currentSong?.id) return
-  // 直链歌曲无需预取，播放时直接可用
-  if (next.audioUrl || next.sourceUrl) return
+  // 直链歌曲和下载歌曲无需预取，播放时直接可用
+  if (next.audioUrl || next.sourceUrl || next.fromDownload) return
   if (nextUrlCache.id === next.id) return
   try {
     const url = await getSongUrl(next, quality.value)
@@ -750,6 +772,26 @@ watch(() => store.currentSong, async (song) => {
     }).catch(() => {})
     // 封面渲染完成后注册迷你频谱画布（切歌时 v-if 重新挂载 canvas）
     nextTick(() => registerMiniSpectrum())
+    // 下载歌曲：从 IndexedDB 取 Blob 直接播放，不走 API 解析
+    if (song.fromDownload) {
+      try {
+        const blob = await getDownloadBlob(song.id)
+        if (blob) {
+          // 释放旧的 Blob URL 避免内存泄漏
+          if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null }
+          currentBlobUrl = URL.createObjectURL(blob)
+          audio.pause()
+          audio.src = currentBlobUrl
+          downloadUrl.value = ''
+          resumeAudio()
+          setSpectrumActive(true)
+          const played = await safePlay()
+          resolving.value = false
+          // 下载歌曲无歌词接口，跳过
+          return
+        }
+      } catch { /* Blob 读取失败，回退到普通解析 */ }
+    }
     let url = song.audioUrl || song.sourceUrl || ''
     // 直链播放地址（如 B站/抖音）可能是代理相对路径，APK 里需转成绝对地址
     url = toAbsolute(url)
@@ -787,6 +829,8 @@ watch(() => store.currentSong, async (song) => {
       }).catch(() => {})
     }
     if (url) {
+      // 切到非下载歌曲时释放旧的 Blob URL，避免内存泄漏
+      if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null }
       audio.pause()
       audio.src = url
       downloadUrl.value = url
@@ -1030,6 +1074,8 @@ onUnmounted(() => {
     audio.pause()
     audio = null
   }
+  // 释放下载歌曲的 Blob URL
+  if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null }
 })
 </script>
 
@@ -1139,6 +1185,12 @@ onUnmounted(() => {
   animation: dl-spin-pb 0.7s linear infinite;
 }
 @keyframes dl-spin-pb { to { transform: rotate(360deg); } }
+
+/* 已下载按钮样式 */
+.download-btn.downloaded {
+  color: #10b981;
+  cursor: default;
+}
 
 /* 颜色选择按钮 */
 .color-btn { padding: 0; }

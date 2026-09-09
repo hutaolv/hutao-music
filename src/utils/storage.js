@@ -1,6 +1,5 @@
-// 存储工具：收藏与最近播放改用 IndexedDB 持久化（上限 999 条，超出删除最早加入的一条），
+// 存储工具：收藏、最近播放、下载歌曲改用 IndexedDB 持久化，
 // 其余偏好（播放列表/音量/搜索/桌面歌词）仍存 localStorage。
-// 全部收藏/历史 API 改为异步（返回 Promise）。
 
 const KEYS = {
   RECENT_PLAYS: 'musichub_recent',
@@ -21,10 +20,11 @@ function toPlain(obj) {
 
 // ---------- IndexedDB 封装 ----------
 const DB_NAME = 'musichub_db'
-const DB_VERSION = 1
-// 两个 object store：favorites 收藏、recent 最近播放，keyPath 用歌曲 id
+const DB_VERSION = 3
+// 三个 object store：favorites 收藏、recent 最近播放、downloads 下载歌曲
 const STORE_FAVORITES = 'favorites'
 const STORE_RECENT = 'recent'
+const STORE_DOWNLOADS = 'downloads'
 
 let dbPromise = null
 
@@ -41,11 +41,29 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_RECENT)) {
         db.createObjectStore(STORE_RECENT, { keyPath: 'id' })
       }
+      if (!db.objectStoreNames.contains(STORE_DOWNLOADS)) {
+        db.createObjectStore(STORE_DOWNLOADS, { keyPath: 'id' })
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => { reject(req.error) }
   })
   return dbPromise
+}
+
+// 独立打开 downloads DB（不走单例），用完即关，避免 HMR/block 问题
+function openDownloadsDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(STORE_FAVORITES)) db.createObjectStore(STORE_FAVORITES, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(STORE_RECENT)) db.createObjectStore(STORE_RECENT, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(STORE_DOWNLOADS)) db.createObjectStore(STORE_DOWNLOADS, { keyPath: 'id' })
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
 }
 
 // 事务中执行回调，事务状态变化时进行写操作，完成时 resolve/失败时 reject
@@ -269,4 +287,97 @@ export function getDesktopLyricsPos() {
 
 export function setDesktopLyricsPos(pos) {
   localStorage.setItem(DL_KEYS.POS, JSON.stringify(pos))
+}
+
+// ---------- 下载歌曲 ----------
+// 获取所有下载歌曲（按添加时间倒序），返回纯元数据数组（不含 audioBlob）
+// 用 cursor 逐条读取，避免 getAll() 将全部音频二进制加载到内存
+export async function getDownloads() {
+  try {
+    const db = await openDownloadsDB()
+    const result = await new Promise((resolve) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readonly')
+      const store = tx.objectStore(STORE_DOWNLOADS)
+      const results = []
+      const req = store.openCursor()
+      req.onsuccess = () => {
+        const cursor = req.result
+        if (cursor) {
+          const { audioBlob, ...meta } = cursor.value.song || {}
+          results.push(meta)
+          cursor.continue()
+        } else {
+          resolve(results.sort((a, b) => (b.ts || 0) - (a.ts || 0)))
+        }
+      }
+      req.onerror = () => resolve([])
+    })
+    db.close()
+    return result
+  } catch (err) {
+    console.error('getDownloads error:', err)
+    return []
+  }
+}
+
+// 添加下载歌曲：song 为元数据对象，audioBlob 为音频文件二进制
+export async function addDownload(song, audioBlob) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readwrite')
+      const store = tx.objectStore(STORE_DOWNLOADS)
+      const plain = toPlain(song)
+      store.put({ id: plain.id, song: { ...plain, audioBlob }, ts: Date.now() })
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => { console.error('addDownload tx error:', tx.error); reject(tx.error) }
+    })
+  } finally {
+    db.close()
+  }
+}
+
+// 删除下载歌曲
+export async function removeDownload(songId) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readwrite')
+      tx.objectStore(STORE_DOWNLOADS).delete(songId)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+// 检查是否已下载
+export async function isDownloaded(songId) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readonly')
+      const req = tx.objectStore(STORE_DOWNLOADS).get(songId)
+      req.onsuccess = () => resolve(!!req.result)
+      req.onerror = () => resolve(false)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+// 获取下载歌曲的音频 Blob（播放时使用）
+export async function getDownloadBlob(songId) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readonly')
+      const req = tx.objectStore(STORE_DOWNLOADS).get(songId)
+      req.onsuccess = () => resolve(req.result?.song?.audioBlob || null)
+      req.onerror = () => resolve(null)
+    })
+  } finally {
+    db.close()
+  }
 }

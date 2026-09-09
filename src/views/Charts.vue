@@ -107,7 +107,7 @@ import HutaoLoading from '../components/HutaoLoading.vue'
 
 // 平台图标资源映射（public/icons/platforms/）：
 // - bilibili/netease：Simple Icons 官方矢量
-// - qqmusic/migu：Arcticons 线性矢量（Iconify）
+// - qqmusic/migu：Arcticons 线性矢量
 // - douyin/kuwo/kugou：官网抓取的满幅彩色应用图标（无公开矢量源）
 const platformIcons = {
   '抖音': 'douyin.png',
