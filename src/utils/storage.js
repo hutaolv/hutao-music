@@ -20,11 +20,12 @@ function toPlain(obj) {
 
 // ---------- IndexedDB 封装 ----------
 const DB_NAME = 'musichub_db'
-const DB_VERSION = 3
-// 三个 object store：favorites 收藏、recent 最近播放、downloads 下载歌曲
+const DB_VERSION = 1
+// 两个独立数据库：主库（收藏/最近播放）+ 下载库（避免版本升级阻塞）
 const STORE_FAVORITES = 'favorites'
 const STORE_RECENT = 'recent'
 const STORE_DOWNLOADS = 'downloads'
+const DB_NAME_DOWNLOADS = 'musichub_downloads_db'
 
 let dbPromise = null
 
@@ -41,9 +42,6 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_RECENT)) {
         db.createObjectStore(STORE_RECENT, { keyPath: 'id' })
       }
-      if (!db.objectStoreNames.contains(STORE_DOWNLOADS)) {
-        db.createObjectStore(STORE_DOWNLOADS, { keyPath: 'id' })
-      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => { reject(req.error) }
@@ -51,15 +49,15 @@ function openDB() {
   return dbPromise
 }
 
-// 独立打开 downloads DB（不走单例），用完即关，避免 HMR/block 问题
+// 独立打开 downloads DB（独立数据库名，避免版本升级阻塞主库）
 function openDownloadsDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    const req = indexedDB.open(DB_NAME_DOWNLOADS, 1)
     req.onupgradeneeded = () => {
       const db = req.result
-      if (!db.objectStoreNames.contains(STORE_FAVORITES)) db.createObjectStore(STORE_FAVORITES, { keyPath: 'id' })
-      if (!db.objectStoreNames.contains(STORE_RECENT)) db.createObjectStore(STORE_RECENT, { keyPath: 'id' })
-      if (!db.objectStoreNames.contains(STORE_DOWNLOADS)) db.createObjectStore(STORE_DOWNLOADS, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(STORE_DOWNLOADS)) {
+        db.createObjectStore(STORE_DOWNLOADS, { keyPath: 'id' })
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -303,8 +301,11 @@ export async function getDownloads() {
       req.onsuccess = () => {
         const cursor = req.result
         if (cursor) {
-          const { audioBlob, ...meta } = cursor.value.song || {}
-          results.push(meta)
+          const songData = cursor.value?.song
+          if (songData && songData.id) {
+            const { audioBlob, ...meta } = songData
+            results.push(meta)
+          }
           cursor.continue()
         } else {
           resolve(results.sort((a, b) => (b.ts || 0) - (a.ts || 0)))

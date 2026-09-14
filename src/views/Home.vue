@@ -68,7 +68,7 @@
         </div>
       </div>
 
-      <div v-else>
+      <div v-else-if="activeSection === 'recent'">
         <div v-if="recentPlays.length" class="list-head">
           <span class="list-count">共 {{ recentPlays.length }} 首</span>
           <button class="play-all-btn glass-card" :class="{ playing: playingAll }" @click="playAllFx(recentPlays)">&#x25B6; 播放全部</button>
@@ -183,9 +183,9 @@ function bentoSize(platform) {
 }
 
 onMounted(async () => {
-  recentPlays.value = await getRecentPlays()
-  favoriteSongs.value = await getFavorites()
-  downloadSongs.value = await getDownloads()
+   recentPlays.value = await getRecentPlays()
+   favoriteSongs.value = await getFavorites()
+   downloadSongs.value = await getDownloads()
   for (const platform of homePlatforms) {
     fetchCharts(platform, 1, undefined, 0).then(data => {
       if (data?.[0]?.songs?.length) {
@@ -196,10 +196,10 @@ onMounted(async () => {
 })
 
 async function refreshFavorites() {
-  // 重新读取全部收藏与最近播放，不做数量截断
-  favoriteSongs.value = await getFavorites()
-  recentPlays.value = await getRecentPlays()
-  downloadSongs.value = await getDownloads()
+   // 重新读取全部收藏与最近播放，不做数量截断
+   favoriteSongs.value = await getFavorites()
+   recentPlays.value = await getRecentPlays()
+   downloadSongs.value = await getDownloads()
 }
 
 // 任意入口（播放条/榜单/歌曲卡）收藏变化时刷新"我的喜欢"列表
@@ -227,14 +227,29 @@ async function onImportFiles(e) {
           title = name.slice(dashIdx + 3).trim()
         }
         const audioBuffer = await file.arrayBuffer()
+        const audioBlob = new Blob([audioBuffer], { type: file.type || 'audio/mpeg' })
+        // 获取真实时长
+        let realDuration = 0
+        try {
+          const audioEl = new Audio()
+          realDuration = await new Promise(resolve => {
+            audioEl.addEventListener('loadedmetadata', () => resolve(audioEl.duration || 0), { once: true })
+            audioEl.addEventListener('error', () => resolve(0), { once: true })
+            audioEl.src = URL.createObjectURL(audioBlob)
+          })
+          URL.revokeObjectURL(audioEl.src)
+        } catch { /* 无法获取时长则用 0 */ }
+        const m = Math.floor(realDuration / 60)
+        const s = Math.floor(realDuration % 60)
+        const durationStr = `${m}:${s.toString().padStart(2, '0')}`
         const song = {
           id: `download_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           title,
           artist,
           album: '',
           cover: '',
-          duration: '0:00',
-          durationMs: 0,
+          duration: durationStr,
+          durationMs: Math.floor(realDuration * 1000),
           platform: '本地导入',
           audioUrl: '',
           sourceUrl: '',
@@ -243,7 +258,7 @@ async function onImportFiles(e) {
           mimeType: file.type || 'audio/mpeg',
           fileSize: file.size
         }
-        await addDownload(song, audioBuffer)
+        await addDownload(song, audioBlob)
         importProgress.value = `${i + 1}/${files.length}`
         console.log('导入成功:', title, `(${i + 1}/${files.length})`)
       } catch (err) {
@@ -253,7 +268,7 @@ async function onImportFiles(e) {
       await new Promise(r => setTimeout(r, 0))
     }
     // 刷新列表
-    downloadSongs.value = await getDownloads()
+downloadSongs.value = await getDownloads()
   } catch (err) {
     console.error('导入整体失败:', err)
   } finally {
