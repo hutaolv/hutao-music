@@ -213,8 +213,6 @@ const mobileSettingsOpen = ref(false)
 const swipeOffset = ref(0)
 // 切换锁，防止连切
 const isSwitching = ref(false)
-// 当前卡片背景色
-const cardBgColor = ref('rgba(10,10,15,0.85)')
 
 // 上一首/下一首歌曲
 const prevSong = computed(() => {
@@ -229,45 +227,6 @@ const nextSong = computed(() => {
   if (!list.length || idx === -1) return null
   return list[(idx + 1) % list.length]
 })
-
-// 从封面图片提取主色
-function extractDominantColor(imgUrl) {
-  return new Promise(resolve => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      const size = 32
-      canvas.width = size
-      canvas.height = size
-      ctx.drawImage(img, 0, 0, size, size)
-      const data = ctx.getImageData(0, 0, size, size).data
-      let r = 0, g = 0, b = 0, count = 0
-      for (let i = 0; i < data.length; i += 16) {
-        r += data[i]
-        g += data[i + 1]
-        b += data[i + 2]
-        count++
-      }
-      r = Math.round(r / count)
-      g = Math.round(g / count)
-      b = Math.round(b / count)
-      resolve(`rgba(${r},${g},${b},0.85)`)
-    }
-    img.onerror = () => resolve('rgba(10,10,15,0.85)')
-    img.src = imgUrl
-  })
-}
-
-// 监听封面变化，提取背景色
-watch(() => store.currentSong?.cover, async (url) => {
-  if (url) {
-    cardBgColor.value = await extractDominantColor(url)
-  } else {
-    cardBgColor.value = 'rgba(10,10,15,0.85)'
-  }
-}, { immediate: true })
 
 // 音质选择：standard=标准 high=高音质 lossless=无损（本地持久化）
 const qualityOptions = [
@@ -670,23 +629,23 @@ watch(ringSpecRef, (el) => {
   max-height: 80vh;
   padding: 40px 32px;
   z-index: 2;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.5s ease;
-  background-color: v-bind(cardBgColor);
 }
 
 /* 旋转/黑胶样式：横向布局，左图盘右歌词 */
 .lyrics-container.disc,
 .lyrics-container.vinyl {
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 56px;
+  max-width: 1000px;
 }
 
 /* 经典样式：纵向布局，歌词占满宽度 */
 .lyrics-container.plain {
   flex-direction: column;
   align-items: center;
+  gap: 36px;
+  max-width: 700px;
 }
 .side-panel {
   display: flex;
