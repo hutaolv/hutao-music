@@ -2,39 +2,74 @@
   <div class="lyrics-view" v-if="store.currentSong">
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
-    <div class="lyrics-container" :class="[playerStyle, { 'page-exit-up': pageAnim === 'exit-up', 'page-exit-down': pageAnim === 'exit-down', 'page-enter': pageAnim === 'enter' }]" @touchstart="onTouchStart" @touchmove.prevent="onTouchMove" @touchend="onTouchEnd" @mousedown="onMouseDown" @wheel="onWheel">
-      <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
-      <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
-        <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
-          <!-- LED环形频谱包围封面 -->
-          <canvas v-if="showSpectrum" ref="ringSpecRef" class="ring-spectrum" :class="{ spinning: store.isPlaying }"></canvas>
-          <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
-          <!-- 黑胶样式或封面缺失时显示复古黑胶唱片 -->
-          <div v-else class="album-art vinyl-disc" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
+    <div class="lyrics-container" :class="playerStyle" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @mousedown="onMouseDown" @wheel="onWheel">
+      <div class="card-stack" :style="{ transform: `translateY(${swipeOffset}px)` }">
+        <!-- 上一首卡片 -->
+        <div class="card card-prev" v-if="prevSong">
+          <div class="card-inner">
+            <div class="side-panel">
+              <div class="album-art-wrap">
+                <img v-if="prevSong.cover" :src="prevSong.cover" alt="" class="album-art" />
+                <div v-else class="album-art vinyl-disc" v-html="vinylSvg"></div>
+              </div>
+              <div class="song-meta">
+                <div class="song-title">{{ prevSong.title }}</div>
+                <div class="song-artist">{{ prevSong.artist }}</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="song-meta">
-          <div class="song-title">{{ store.currentSong.title }}</div>
-          <div class="song-artist">{{ store.currentSong.artist }}</div>
+        <!-- 当前卡片 -->
+        <div class="card card-current">
+          <div class="card-inner" :class="playerStyle">
+            <!-- 旋转/黑胶样式 -->
+            <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
+              <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
+                <canvas v-if="showSpectrum" ref="ringSpecRef" class="ring-spectrum" :class="{ spinning: store.isPlaying }"></canvas>
+                <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
+                <div v-else class="album-art vinyl-disc" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
+              </div>
+              <div class="song-meta">
+                <div class="song-title">{{ store.currentSong.title }}</div>
+                <div class="song-artist">{{ store.currentSong.artist }}</div>
+              </div>
+            </div>
+            <!-- 经典样式 -->
+            <div v-else class="song-info">
+              <img v-if="store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="song-info-art" @error="onImgError" />
+              <div v-else class="song-info-art vinyl-disc small" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
+              <div class="song-meta-h">
+                <div class="song-title">{{ store.currentSong.title }}</div>
+                <div class="song-artist">{{ store.currentSong.artist }}</div>
+              </div>
+            </div>
+            <div class="lyrics-scroll" ref="lyricsRef">
+              <div v-if="!parsedLyrics.length" class="no-lyrics">暂无歌词</div>
+              <div v-for="(line, i) in parsedLyrics" :key="i"
+                class="lyric-line"
+                :class="{ active: store.currentLyricIndex === i }"
+                :style="store.currentLyricIndex === i ? { color: store.lyricColor } : {}"
+                :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl.value = el }"
+                @click="seekTo(line.time)">
+                {{ line.text }}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-      <!-- 经典样式：顶部横排小封面，不旋转 -->
-      <div v-else class="song-info">
-        <img v-if="store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="song-info-art" @error="onImgError" />
-        <div v-else class="song-info-art vinyl-disc small" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
-        <div class="song-meta-h">
-          <div class="song-title">{{ store.currentSong.title }}</div>
-          <div class="song-artist">{{ store.currentSong.artist }}</div>
-        </div>
-      </div>
-      <div class="lyrics-scroll" ref="lyricsRef">
-        <div v-if="!parsedLyrics.length" class="no-lyrics">暂无歌词</div>
-        <div v-for="(line, i) in parsedLyrics" :key="i"
-          class="lyric-line"
-          :class="{ active: store.currentLyricIndex === i }"
-          :style="store.currentLyricIndex === i ? { color: store.lyricColor } : {}"
-          :ref="el => { if (i === store.currentLyricIndex) lyricActiveEl = el }"
-          @click="seekTo(line.time)">
-          {{ line.text }}
+        <!-- 下一首卡片 -->
+        <div class="card card-next" v-if="nextSong">
+          <div class="card-inner">
+            <div class="side-panel">
+              <div class="album-art-wrap">
+                <img v-if="nextSong.cover" :src="nextSong.cover" alt="" class="album-art" />
+                <div v-else class="album-art vinyl-disc" v-html="vinylSvg"></div>
+              </div>
+              <div class="song-meta">
+                <div class="song-title">{{ nextSong.title }}</div>
+                <div class="song-artist">{{ nextSong.artist }}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -174,8 +209,65 @@ const coverBroken = ref(false)
 const showSpectrum = ref(localStorage.getItem('lyricsSpectrum') !== 'off')
 // 手机端播放器设置面板展开状态（仅手机端通过齿轮按钮打开）
 const mobileSettingsOpen = ref(false)
-// 翻页动画状态：null / 'exit-up' / 'exit-down' / 'enter'
-const pageAnim = ref(null)
+// 卡片滑动偏移量（跟手）
+const swipeOffset = ref(0)
+// 切换锁，防止连切
+const isSwitching = ref(false)
+// 当前卡片背景色
+const cardBgColor = ref('rgba(10,10,15,0.85)')
+
+// 上一首/下一首歌曲
+const prevSong = computed(() => {
+  const list = store.playlist
+  const idx = store.currentIndex
+  if (!list.length || idx === -1) return null
+  return list[(idx - 1 + list.length) % list.length]
+})
+const nextSong = computed(() => {
+  const list = store.playlist
+  const idx = store.currentIndex
+  if (!list.length || idx === -1) return null
+  return list[(idx + 1) % list.length]
+})
+
+// 从封面图片提取主色
+function extractDominantColor(imgUrl) {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      const size = 32
+      canvas.width = size
+      canvas.height = size
+      ctx.drawImage(img, 0, 0, size, size)
+      const data = ctx.getImageData(0, 0, size, size).data
+      let r = 0, g = 0, b = 0, count = 0
+      for (let i = 0; i < data.length; i += 16) {
+        r += data[i]
+        g += data[i + 1]
+        b += data[i + 2]
+        count++
+      }
+      r = Math.round(r / count)
+      g = Math.round(g / count)
+      b = Math.round(b / count)
+      resolve(`rgba(${r},${g},${b},0.85)`)
+    }
+    img.onerror = () => resolve('rgba(10,10,15,0.85)')
+    img.src = imgUrl
+  })
+}
+
+// 监听封面变化，提取背景色
+watch(() => store.currentSong?.cover, async (url) => {
+  if (url) {
+    cardBgColor.value = await extractDominantColor(url)
+  } else {
+    cardBgColor.value = 'rgba(10,10,15,0.85)'
+  }
+}, { immediate: true })
 
 // 音质选择：standard=标准 high=高音质 lossless=无损（本地持久化）
 const qualityOptions = [
@@ -364,69 +456,85 @@ function goBack() {
   router.back()
 }
 
-// 翻页动画：快速切换，不阻塞
-// 滑动过程中实时位移，松手即切，动画仅 150ms 过渡
+// 翻页动画：方向锁定 + 弹性回弹 + 卡片滑动
+let lastWheelDir = 0
+let wheelLockTimer = null
+const SWIPE_THRESHOLD = 40
+const CARD_HEIGHT_RATIO = 0.85
+
 function pageTransition(direction) {
-  if (pageAnim.value) return
-  pageAnim.value = direction === 'up' ? 'exit-down' : 'exit-up'
-  if (direction === 'up') store.playPrev()
-  else store.playNext()
-  setTimeout(() => { pageAnim.value = null }, 150)
+  if (isSwitching.value) return
+  isSwitching.value = true
+  const h = window.innerHeight * CARD_HEIGHT_RATIO
+  const target = direction === 'down' ? -h : h
+  animateTo(target, 300, () => {
+    if (direction === 'down') store.playNext()
+    else store.playPrev()
+    swipeOffset.value = 0
+    isSwitching.value = false
+  })
 }
 
-// 手机端上下滑动切歌：记录触摸起点，结束时判断滑动方向
-// 仅在歌词滚动区域外触发切歌，避免与歌词滚动冲突
+function animateTo(target, duration, onDone) {
+  const start = swipeOffset.value
+  const dist = target - start
+  const startTime = performance.now()
+  function step(now) {
+    const t = Math.min((now - startTime) / duration, 1)
+    const ease = 1 - Math.pow(1 - t, 3)
+    swipeOffset.value = start + dist * ease
+    if (t < 1) requestAnimationFrame(step)
+    else if (onDone) onDone()
+  }
+  requestAnimationFrame(step)
+}
+
+// 手机端触摸
 let touchStartY = 0
 let touchStartTarget = null
-let touchCurrentY = 0
 function onTouchStart(e) {
-  e.preventDefault()
   touchStartY = e.touches[0].clientY
   touchStartTarget = e.target
+  if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
+  e.preventDefault()
 }
 function onTouchMove(e) {
-  touchCurrentY = e.touches[0].clientY
-  const dy = touchCurrentY - touchStartY
-  const el = document.querySelector('.lyrics-container')
-  if (el) el.style.transform = `translateY(${dy * 0.25}px)`
+  if (isSwitching.value) return
+  if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
+  e.preventDefault()
+  const dy = e.touches[0].clientY - touchStartY
+  swipeOffset.value = dy
 }
 function onTouchEnd(e) {
-  const el = document.querySelector('.lyrics-container')
-  if (el) el.style.transform = ''
-  // 如果触摸目标在歌词滚动区域内，不触发切歌（交给歌词滚动）
   if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
   const dy = e.changedTouches[0].clientY - touchStartY
-  // 滑动距离超过 40px 才触发，降低阈值让操作更跟手
-  if (Math.abs(dy) < 40) return
-  if (dy > 0) {
-    pageTransition('up')
-  } else {
-    pageTransition('down')
+  if (Math.abs(dy) < SWIPE_THRESHOLD) {
+    animateTo(0, 200)
+    return
   }
+  if (dy < 0) pageTransition('down')
+  else pageTransition('up')
 }
 
-// 电脑端鼠标滚轮切歌：滚轮上下滚动切换上一首/下一首
-// 仅在歌词滚动区域外触发，避免与歌词滚动冲突
-let wheelTimer = null
+// 电脑端滚轮切歌：方向锁定
 function onWheel(e) {
-  // 歌词滚动区域内：不拦截，让浏览器处理默认滚动
   if (e.target.closest('.lyrics-scroll')) return
   e.preventDefault()
-  if (wheelTimer || pageAnim.value) return
-  wheelTimer = setTimeout(() => { wheelTimer = null }, 100)
-  if (e.deltaY > 0) {
-    pageTransition('down')
-  } else {
-    pageTransition('up')
-  }
+  if (isSwitching.value) return
+  const dir = e.deltaY > 0 ? 1 : -1
+  if (lastWheelDir === dir && wheelLockTimer) return
+  lastWheelDir = dir
+  if (wheelLockTimer) clearTimeout(wheelLockTimer)
+  wheelLockTimer = setTimeout(() => { wheelLockTimer = null }, 400)
+  if (dir > 0) pageTransition('down')
+  else pageTransition('up')
 }
 
-// 电脑端鼠标拖拽切歌：按下拖动后松开判断方向
+// 电脑端鼠标拖拽切歌
 let mouseStartY = 0
 let mouseStartTarget = null
 let mouseRafId = null
 function onMouseDown(e) {
-  // 如果点击在歌词滚动区域内，不拦截，让浏览器处理默认滚动
   if (e.target.closest('.lyrics-scroll')) return
   mouseStartY = e.clientY
   mouseStartTarget = e.target
@@ -434,30 +542,27 @@ function onMouseDown(e) {
   document.addEventListener('mouseup', onMouseUp)
 }
 function onMouseMove(e) {
+  if (isSwitching.value) return
   if (mouseRafId) return
   mouseRafId = requestAnimationFrame(() => {
     mouseRafId = null
+    if (mouseStartTarget && mouseStartTarget.closest('.lyrics-scroll')) return
     const dy = e.clientY - mouseStartY
-    const el = document.querySelector('.lyrics-container')
-    if (el) el.style.transform = `translateY(${dy * 0.3}px)`
+    swipeOffset.value = dy
   })
 }
 function onMouseUp(e) {
   if (mouseRafId) { cancelAnimationFrame(mouseRafId); mouseRafId = null }
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
-  // 恢复歌词容器位置
-  const el = document.querySelector('.lyrics-container')
-  if (el) el.style.transform = ''
-  // 如果起点在歌词滚动区域内，不触发切歌
   if (mouseStartTarget && mouseStartTarget.closest('.lyrics-scroll')) return
   const dy = e.clientY - mouseStartY
-  if (Math.abs(dy) < 40) return
-  if (dy > 0) {
-    pageTransition('up')
-  } else {
-    pageTransition('down')
+  if (Math.abs(dy) < SWIPE_THRESHOLD) {
+    animateTo(0, 200)
+    return
   }
+  if (dy > 0) pageTransition('up')
+  else pageTransition('down')
 }
 
 onMounted(() => {
@@ -565,25 +670,24 @@ watch(ringSpecRef, (el) => {
   max-height: 80vh;
   padding: 40px 32px;
   z-index: 2;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.5s ease;
+  background-color: v-bind(cardBgColor);
 }
 
 /* 旋转/黑胶样式：横向布局，左图盘右歌词 */
 .lyrics-container.disc,
 .lyrics-container.vinyl {
-  flex-direction: row;
-  align-items: center;
-  gap: 56px;
-  max-width: 1000px;
+  flex-direction: column;
 }
 
 /* 经典样式：纵向布局，歌词占满宽度 */
 .lyrics-container.plain {
   flex-direction: column;
   align-items: center;
-  gap: 36px;
-  max-width: 700px;
 }
-/* 左侧面板：大圆盘封面（播放旋转）+ 歌曲信息 */
 .side-panel {
   display: flex;
   flex-direction: column;
@@ -698,7 +802,7 @@ watch(ringSpecRef, (el) => {
   flex: 1;
   min-width: 0;
   width: 100%;
-  max-height: 68vh;
+  max-height: 50vh;
   overflow-y: auto;
   padding: 20px 0;
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
@@ -897,9 +1001,16 @@ watch(ringSpecRef, (el) => {
 /* 窄屏改为上下布局，圆盘缩小 */
 @media (max-width: 768px) {
   .lyrics-container {
+    padding: 24px 16px;
+  }
+  .card {
     flex-direction: column;
     gap: 24px;
     padding: 24px 16px;
+  }
+  .card-inner {
+    flex-direction: column;
+    gap: 24px;
   }
   .side-panel { width: 100%; }
   .album-art-wrap { width: 180px; height: 180px; border-radius: 50%; }
@@ -1136,26 +1247,45 @@ watch(ringSpecRef, (el) => {
   }
 }
 
-/* 翻页动画：快速过渡 */
-@keyframes page-exit-up {
-  0% { transform: translateY(0) scale(1); opacity: 1; }
-  100% { transform: translateY(-30px) scale(0.98); opacity: 0; }
+/* 卡片滑动切换 */
+.card-stack {
+  position: relative;
+  width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  will-change: transform;
 }
-@keyframes page-exit-down {
-  0% { transform: translateY(0) scale(1); opacity: 1; }
-  100% { transform: translateY(30px) scale(0.98); opacity: 0; }
+.card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 56px;
+  padding: 40px 32px;
+  box-sizing: border-box;
 }
-@keyframes page-enter {
-  0% { transform: translateY(0) scale(0.98); opacity: 0; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
+.card-prev {
+  transform: translateY(-100%);
+  opacity: 0.6;
 }
-.lyrics-container.page-exit-up {
-  animation: page-exit-up 0.15s ease-in forwards;
+.card-current {
+  position: relative;
 }
-.lyrics-container.page-exit-down {
-  animation: page-exit-down 0.15s ease-in forwards;
+.card-next {
+  transform: translateY(100%);
+  opacity: 0.6;
 }
-.lyrics-container.page-enter {
-  animation: page-enter 0.15s ease-out forwards;
+.card-inner {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 56px;
+}
+.card-inner.plain {
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
 }
 </style>
