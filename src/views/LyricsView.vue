@@ -2,7 +2,7 @@
   <div class="lyrics-view" v-if="store.currentSong">
     <div class="lyrics-bg" :style="{ backgroundImage: store.currentSong.cover ? `url(${store.currentSong.cover})` : 'none' }"></div>
     <div class="lyrics-overlay"></div>
-    <div class="lyrics-container" :class="[playerStyle, { 'page-exit-up': pageAnim === 'exit-up', 'page-exit-down': pageAnim === 'exit-down', 'page-enter': pageAnim === 'enter' }]" @touchstart.passive="onTouchStart" @touchend="onTouchEnd" @mousedown="onMouseDown" @wheel="onWheel">
+    <div class="lyrics-container" :class="[playerStyle, { 'page-exit-up': pageAnim === 'exit-up', 'page-exit-down': pageAnim === 'exit-down', 'page-enter': pageAnim === 'enter' }]" @touchstart="onTouchStart" @touchmove.prevent="onTouchMove" @touchend="onTouchEnd" @mousedown="onMouseDown" @wheel="onWheel">
       <!-- 旋转/黑胶样式：左侧大图盘 + LED环形频谱包围 -->
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
         <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
@@ -364,38 +364,43 @@ function goBack() {
   router.back()
 }
 
-// 翻页动画：direction='up'=下滑切上一首，'down'=上滑切下一首
-// 先播放退出动画 → 切歌 → 播放进入动画
+// 翻页动画：快速切换，不阻塞
+// 滑动过程中实时位移，松手即切，动画仅 150ms 过渡
 function pageTransition(direction) {
   if (pageAnim.value) return
   pageAnim.value = direction === 'up' ? 'exit-down' : 'exit-up'
-  setTimeout(() => {
-    if (direction === 'up') store.playPrev()
-    else store.playNext()
-    pageAnim.value = 'enter'
-    setTimeout(() => { pageAnim.value = null }, 450)
-  }, 450)
+  if (direction === 'up') store.playPrev()
+  else store.playNext()
+  setTimeout(() => { pageAnim.value = null }, 150)
 }
 
 // 手机端上下滑动切歌：记录触摸起点，结束时判断滑动方向
 // 仅在歌词滚动区域外触发切歌，避免与歌词滚动冲突
 let touchStartY = 0
 let touchStartTarget = null
+let touchCurrentY = 0
 function onTouchStart(e) {
+  e.preventDefault()
   touchStartY = e.touches[0].clientY
   touchStartTarget = e.target
 }
+function onTouchMove(e) {
+  touchCurrentY = e.touches[0].clientY
+  const dy = touchCurrentY - touchStartY
+  const el = document.querySelector('.lyrics-container')
+  if (el) el.style.transform = `translateY(${dy * 0.25}px)`
+}
 function onTouchEnd(e) {
+  const el = document.querySelector('.lyrics-container')
+  if (el) el.style.transform = ''
   // 如果触摸目标在歌词滚动区域内，不触发切歌（交给歌词滚动）
   if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
   const dy = e.changedTouches[0].clientY - touchStartY
-  // 滑动距离超过 50px 才触发，避免误触
-  if (Math.abs(dy) < 50) return
+  // 滑动距离超过 40px 才触发，降低阈值让操作更跟手
+  if (Math.abs(dy) < 40) return
   if (dy > 0) {
-    // 下滑 → 上一首
     pageTransition('up')
   } else {
-    // 上滑 → 下一首
     pageTransition('down')
   }
 }
@@ -408,7 +413,7 @@ function onWheel(e) {
   if (e.target.closest('.lyrics-scroll')) return
   e.preventDefault()
   if (wheelTimer || pageAnim.value) return
-  wheelTimer = setTimeout(() => { wheelTimer = null }, 600)
+  wheelTimer = setTimeout(() => { wheelTimer = null }, 100)
   if (e.deltaY > 0) {
     pageTransition('down')
   } else {
@@ -419,6 +424,7 @@ function onWheel(e) {
 // 电脑端鼠标拖拽切歌：按下拖动后松开判断方向
 let mouseStartY = 0
 let mouseStartTarget = null
+let mouseRafId = null
 function onMouseDown(e) {
   // 如果点击在歌词滚动区域内，不拦截，让浏览器处理默认滚动
   if (e.target.closest('.lyrics-scroll')) return
@@ -428,12 +434,16 @@ function onMouseDown(e) {
   document.addEventListener('mouseup', onMouseUp)
 }
 function onMouseMove(e) {
-  // 拖拽时给出视觉反馈：歌词容器跟随鼠标轻微移动
-  const dy = e.clientY - mouseStartY
-  const el = document.querySelector('.lyrics-container')
-  if (el) el.style.transform = `translateY(${dy * 0.3}px)`
+  if (mouseRafId) return
+  mouseRafId = requestAnimationFrame(() => {
+    mouseRafId = null
+    const dy = e.clientY - mouseStartY
+    const el = document.querySelector('.lyrics-container')
+    if (el) el.style.transform = `translateY(${dy * 0.3}px)`
+  })
 }
 function onMouseUp(e) {
+  if (mouseRafId) { cancelAnimationFrame(mouseRafId); mouseRafId = null }
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
   // 恢复歌词容器位置
@@ -442,7 +452,7 @@ function onMouseUp(e) {
   // 如果起点在歌词滚动区域内，不触发切歌
   if (mouseStartTarget && mouseStartTarget.closest('.lyrics-scroll')) return
   const dy = e.clientY - mouseStartY
-  if (Math.abs(dy) < 50) return
+  if (Math.abs(dy) < 40) return
   if (dy > 0) {
     pageTransition('up')
   } else {
@@ -1126,26 +1136,26 @@ watch(ringSpecRef, (el) => {
   }
 }
 
-/* 翻页动画：退出 + 进入，模拟真实翻页感 */
+/* 翻页动画：快速过渡 */
 @keyframes page-exit-up {
   0% { transform: translateY(0) scale(1); opacity: 1; }
-  100% { transform: translateY(-60px) scale(0.96); opacity: 0; }
+  100% { transform: translateY(-30px) scale(0.98); opacity: 0; }
 }
 @keyframes page-exit-down {
   0% { transform: translateY(0) scale(1); opacity: 1; }
-  100% { transform: translateY(60px) scale(0.96); opacity: 0; }
+  100% { transform: translateY(30px) scale(0.98); opacity: 0; }
 }
 @keyframes page-enter {
-  0% { transform: translateY(0) scale(0.96); opacity: 0; }
+  0% { transform: translateY(0) scale(0.98); opacity: 0; }
   100% { transform: translateY(0) scale(1); opacity: 1; }
 }
 .lyrics-container.page-exit-up {
-  animation: page-exit-up 0.45s ease-in forwards;
+  animation: page-exit-up 0.15s ease-in forwards;
 }
 .lyrics-container.page-exit-down {
-  animation: page-exit-down 0.45s ease-in forwards;
+  animation: page-exit-down 0.15s ease-in forwards;
 }
 .lyrics-container.page-enter {
-  animation: page-enter 0.45s ease-out forwards;
+  animation: page-enter 0.15s ease-out forwards;
 }
 </style>
