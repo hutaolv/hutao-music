@@ -74,7 +74,7 @@
       </div>
     </div>
     <button class="desktop-btn" @click="toggleDesktop" :class="{ active: store.desktopLyrics }" title="桌面歌词">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
+      <span class="desktop-lyric-icon">词</span>
     </button>
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
@@ -792,18 +792,26 @@ watch(ringSpecRef, (el) => {
   left: 50%;
   transform: translateX(-50%);
   color: var(--text-muted);
-  padding: 10px 20px;
-  border-radius: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   border: 1px solid var(--border-color);
+  background: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  justify-content: center;
   transition: all 0.2s;
   z-index: 2;
 }
 .desktop-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
 .desktop-btn.active { color: var(--accent-light); border-color: var(--accent-light); }
+.desktop-lyric-icon {
+  font-size: 22px;
+  font-weight: 900;
+  font-family: "STKaiti", "KaiTi", "楷体", serif;
+  letter-spacing: -1px;
+  line-height: 1;
+}
 .close-btn {
   position: fixed;
   top: 24px;
