@@ -161,10 +161,10 @@ async function playAllFx(songs) {
           const data = await thirdPartySearch(s.title, activePlatform.value)
           const match = data?.songs?.[0]
           if (match) {
-            playable.push(match)
-            // 第一首找到后立即开始播放，后续搜索结果追加到播放列表
+            const merged = { ...s, ...match, cover: s.cover || match.cover }
+            playable.push(merged)
             if (playable.length === 1) store.playAll(playable)
-            else store.addToPlaylist(match)
+            else store.addToPlaylist(merged)
           }
         } catch { /* 单首搜索失败不影响其他 */ }
       }
