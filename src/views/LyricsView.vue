@@ -9,7 +9,6 @@
         <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
           <div class="album-art-wrap">
             <img :src="adjacentSong.cover || '/icons/qiqi.jpg'" alt="" class="album-art" />
-            <div v-else class="album-art vinyl-disc" v-html="vinylSvg"></div>
           </div>
           <div class="song-meta">
             <div class="song-title">{{ adjacentSong.title }}</div>
@@ -18,7 +17,6 @@
         </div>
         <div v-else class="song-info">
           <img :src="adjacentSong.cover || '/icons/qiqi.jpg'" alt="" class="song-info-art" />
-          <div v-else class="song-info-art vinyl-disc small" v-html="vinylSvg"></div>
           <div class="song-meta-h">
             <div class="song-title">{{ adjacentSong.title }}</div>
             <div class="song-artist">{{ adjacentSong.artist }}</div>
