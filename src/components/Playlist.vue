@@ -9,7 +9,7 @@
     </div>
     <div class="playlist-list" ref="listRef" v-if="store.playlist.length">
       <div v-for="(song, idx) in store.playlist" :key="song.id" :ref="el => { if (idx === store.currentIndex) activeEl = el }" class="playlist-item" :class="{ active: idx === store.currentIndex }" @click="store.playSong(song)">
-        <img :src="song.cover" :alt="song.title" class="item-cover" @error="hideImg" />
+        <img :src="song.cover || '/icons/qiqi.jpg'" :alt="song.title" class="item-cover" />
         <div class="item-info">
           <div class="item-title">{{ song.title }}</div>
           <div class="item-artist">{{ song.artist }}</div>

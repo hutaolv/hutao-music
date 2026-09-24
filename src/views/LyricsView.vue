@@ -8,7 +8,7 @@
         :style="{ transform: `translateY(${swipeOffset > 0 ? swipeOffset - windowH : swipeOffset + windowH}px)` }">
         <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
           <div class="album-art-wrap">
-            <img v-if="adjacentSong.cover" :src="adjacentSong.cover" alt="" class="album-art" />
+            <img :src="adjacentSong.cover || '/icons/qiqi.jpg'" alt="" class="album-art" />
             <div v-else class="album-art vinyl-disc" v-html="vinylSvg"></div>
           </div>
           <div class="song-meta">
@@ -17,7 +17,7 @@
           </div>
         </div>
         <div v-else class="song-info">
-          <img v-if="adjacentSong.cover" :src="adjacentSong.cover" alt="" class="song-info-art" />
+          <img :src="adjacentSong.cover || '/icons/qiqi.jpg'" alt="" class="song-info-art" />
           <div v-else class="song-info-art vinyl-disc small" v-html="vinylSvg"></div>
           <div class="song-meta-h">
             <div class="song-title">{{ adjacentSong.title }}</div>
@@ -29,7 +29,7 @@
       <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
         <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
           <canvas v-if="showSpectrum" ref="ringSpecRef" class="ring-spectrum" :class="{ spinning: store.isPlaying }"></canvas>
-          <img v-if="playerStyle === 'disc' && store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
+          <img v-if="playerStyle === 'disc' && !coverBroken" :src="store.currentSong.cover || '/icons/qiqi.jpg'" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
           <div v-else class="album-art vinyl-disc" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
         </div>
         <div class="song-meta">
@@ -39,7 +39,7 @@
       </div>
       <!-- 经典样式 -->
       <div v-else class="song-info">
-        <img v-if="store.currentSong.cover && !coverBroken" :src="store.currentSong.cover" alt="" class="song-info-art" @error="onImgError" />
+        <img v-if="!coverBroken" :src="store.currentSong.cover || '/icons/qiqi.jpg'" alt="" class="song-info-art" @error="onImgError" />
         <div v-else class="song-info-art vinyl-disc small" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
         <div class="song-meta-h">
           <div class="song-title">{{ store.currentSong.title }}</div>

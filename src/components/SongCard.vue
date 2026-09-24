@@ -4,7 +4,7 @@
       <span class="rank-num" :class="rankClass">{{ rank }}</span>
     </div>
     <div class="cover-wrap" :class="{ 'hutao-link': song.vip }" @click.stop="song.vip ? $emit('hutao-search', song) : null">
-      <img :src="song.cover" :alt="song.title" class="cover" loading="lazy" decoding="async" @error="hideImg" />
+      <img :src="song.cover || '/icons/qiqi.jpg'" :alt="song.title" class="cover" loading="lazy" decoding="async" @error="hideImg" />
     </div>
     <div class="info">
       <span class="title">{{ song.title }}</span>
