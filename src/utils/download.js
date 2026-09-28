@@ -96,8 +96,19 @@ export async function downloadSong(url, filename) {
   fallbackDownload(url, filename)
 }
 
-// 浏览器兜底下载：fetch 为 blob，用本地 objectURL 触发下载（兼容移动端）
+// 兜底下载：APK 用系统浏览器下载，网页用 blob + <a>
 function fallbackDownload(url, filename) {
+  const cap = typeof window !== 'undefined' && window.Capacitor
+  const isNative = cap && cap.isNativePlatform && cap.isNativePlatform()
+
+  if (isNative) {
+    // 手机端：在系统浏览器中打开下载链接
+    window.open(url, '_system')
+    showToast('已在浏览器中下载')
+    return
+  }
+
+  // 网页版：fetch 拿 blob → 本地 objectURL → <a download>
   fetch(url)
     .then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
