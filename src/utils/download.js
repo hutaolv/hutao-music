@@ -1,3 +1,4 @@
+import { registerPlugin } from '@capacitor/core'
 import { addDownload } from './storage.js'
 import { usePlayerStore } from '../stores/player.js'
 
@@ -6,6 +7,12 @@ import { usePlayerStore } from '../stores/player.js'
 const WRITE_DIRS = ['DOCUMENTS', 'EXTERNAL', 'DATA']
 // base64 走插件桥接有内存上限，超过只入「我的下载」不落盘
 const MAX_NATIVE_SIZE = 50 * 1024 * 1024
+// 系统下载后读回文件的分片大小（桥接单条消息体积限制）
+const READ_CHUNK = 2 * 1024 * 1024
+// DownloadManager 状态：1排队 2进行中 4暂停 8完成 16失败
+const DM_SUCCESS = 8
+const DM_FAILED = 16
+const DM_TIMEOUT = 15 * 60 * 1000
 
 const EXT_BY_MIME = {
   'audio/mpeg': '.mp3',
@@ -81,9 +88,107 @@ function withFilenameParam(url, filename) {
   }
 }
 
+// 系统下载插件（MainActivity 注册的本地插件），网页端不可用
+let sysDownloader
+function getSystemDownloader() {
+  if (sysDownloader !== undefined) return sysDownloader
+  try {
+    const cap = typeof window !== 'undefined' ? window.Capacitor : null
+    sysDownloader = cap && cap.isNativePlatform && cap.isNativePlatform()
+      ? registerPlugin('SystemDownloader')
+      : false
+  } catch (e) {
+    sysDownloader = false
+  }
+  return sysDownloader
+}
+
+// DownloadManager 只认 http/https 绝对地址
+function absUrl(url) {
+  try { return new URL(url, window.location.href).toString() } catch (e) { return url }
+}
+
+// 系统下载前只能靠元数据猜扩展名（拿不到响应头 Content-Type）
+function guessMime(song) {
+  const m = String(song?.mimeType || '').split(';')[0].trim().toLowerCase()
+  return m && EXT_BY_MIME[m] ? m : 'audio/mpeg'
+}
+
+function b64ToBytes(b64) {
+  const bin = atob(b64)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return arr
+}
+
+// 轮询系统下载状态直到完成（通知栏进度条由系统自己画，这里只等结果）
+async function waitSystemDownload(sd, id) {
+  const deadline = Date.now() + DM_TIMEOUT
+  for (;;) {
+    const info = await sd.query({ id })
+    if (info.status === DM_SUCCESS) return info
+    if (info.status === DM_FAILED) {
+      try { await sd.cancel({ id }) } catch (e) { /* 顺手清掉失败记录 */ }
+      throw new Error(`系统下载失败（reason ${info.reason}）`)
+    }
+    if (Date.now() > deadline) {
+      try { await sd.cancel({ id }) } catch (e) { /* 忽略取消失败 */ }
+      throw new Error('系统下载超时')
+    }
+    await new Promise(r => setTimeout(r, 500))
+  }
+}
+
+// 系统下载 + 读回字节入库：通知栏实时进度、断点重试、文件落系统下载目录、全程免存储权限
+async function downloadViaSystem(url, song, baseName) {
+  const sd = getSystemDownloader()
+  if (!sd) throw new Error('插件不可用')
+
+  const mime = guessMime(song)
+  const filename = `${baseName}${EXT_BY_MIME[mime] || '.mp3'}`
+  const enq = await sd.enqueue({
+    url: absUrl(withFilenameParam(url, filename)),
+    filename,
+    mimeType: mime
+  })
+  showToast('已开始下载，通知栏可查看进度')
+
+  const info = await waitSystemDownload(sd, enq.id)
+
+  // 分片读回写进 IndexedDB（离线可播）；超大文件只存元数据，文件本身已在下载目录
+  let blob = null
+  if (info.total > 0 && info.total <= MAX_NATIVE_SIZE) {
+    try {
+      const parts = []
+      let offset = 0
+      for (;;) {
+        const chunk = await sd.getContent({ id: enq.id, offset, length: READ_CHUNK })
+        if (chunk.data) parts.push(chunk.data)
+        if (chunk.done || !chunk.data) break
+        offset = chunk.offset
+      }
+      blob = new Blob(parts.map(b64ToBytes), { type: mime })
+    } catch (e) {
+      console.warn('[下载] 读回系统下载文件失败，仅存元数据:', e && e.message)
+    }
+  }
+
+  if (song) {
+    await persistDownload(buildDownloadSong(song, blob || { type: mime, size: info.total || 0 }, url), blob)
+    // 通知首页刷新"我的下载"（keep-alive 下 onMounted 只跑一次）
+    try { usePlayerStore().touchDlVersion() } catch (e) { console.warn('[下载] 刷新下载列表失败:', e && e.message) }
+  }
+
+  if (!blob) {
+    showToast(info.total > MAX_NATIVE_SIZE ? '文件较大，已存入我的下载' : '已保存到下载目录')
+    return true
+  }
+  showToast(enq.dir === 'public' ? '已保存到下载目录' : '已保存到应用存储')
+  return true
+}
+
 // 音频代理有并发流上限（429）/ 上游偶发 502，短延迟重试比直接兜底浏览器成功率高得多
-async function fetchBlob(url, retries = 2) {
-  let lastErr = null
+async function fetchBlob(url, retries = 2) {  let lastErr = null
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url)
@@ -163,6 +268,16 @@ export async function downloadSong(url, song) {
   const fs = isNative && cap.Plugins ? cap.Plugins.Filesystem : null
 
   const baseName = sanitizeFilename(filenameFromSong(song))
+
+  // 原生端优先交给系统 DownloadManager：通知栏实时进度条 + 断点重试 + 文件落系统下载目录
+  if (isNative) {
+    try {
+      return await downloadViaSystem(url, song, baseName)
+    } catch (e) {
+      // 插件不可用 / 系统下载失败时回退到下面的应用内抓取流程
+      console.warn('[下载] 系统下载失败，回退应用内下载:', e && e.message)
+    }
+  }
 
   let blob = null
   try {
