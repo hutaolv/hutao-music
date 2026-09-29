@@ -803,12 +803,19 @@ watch(() => store.currentSong, async (song) => {
         if (!availableQualities.value.includes(quality.value)) {
           const prefer = ['lossless', 'high', 'standard'].find(q => availableQualities.value.includes(q))
           if (prefer && prefer !== quality.value) {
+            // 起播还没结束时换 src 会打断进行中的 audio.play()（AbortError → safePlay
+            // 把 isPlaying 回落成 false，表现为"转圈结束变暂停，再点一次才播"）。
+            // 而此刻当前地址明明已可播，只是探测超时误报：此时只保留菜单数据，不动地址
+            if (resolving.value || !store.isPlaying) return
             quality.value = prefer
             getSongUrl(song, prefer).then(fallbackUrl => {
               // 切歌守卫：探测回调较慢，期间已切歌则不得覆盖新歌的音频源
               if (fallbackUrl && audio && store.currentSong?.id === song.id) {
+                const wasPlaying = store.isPlaying
                 audio.src = fallbackUrl
                 downloadUrl.value = fallbackUrl
+                // 换 src 会中止当前播放，保持播放中就重新起播，避免无声卡住
+                if (wasPlaying) safePlay()
               }
             })
           }
