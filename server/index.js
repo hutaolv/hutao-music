@@ -249,6 +249,11 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     if (filename) {
       const name = String(filename).slice(0, 120)
       const ascii = name.replace(/[^\x20-\x7E]/g, '_')
+      // 必须把 Content-Type 改成二进制流：多数浏览器（含国产浏览器）对 audio/* 会嗅探成内联播放器，
+      // 即使带了 Content-Disposition: attachment 也照样播，octet-stream 才必然触发下载。
+      // 只有带 filename 参数的下载请求会命中此分支，播放用的 URL 不受影响。
+      res.setHeader('Content-Type', 'application/octet-stream')
+      res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`)
     }
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'))
