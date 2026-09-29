@@ -612,17 +612,24 @@ async function removeDl(song) {
   color: var(--text-muted);
 }
 
+/* 行内布局：SongCard 占满剩余宽度，删除按钮作为普通兄弟元素排在卡片动作区（❤️）右侧，
+   而不是绝对定位叠在爱心上 */
 .download-item {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.download-item > :deep(.song-card) {
+  flex: 1;
+  min-width: 0;
 }
 
 .dl-delete-btn {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-right: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -643,7 +650,7 @@ async function removeDl(song) {
     background: rgba(239, 68, 68, 0.1);
   }
 }
-.dl-delete-btn:active { transform: translateY(-50%) scale(0.85); }
+.dl-delete-btn:active { transform: scale(0.85); }
 /* 触屏始终显示删除按钮 */
 @media (hover: none) {
   .dl-delete-btn { opacity: 1; }
