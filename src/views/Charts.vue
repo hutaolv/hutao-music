@@ -161,7 +161,9 @@ async function playAllFx(songs) {
           const data = await thirdPartySearch(s.title, activePlatform.value)
           const match = data?.songs?.[0]
           if (match) {
-            const merged = { ...s, ...match, cover: s.cover || match.cover }
+            // 胡桃搜结果不带 vip 字段，不显式清掉会继承原曲的 vip:true，
+            // 被播放器 VIP 拦截口挡住，整条"搜可播放源"路径失效
+            const merged = { ...s, ...match, vip: false, cover: s.cover || match.cover }
             playable.push(merged)
             if (playable.length === 1) store.playAll(playable)
             else store.addToPlaylist(merged)
