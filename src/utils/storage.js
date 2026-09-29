@@ -304,7 +304,9 @@ export async function getDownloads() {
           const songData = cursor.value?.song
           if (songData && songData.id) {
             const { audioBlob, ...meta } = songData
-            results.push(meta)
+            // ts 存在记录外层（addDownload 写入的 record.ts），必须显式带上，
+            // 否则排序全取 undefined，顺序退回主键序 → 最新下载不会排最前
+            results.push({ ...meta, ts: cursor.value.ts ?? 0 })
           }
           cursor.continue()
         } else {
