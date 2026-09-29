@@ -168,8 +168,14 @@ export async function downloadSong(url, song) {
     blob = await fetchBlob(url)
   } catch (e) {
     console.error('[下载] 音频获取失败:', e && e.message)
-    if (isNative) openInBrowser(withFilenameParam(url, `${baseName}.mp3`))
-    showToast('下载失败，已在浏览器中打开')
+    if (isNative) {
+      // 原生端跳系统浏览器接管下载（带上文件名，由服务端 Content-Disposition 决定保存名）
+      openInBrowser(withFilenameParam(url, `${baseName}.mp3`))
+      showToast('下载失败，已在浏览器中打开')
+    } else {
+      // 网页端无跳转兜底，只提示重试
+      showToast('下载失败，请检查网络后重试')
+    }
     return false
   }
 
