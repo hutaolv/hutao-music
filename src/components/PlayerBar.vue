@@ -199,7 +199,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { getFavorites, addFavorite, removeFavorite, getDownloadBlob, addDownload } from '../utils/storage'
+import { getFavorites, addFavorite, removeFavorite, getDownloadBlob } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
@@ -307,29 +307,16 @@ async function setQuality(q) {
 }
 
 // 下载歌曲：加锁防重复点击，完成后解锁
-// 同时保存到 IndexedDB（供"我的下载"列表使用）和本地文件系统
+// 音频抓取 / 入库「我的下载」/ 本地落盘统一封装在 downloadSong 内
 async function downloadSong() {
   if (!store.currentSong || isDownloading.value) return
   const url = downloadUrl.value
   if (!url) return
   isDownloading.value = true
-  const song = store.currentSong
-  const filename = `${song.title} - ${song.artist}.mp3`
   try {
-    // 下载音频文件
-    const res = await fetch(url)
-    const blob = await res.blob()
-    // 保存到 IndexedDB（供"我的下载"离线播放）
-    const dlSong = {
-      ...song,
-      id: song.id.startsWith('download_') ? song.id : `download_${song.id}`,
-      fromDownload: true,
-      mimeType: blob.type || 'audio/mpeg',
-      fileSize: blob.size
-    }
-    await addDownload(dlSong, blob)
-    // 保存到本地文件系统
-    await saveSong(url, filename)
+    await saveSong(url, store.currentSong)
+  } catch (e) {
+    console.error('[下载] 失败:', e)
   } finally {
     setTimeout(() => { isDownloading.value = false }, 1500)
   }
@@ -1528,7 +1515,8 @@ onUnmounted(() => {
     padding: 0 12px;
   }
 
-  /* 桌面端的收藏按钮在手机端隐藏（移到右侧控件区） */
+  /* 手机端播放条隐藏：桌面收藏（右侧另有 mobile-only 收藏）、
+     音质与下载（均已内置在歌词页「播放器设置」面板中） */
   .desktop-only {
     display: none;
   }
