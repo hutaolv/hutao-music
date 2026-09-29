@@ -1,4 +1,5 @@
 import { addDownload } from './storage.js'
+import { usePlayerStore } from '../stores/player.js'
 
 // 手机本地存储目录候选：优先公共「文档」目录（用户可见），
 // Android 11+ 沙盒限制写入失败时逐级回退到应用专属目录
@@ -181,7 +182,12 @@ export async function downloadSong(url, song) {
 
   const fileTitle = normalizeFilename(baseName, blob)
 
-  if (song) await persistDownload(buildDownloadSong(song, blob, url), blob)
+  if (song) {
+    await persistDownload(buildDownloadSong(song, blob, url), blob)
+    // 通知首页刷新"我的下载"：App.vue 用 keep-alive 缓存首页，onMounted 只跑一次，
+    // 不主动发信号的话新下载的歌要刷新页面才看得到
+    try { usePlayerStore().touchDlVersion() } catch (e) { console.warn('[下载] 刷新下载列表失败:', e && e.message) }
+  }
 
   if (!fs) {
     saveWebFile(blob, fileTitle)

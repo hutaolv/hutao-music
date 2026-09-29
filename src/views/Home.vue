@@ -207,6 +207,11 @@ watch(() => store.favVersion, async () => {
   favoriteSongs.value = await getFavorites()
 })
 
+// 下载入库后刷新"我的下载"列表（首页被 keep-alive 缓存，onMounted 只跑一次，否则新歌要刷新页面才出现）
+watch(() => store.dlVersion, async () => {
+  downloadSongs.value = await getDownloads()
+})
+
 // 本地文件导入：读取音频文件，解析文件名，存入 IndexedDB
 async function onImportFiles(e) {
   const files = Array.from(e.target.files || [])
