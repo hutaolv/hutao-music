@@ -44,8 +44,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- 不声明 READ/WRITE_EXTERNAL_STORAGE：安装时无"存储"隐私权限提示；
+         内部/应用专属外部目录免权限，公共 Documents 在 Android 11+ 也写不进去，
+         故下载文件统一落到应用目录（我的下载仍离线可播） -->
     <!-- 后台播放保活：前台服务 + 唤醒锁 -->
     <!-- 不声明 POST_NOTIFICATIONS：安装时无"显示通知"权限提示，Android 13+ 通知默认隐藏，用户可在系统设置中自行开启 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
