@@ -223,7 +223,7 @@ function audioStreamGuard(req, res, next) {
 }
 
 app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
-  const { url } = req.query
+  const { url, filename } = req.query
   if (!url) return res.status(400).json({ code: 400, message: 'url required' })
   try {
     const fetchHeaders = {
@@ -245,6 +245,12 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     res.setHeader('Accept-Ranges', 'bytes')
     const contentType = response.headers.get('content-type') || 'audio/mpeg'
     res.setHeader('Content-Type', contentType)
+    // 客户端走浏览器兜底下载时带上文件名，否则浏览器会按 URL 末段命名成 "audio"
+    if (filename) {
+      const name = String(filename).slice(0, 120)
+      const ascii = name.replace(/[^\x20-\x7E]/g, '_')
+      res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+    }
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'))
     if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'))
     if (req.headers.range) {
