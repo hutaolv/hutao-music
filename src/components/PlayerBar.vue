@@ -427,6 +427,8 @@ const vipBlockedToast = ref(false)
 let playFailedTimer = null
 let vipBlockedTimer = null
 let audio = null
+// 系统打断（其他App抢占音频焦点）导致的暂停标记：回到前台时据此自动恢复播放
+let externallyPaused = false
 let unregisterMiniSpec = null
 // 下载歌曲的 Blob URL（播放时创建，切歌时释放）
 let currentBlobUrl = null
@@ -547,6 +549,23 @@ function initAudio() {
     }).catch(() => {})
   })
   audio.addEventListener('ended', onEnded)
+  // 外部打断同步：其他App播放声音时系统会直接暂停 audio，不回写 isPlaying 的话
+  // 播放条按钮与锁屏/通知栏媒体栏会一直停在"播放中"（两者都读 store.isPlaying）
+  audio.addEventListener('pause', () => {
+    // 延后一拍再判断：换源/主动切歌会先 pause 再 play，这种瞬时状态不纠正
+    setTimeout(() => {
+      if (!audio || audio.ended || !audio.paused || resolving.value) return
+      // 用户主动暂停时 isPlaying 已是 false，不会误标成"被打断"
+      if (store.isPlaying) {
+        store.isPlaying = false
+        externallyPaused = true
+      }
+    }, 200)
+  })
+  audio.addEventListener('play', () => {
+    externallyPaused = false
+    if (!store.isPlaying) store.isPlaying = true
+  })
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
   })
@@ -601,6 +620,10 @@ function onVisibilityChange() {
   if (document.hidden || !audio) return
   if (store.isPlaying && audio.paused && audio.src) {
     safePlay()
+  } else if (externallyPaused && audio.paused && audio.src) {
+    // 被系统打断的暂停：状态已纠正为暂停，回到前台仍按"播放中"意图自动恢复
+    externallyPaused = false
+    store.isPlaying = true
   }
 }
 
