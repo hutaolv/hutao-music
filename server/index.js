@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
 import { createHash } from 'crypto'
+import { isIP } from 'net'
+import dns from 'dns/promises'
 import { resolve, dirname, sep, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync, readFileSync, mkdirSync, readdirSync, statSync, unlinkSync, createReadStream, createWriteStream } from 'fs'
@@ -138,6 +140,96 @@ function cleanImageCache() {
 cleanImageCache()
 setInterval(cleanImageCache, 6 * 60 * 60 * 1000)   // 每 6 小时清一次
 
+// ===== 代理目标安全校验（防 SSRF）=====
+// 图片/音频代理会以服务器身份抓取用户传入的 URL，必须挡住内网与云元数据地址，
+// 否则任何人都能借接口读取服务器内网服务（如 169.254.169.254 云凭证、127.0.0.1 内部管理口）。
+// 校验链：仅 http/https → 拒绝 localhost/单标签/内建特殊域名 → 字面量 IP 判私网
+//        → DNS 解析结果逐个判私网（防域名解析到内网） → 重定向每一跳重新校验。
+
+function isPrivateV4(ip) {
+  const p = ip.split('.').map(Number)
+  if (p.length !== 4 || p.some((n) => Number.isNaN(n))) return true
+  const [a, b] = p
+  return a === 0 || a === 10 || a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||          // CGNAT 100.64/10
+    (a === 169 && b === 254) ||                    // 链路本地 + 云元数据 169.254.169.254
+    (a === 172 && b >= 16 && b <= 31) ||           // 172.16/12
+    (a === 192 && b === 168) ||                    // 192.168/16
+    (a === 192 && b === 0) ||                      // 192.0.0/24 特殊用途
+    a >= 224                                       // 组播/保留/广播
+}
+
+function isPrivateIp(ip) {
+  const v = isIP(ip)
+  if (v === 4) return isPrivateV4(ip)
+  if (v === 6) {
+    const h = ip.toLowerCase()
+    if (h === '::1' || h === '::') return true
+    if (/^f[cd]/.test(h)) return true                            // fc00::/7 唯一本地地址
+    if (/^fe[89ab]/.test(h)) return true                         // fe80::/10 链路本地
+    const dotted = h.match(/^(?::ffff:|::)(\d+\.\d+\.\d+\.\d+)$/)  // IPv4-mapped/兼容地址
+    if (dotted) return isPrivateV4(dotted[1])
+    const hex = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)   // 十六进制 IPv4-mapped
+    if (hex) {
+      const hi = parseInt(hex[1], 16)
+      const lo = parseInt(hex[2], 16)
+      return isPrivateV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+    }
+    return false
+  }
+  return true   // 无法识别的一律按私网拒绝
+}
+
+async function validateProxyUrl(target) {
+  let u
+  try { u = new URL(target) } catch { return { ok: false, status: 400 } }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, status: 403 }
+  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase()   // IPv6 字面量带方括号
+  if (!host) return { ok: false, status: 403 }
+  if (isIP(host)) return isPrivateIp(host) ? { ok: false, status: 403 } : { ok: true }
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
+      host.endsWith('.internal') || host === 'metadata.google.internal') return { ok: false, status: 403 }
+  if (!host.includes('.')) return { ok: false, status: 403 }      // 单标签主机名按内网服务处理
+  let addrs
+  try { addrs = await dns.lookup(host, { all: true }) } catch { return { ok: false, status: 502 } }
+  if (!addrs.length) return { ok: false, status: 502 }
+  for (const a of addrs) if (isPrivateIp(a.address)) return { ok: false, status: 403 }
+  return { ok: true }
+}
+
+// 带校验的 fetch：每次请求（含重定向每一跳）先过 validateProxyUrl，
+// 防止合法外网地址 302 跳转到内网（redirect-based SSRF）
+async function safeFetch(rawUrl, options = {}, maxRedirects = 5) {
+  let current = rawUrl
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const v = await validateProxyUrl(current)
+    if (!v.ok) {
+      const err = new Error('blocked by proxy guard')
+      err.proxyStatus = v.status
+      throw err
+    }
+    const resp = await fetch(current, { ...options, redirect: 'manual' })
+    if (![301, 302, 303, 307, 308].includes(resp.status)) return resp
+    const loc = resp.headers.get('location')
+    if (!loc) return resp
+    try { resp.body?.cancel() } catch { /* 重定向响应体无需消费 */ }
+    current = new URL(loc, current).toString()
+  }
+  const err = new Error('too many redirects')
+  err.proxyStatus = 502
+  throw err
+}
+
+// 代理响应 Content-Type 白名单：同源代理若原样透传上游的 text/html，
+// 攻击者用自己的 URL 就能在本站域名下执行脚本（同源 XSS）。
+// 非白名单类型一律降级为 application/octet-stream + nosniff（不可执行、不可渲染脚本）
+function safeContentType(upstreamCt, allow) {
+  const ct = String(upstreamCt || '').split(';')[0].trim().toLowerCase()
+  return allow(ct) ? ct : 'application/octet-stream'
+}
+const allowImageCt = (ct) => (ct.startsWith('image/') && ct !== 'image/svg+xml')   // SVG 可携带脚本，拒绝
+const allowAudioCt = (ct) => ct.startsWith('audio/') || ct.startsWith('video/') || ct === 'application/octet-stream'
+
 app.get('/api/proxy/image', async (req, res) => {
   const { url } = req.query
   if (!url) return res.status(400).json({ code: 400, message: 'url required' })
@@ -145,6 +237,13 @@ app.get('/api/proxy/image', async (req, res) => {
     // B站等来源的封面常是协议相对地址（//i0.hdslb.com/...），fetch 无法解析，需补全协议
     let target = decodeURIComponent(url)
     if (target.startsWith('//')) target = 'https:' + target
+
+    // SSRF 校验：内网/元数据/非 http 协议直接拒绝，不进入任何缓存与抓取流程
+    const verdict = await validateProxyUrl(target)
+    if (!verdict.ok) {
+      const msg = verdict.status === 400 ? 'invalid url' : verdict.status === 403 ? 'forbidden url' : 'proxy failed'
+      return res.status(verdict.status).json({ code: verdict.status, message: msg })
+    }
 
     // 磁盘缓存命中：按扩展名还原 Content-Type 直接回盘
     const cacheDir = IMG_CACHE_DIR
@@ -155,34 +254,47 @@ app.get('/api/proxy/image', async (req, res) => {
       const st = statSync(f)
       if (Date.now() - st.mtimeMs > IMG_CACHE_TTL_MS) break   // 过期视为未命中，走重新拉取并覆盖
       res.setHeader('Content-Type', IMG_EXT_TYPES[ext])
+      res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('Cache-Control', 'public, max-age=604800')
       res.setHeader('Access-Control-Allow-Origin', '*')
       createReadStream(f).pipe(res)
       return
     }
 
-    const imageRes = await fetch(target, {
+    const imageRes = await safeFetch(target, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.bilibili.com/'
       }
     })
     if (!imageRes.ok) return res.status(502).json({ code: 502, message: 'proxy failed' })
-    const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
+    // 白名单外的类型（HTML 错误页、SVG 脚本等）降级为二进制流，杜绝同源 XSS
+    const isImageCt = allowImageCt(String(imageRes.headers.get('content-type') || '').split(';')[0].trim().toLowerCase())
+    const contentType = isImageCt
+      ? String(imageRes.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+      : 'application/octet-stream'
     res.setHeader('Content-Type', contentType)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Access-Control-Allow-Origin', '*')
     // 浏览器缓存从1天提到7天：配合服务端磁盘缓存，封面几乎零重复流量
     res.setHeader('Cache-Control', 'public, max-age=604800')
 
     // 边转发边写盘：同一份上游流同时给用户和缓存文件，不额外占用内存缓冲
-    const cacheFile = imageCacheFile(target, contentType)
+    // 只缓存真正的图片（非图片类型落盘没有意义，还会把错误页长期污染缓存）
     const upstream = Readable.fromWeb(imageRes.body)
-    const ws = createWriteStream(cacheFile)
-    upstream.on('error', () => { try { unlinkSync(cacheFile) } catch {} })
-    ws.on('error', () => { try { unlinkSync(cacheFile) } catch {} })
-    upstream.pipe(ws)
+    if (isImageCt) {
+      const cacheFile = imageCacheFile(target, contentType)
+      const ws = createWriteStream(cacheFile)
+      upstream.on('error', () => { try { unlinkSync(cacheFile) } catch {} })
+      ws.on('error', () => { try { unlinkSync(cacheFile) } catch {} })
+      upstream.pipe(ws)
+    }
     upstream.pipe(res)
   } catch (e) {
+    if (e && e.proxyStatus) {
+      const msg = e.proxyStatus === 403 ? 'forbidden url' : 'proxy failed'
+      return res.status(e.proxyStatus).json({ code: e.proxyStatus, message: msg })
+    }
     res.status(500).json({ code: 500, message: e.message })
   }
 })
@@ -234,8 +346,15 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     // 与图片代理一样补全协议相对地址，避免解析失败
     let target = decodeURIComponent(url)
     if (target.startsWith('//')) target = 'https:' + target
-    // 音频流加超时，避免上游无响应时连接挂死导致客户端卡顿
-    const response = await fetch(target, {
+    // SSRF 校验：内网/元数据/非 http 协议直接拒绝（音频接口无鉴权，必须拦在最前面）
+    const verdict = await validateProxyUrl(target)
+    if (!verdict.ok) {
+      const msg = verdict.status === 400 ? 'invalid url' : verdict.status === 403 ? 'forbidden url' : 'proxy failed'
+      return res.status(verdict.status).json({ code: verdict.status, message: msg })
+    }
+    // 音频流加超时，避免上游无响应时连接挂死导致客户端卡顿；
+    // redirect: 'manual' 由 safeFetch 手动跟随并逐跳校验，防重定向跳到内网
+    const response = await safeFetch(target, {
       headers: fetchHeaders,
       signal: AbortSignal.timeout(15000)
     })
@@ -243,8 +362,10 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Cache-Control', 'public, max-age=3600')
     res.setHeader('Accept-Ranges', 'bytes')
-    const contentType = response.headers.get('content-type') || 'audio/mpeg'
+    // 白名单外的类型（HTML 错误页等）降级为二进制流，防同源 XSS
+    const contentType = safeContentType(response.headers.get('content-type'), allowAudioCt)
     res.setHeader('Content-Type', contentType)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
     // 客户端走浏览器兜底下载时带上文件名，否则浏览器会按 URL 末段命名成 "audio"
     if (filename) {
       const name = String(filename).slice(0, 120)
@@ -273,6 +394,12 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     })
     reader.pipe(res)
   } catch (e) {
+    // SSRF 拦截/重定向超限：按拦截状态返回，不泄露内部细节
+    if (e && e.proxyStatus) {
+      const msg = e.proxyStatus === 403 ? 'forbidden url' : 'proxy failed'
+      if (!res.headersSent) res.status(e.proxyStatus).json({ code: e.proxyStatus, message: msg })
+      return
+    }
     // AbortError/TimeoutError 是超时主动断开，非服务器错误，静默关闭连接即可
     if (e.name === 'AbortError' || e.name === 'TimeoutError' || e.name === 'DOMException') {
       if (!res.destroyed) res.destroy()
