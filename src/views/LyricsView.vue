@@ -4,10 +4,9 @@
     <div class="lyrics-overlay"></div>
     <div class="lyrics-container" :class="playerStyle" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @mousedown="onMouseDown" @wheel="onWheel">
       <!-- 滑动时的相邻歌曲卡片：从对面滑入覆盖当前内容 -->
-      <div v-if="adjacentSong" class="card-incoming" :class="playerStyle"
-        :style="{ transform: `translateY(${swipeOffset > 0 ? swipeOffset - windowH : swipeOffset + windowH}px)` }">
+      <div v-if="adjacentSong" class="card-incoming" :class="playerStyle" :style="cardStyle">
         <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
-          <div class="album-art-wrap">
+          <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
             <img :src="adjacentSong.cover || '/icons/qiqi.jpg'" alt="" class="album-art" />
           </div>
           <div class="song-meta">
@@ -24,7 +23,7 @@
         </div>
       </div>
       <!-- 旋转/黑胶样式 -->
-      <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel">
+      <div v-if="playerStyle === 'disc' || playerStyle === 'vinyl'" class="side-panel" :style="currentParallaxStyle">
         <div class="album-art-wrap" :class="{ 'with-spectrum': showSpectrum }">
           <canvas v-if="showSpectrum" ref="ringSpecRef" class="ring-spectrum" :class="{ spinning: store.isPlaying }"></canvas>
           <img v-if="playerStyle === 'disc' && !coverBroken" :src="store.currentSong.cover || '/icons/qiqi.jpg'" alt="" class="album-art" :class="{ spinning: store.isPlaying }" @error="onImgError" />
@@ -36,7 +35,7 @@
         </div>
       </div>
       <!-- 经典样式 -->
-      <div v-else class="song-info">
+      <div v-else class="song-info" :style="currentParallaxStyle">
         <img v-if="!coverBroken" :src="store.currentSong.cover || '/icons/qiqi.jpg'" alt="" class="song-info-art" @error="onImgError" />
         <div v-else class="song-info-art vinyl-disc small" :class="{ spinning: store.isPlaying }" v-html="vinylSvg"></div>
         <div class="song-meta-h">
@@ -44,7 +43,7 @@
           <div class="song-artist">{{ store.currentSong.artist }}</div>
         </div>
       </div>
-      <div class="lyrics-scroll" ref="lyricsRef">
+      <div class="lyrics-scroll" ref="lyricsRef" :style="currentLyricsStyle">
         <div v-if="!parsedLyrics.length" class="no-lyrics">暂无歌词</div>
         <div v-for="(line, i) in parsedLyrics" :key="i"
           class="lyric-line"
@@ -206,6 +205,43 @@ const adjacentSong = computed(() => {
     ? list[(idx - 1 + list.length) % list.length]
     : list[(idx + 1) % list.length]
 })
+
+// 交接帧位置严丝合缝所需的视差因子：交接时相邻卡片在 ±(windowH - h)，当前内容在 ±f·h，
+// 令两者相等 → f = (windowH - h) / h = 1/CARD_HEIGHT_RATIO - 1，两侧内容在交接帧零跳变
+const currentParallaxStyle = computed(() => {
+  const o = swipeOffset.value
+  if (!o) return {}
+  const k = Math.min(Math.abs(o) / (windowH.value || 1), 1)
+  const f = 1 / CARD_HEIGHT_RATIO - 1
+  return {
+    transform: `translateY(${(o * f).toFixed(1)}px)`,
+    opacity: (1 - k * 0.5).toFixed(3)
+  }
+})
+
+// 歌词区只淡出不位移：交接帧没有卡片承接歌词内容，位移会在交接瞬间跳变
+const currentLyricsStyle = computed(() => {
+  const o = swipeOffset.value
+  if (!o) return {}
+  const k = Math.min(Math.abs(o) / (windowH.value || 1), 1)
+  return { opacity: (1 - k * 0.5).toFixed(3) }
+})
+
+// 相邻卡片：透明背景滑入，透明度与当前内容同曲线，交接帧两侧连续无亮度跳变
+const cardStyle = computed(() => {
+  const o = swipeOffset.value
+  if (!o) return {}
+  const k = Math.min(Math.abs(o) / (windowH.value || 1), 1)
+  return {
+    transform: `translateY(${o > 0 ? o - windowH.value : o + windowH.value}px)`,
+    opacity: (1 - k * 0.5).toFixed(3)
+  }
+})
+
+// 窗口尺寸变化时同步视口高度（相邻卡片定位依赖 windowH）
+function onWinResize() {
+  windowH.value = window.innerHeight
+}
 
 // 音质选择：standard=标准 high=高音质 lossless=无损（本地持久化）
 const qualityOptions = [
@@ -403,15 +439,30 @@ function goBack() {
   router.back()
 }
 
-// 翻页动画：方向锁定 + 弹性回弹 + 卡片滑动
-let lastWheelDir = 0
-let wheelLockTimer = null
+// 翻页动画：手势排队（动画中到达的滑动只记方向，动画结束立即消费，连滑不被吞）
 const SWIPE_THRESHOLD = 40
 const CARD_HEIGHT_RATIO = 0.85
+// 滚轮会话间隔：同一手势（含惯性）的事件间隔都小于此，只认会话首事件；
+// 间隔 ≥ 此值才视为新的一次主动滚动，防止惯性尾巴连切几首
+const WHEEL_SESSION_MS = 200
+let pendingDir = null
+let wheelQueueDir = null
+let lastWheelAt = 0
+
+function requestSwitch(direction, source) {
+  if (isSwitching.value) {
+    if (source === 'wheel') wheelQueueDir = direction
+    else pendingDir = direction
+    return
+  }
+  pageTransition(direction)
+}
 
 function pageTransition(direction) {
-  if (isSwitching.value) return
+  if (isSwitching.value) { pendingDir = direction; return }
   isSwitching.value = true
+  pendingDir = null
+  wheelQueueDir = null
   const h = window.innerHeight * CARD_HEIGHT_RATIO
   const exitTarget = direction === 'down' ? -h : h
   animateTo(exitTarget, 300, () => {
@@ -421,12 +472,23 @@ function pageTransition(direction) {
     nextTick(() => {
       animateTo(0, 300, () => {
         isSwitching.value = false
+        consumePending()
       })
     })
   })
 }
 
+// 动画结束消费队列：触摸/拖拽手势离散，排队即意图；滚轮队列只可能来自会话新起点
+function consumePending() {
+  const dir = pendingDir || wheelQueueDir
+  pendingDir = null
+  wheelQueueDir = null
+  if (dir) pageTransition(dir)
+}
+
+let animRafId = null
 function animateTo(target, duration, onDone) {
+  if (animRafId) cancelAnimationFrame(animRafId)
   const start = swipeOffset.value
   const dist = target - start
   const startTime = performance.now()
@@ -434,59 +496,71 @@ function animateTo(target, duration, onDone) {
     const t = Math.min((now - startTime) / duration, 1)
     const ease = 1 - Math.pow(1 - t, 3)
     swipeOffset.value = start + dist * ease
-    if (t < 1) requestAnimationFrame(step)
-    else if (onDone) onDone()
+    if (t < 1) animRafId = requestAnimationFrame(step)
+    else {
+      animRafId = null
+      if (onDone) onDone()
+    }
   }
-  requestAnimationFrame(step)
+  animRafId = requestAnimationFrame(step)
 }
 
-// 手机端触摸
+// 手机端触摸：只认起始手指（identifier），防止双指先后抬起被当成两次切换
 let touchStartY = 0
+let touchStartId = null
 let touchStartTarget = null
 function onTouchStart(e) {
-  touchStartY = e.touches[0].clientY
-  touchStartTarget = e.target
+  // 起始手指仍在触摸中则保持不变（第二根手指落下不覆盖起点）
+  if (touchStartId === null || !Array.from(e.touches).some(t => t.identifier === touchStartId)) {
+    const t = e.touches[0]
+    touchStartId = t.identifier
+    touchStartY = t.clientY
+    touchStartTarget = e.target
+  }
   if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
   e.preventDefault()
 }
 function onTouchMove(e) {
   if (isSwitching.value) return
+  const t = Array.from(e.touches).find(t => t.identifier === touchStartId)
+  if (!t) return
   if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
   e.preventDefault()
-  const dy = e.touches[0].clientY - touchStartY
-  swipeOffset.value = dy
+  swipeOffset.value = t.clientY - touchStartY
 }
 function onTouchEnd(e) {
+  const t = Array.from(e.changedTouches).find(t => t.identifier === touchStartId)
+  if (!t) return
+  touchStartId = null
   if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
-  const dy = e.changedTouches[0].clientY - touchStartY
+  const dy = t.clientY - touchStartY
   if (Math.abs(dy) < SWIPE_THRESHOLD) {
-    animateTo(0, 200)
+    if (!isSwitching.value) animateTo(0, 200)
     return
   }
-  if (dy < 0) pageTransition('down')
-  else pageTransition('up')
+  requestSwitch(dy < 0 ? 'down' : 'up', 'gesture')
 }
 
-// 电脑端滚轮切歌：方向锁定
+// 电脑端滚轮切歌：会话内（含惯性）只认首事件，间隔 ≥200ms 才算新的一次滚动
 function onWheel(e) {
   if (e.target.closest('.lyrics-scroll')) return
   e.preventDefault()
-  if (isSwitching.value) return
-  const dir = e.deltaY > 0 ? 1 : -1
-  if (lastWheelDir === dir && wheelLockTimer) return
-  lastWheelDir = dir
-  if (wheelLockTimer) clearTimeout(wheelLockTimer)
-  wheelLockTimer = setTimeout(() => { wheelLockTimer = null }, 400)
-  if (dir > 0) pageTransition('down')
-  else pageTransition('up')
+  const now = Date.now()
+  const gap = now - lastWheelAt
+  lastWheelAt = now
+  if (gap < WHEEL_SESSION_MS) return
+  requestSwitch(e.deltaY > 0 ? 'down' : 'up', 'wheel')
 }
 
 // 电脑端鼠标拖拽切歌
 let mouseStartY = 0
 let mouseStartTarget = null
 let mouseRafId = null
+let mouseLastY = 0
 function onMouseDown(e) {
   if (e.target.closest('.lyrics-scroll')) return
+  // 阻止原生图片拖拽/文本选择：否则拖动封面会触发 HTML5 拖放，后续 mousemove 被吞
+  e.preventDefault()
   mouseStartY = e.clientY
   mouseStartTarget = e.target
   document.addEventListener('mousemove', onMouseMove)
@@ -494,12 +568,13 @@ function onMouseDown(e) {
 }
 function onMouseMove(e) {
   if (isSwitching.value) return
+  // 记录最新位置，由下一帧统一取值：闭包捕获旧事件会丢掉快速拖拽的后续移动
+  mouseLastY = e.clientY
   if (mouseRafId) return
   mouseRafId = requestAnimationFrame(() => {
     mouseRafId = null
     if (mouseStartTarget && mouseStartTarget.closest('.lyrics-scroll')) return
-    const dy = e.clientY - mouseStartY
-    swipeOffset.value = dy
+    swipeOffset.value = mouseLastY - mouseStartY
   })
 }
 function onMouseUp(e) {
@@ -509,23 +584,25 @@ function onMouseUp(e) {
   if (mouseStartTarget && mouseStartTarget.closest('.lyrics-scroll')) return
   const dy = e.clientY - mouseStartY
   if (Math.abs(dy) < SWIPE_THRESHOLD) {
-    animateTo(0, 200)
+    if (!isSwitching.value) animateTo(0, 200)
     return
   }
-  if (dy > 0) pageTransition('up')
-  else pageTransition('down')
+  requestSwitch(dy > 0 ? 'up' : 'down', 'gesture')
 }
 
 onMounted(() => {
   if (showSpectrum.value) {
     registerRingSpec()
   }
+  window.addEventListener('resize', onWinResize)
 })
 
 onUnmounted(() => {
   if (unregisterRingSpec) unregisterRingSpec()
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
+  window.removeEventListener('resize', onWinResize)
+  if (animRafId) cancelAnimationFrame(animRafId)
 })
 
 // 彩虹配色：青→蓝→紫→粉→橙
@@ -959,8 +1036,6 @@ watch(ringSpecRef, (el) => {
   gap: 56px;
   padding: 40px 32px;
   box-sizing: border-box;
-  background: rgba(10, 10, 15, 0.92);
-  backdrop-filter: blur(40px);
   z-index: 3;
 }
 .card-incoming.plain {
@@ -994,6 +1069,8 @@ watch(ringSpecRef, (el) => {
     padding: 24px 16px;
   }
   .side-panel { width: 100%; }
+  /* 卡片内边距与容器一致，交接帧内容位置对齐 */
+  .card-incoming { padding: 24px 16px; }
   .album-art-wrap { width: 180px; height: 180px; border-radius: 50%; }
   .album-art-wrap.with-spectrum { width: 150px; height: 150px; }
   .album-art { width: 180px; height: 180px; }
