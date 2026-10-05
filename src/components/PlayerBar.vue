@@ -746,6 +746,24 @@ function setupMediaSession() {
   watch(() => [store.currentSong, store.isPlaying], update)
 }
 
+// 歌词加载：下载记录里已存歌词时直接用（秒开、离线可看），否则在线拉（老记录/在线歌兜底）
+function loadSongLyrics(song) {
+  if (song.lyrics || song.transLyrics) {
+    if (store.currentSong?.id === song.id) {
+      store.rawLyrics = song.lyrics || ''
+      store.rawTransLyrics = song.transLyrics || ''
+    }
+    return
+  }
+  getLyrics(song).then(lrc => {
+    // 切歌守卫：歌词返回晚于切歌时不覆盖新歌歌词
+    if (lrc && store.currentSong?.id === song.id) {
+      store.rawLyrics = lrc.lyrics || ''
+      store.rawTransLyrics = lrc.transLyrics || ''
+    }
+  }).catch(() => {})
+}
+
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
   if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
@@ -797,7 +815,8 @@ watch(() => store.currentSong, async (song) => {
           setSpectrumActive(true)
           const played = await safePlay()
           resolving.value = false
-          // 下载歌曲无歌词接口，跳过
+          // 歌词：下载时已存本地歌词直接用（离线可看），否则在线拉（老记录兜底）
+          loadSongLyrics(song)
           return
         }
       } catch { /* Blob 读取失败，回退到普通解析 */ }
@@ -859,13 +878,7 @@ watch(() => store.currentSong, async (song) => {
       resolving.value = false
       // 预取下一首 + 加载歌词并行，不阻塞播放
       prefetchNextUrl()
-      getLyrics(song).then(lrc => {
-        // 切歌守卫：歌词返回晚于切歌时不覆盖新歌歌词
-        if (lrc && store.currentSong?.id === song.id) {
-          store.rawLyrics = lrc.lyrics || ''
-          store.rawTransLyrics = lrc.transLyrics || ''
-        }
-      }).catch(() => {})
+      loadSongLyrics(song)
     } else {
       // 拿不到真实音频：提示并 5 秒后自动跳下一首
       showPlayFailed()

@@ -173,7 +173,9 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
 
 export async function getLyrics(song) {
   const platform = song.isThirdParty && song.realPlatform ? song.realPlatform : song.platform
-  const params = new URLSearchParams({ platform, id: song.platformId || song.id })
+  // 下载记录的 id 带 download_ 前缀，歌词查询需还原原始 ID（platformId 缺失时兜底）
+  const rawId = String(song.platformId || song.id || '').replace(/^download_/, '')
+  const params = new URLSearchParams({ platform, id: rawId })
   if (song.platformSongMid) params.set('mid', song.platformSongMid)
   if (song.lyricUrl) params.set('lyricUrl', song.lyricUrl)
   // 酷狗官方歌词接口需要歌曲时长（毫秒）

@@ -1,5 +1,6 @@
 import { registerPlugin } from '@capacitor/core'
 import { addDownload } from './storage.js'
+import { getLyrics } from '../services/api'
 import { usePlayerStore } from '../stores/player.js'
 
 // 手机本地存储目录候选：优先公共「文档」目录（用户可见），
@@ -174,7 +175,8 @@ async function downloadViaSystem(url, song, baseName) {
   }
 
   if (song) {
-    await persistDownload(buildDownloadSong(song, blob || { type: mime, size: info.total || 0 }, url), blob)
+    const lrc = await resolveLyricsForSave(song)
+    await persistDownload(buildDownloadSong(song, blob || { type: mime, size: info.total || 0 }, url, lrc), blob)
     // 通知首页刷新"我的下载"（keep-alive 下 onMounted 只跑一次）
     try { usePlayerStore().touchDlVersion() } catch (e) { console.warn('[下载] 刷新下载列表失败:', e && e.message) }
   }
@@ -218,10 +220,42 @@ function saveWebFile(blob, filename) {
   }, 100)
 }
 
+// 与音频下载并行预取歌词：入库时带上，播放秒开且离线可看
+function startLyricsFetch(song) {
+  if (!song) return Promise.resolve(null)
+  return getLyrics(song).catch(() => null)
+}
+
+// 限时等歌词结果：apiFetch 无超时，慢/失败不阻塞下载完成（缺了播放时在线兜底即可）
+function awaitLyrics(promise, ms = 12000) {
+  if (!promise) return Promise.resolve(null)
+  return Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(() => resolve(null), ms))
+  ])
+}
+
+// 入库前取歌词：正在播的歌直接复用内存里已加载的（播放时拉过，避免与音频抓取抢连接池被排队/限流）；
+// 否则现拉一次并限时等待，拿不到就不写字段，播放时在线兜底
+async function resolveLyricsForSave(song) {
+  try {
+    if (song) {
+      const store = usePlayerStore()
+      if (store.currentSong && store.currentSong.id === song.id &&
+          (store.rawLyrics || store.rawTransLyrics)) {
+        return { lyrics: store.rawLyrics || '', transLyrics: store.rawTransLyrics || '' }
+      }
+    }
+    return await awaitLyrics(startLyricsFetch(song))
+  } catch (e) {
+    return null
+  }
+}
+
 // 下载列表条目：加 download_ 前缀 + 保留在线地址（Blob 丢失时仍可播放）
-function buildDownloadSong(song, blob, url) {
+function buildDownloadSong(song, blob, url, lrc) {
   const rawId = String(song.id ?? '')
-  return {
+  const entry = {
     ...song,
     id: rawId.startsWith('download_') ? rawId : `download_${rawId}`,
     fromDownload: true,
@@ -229,6 +263,12 @@ function buildDownloadSong(song, blob, url) {
     mimeType: blob.type || 'audio/mpeg',
     fileSize: blob.size
   }
+  // 存下歌词供离线播放使用；拿不到就不写字段，播放时在线拉兜底
+  if (lrc && (lrc.lyrics || lrc.transLyrics)) {
+    entry.lyrics = lrc.lyrics || ''
+    entry.transLyrics = lrc.transLyrics || ''
+  }
+  return entry
 }
 
 // 入库：优先连音频一起存（离线可播），空间不足时退化为只存元数据
@@ -298,7 +338,8 @@ export async function downloadSong(url, song) {
   const fileTitle = normalizeFilename(baseName, blob)
 
   if (song) {
-    await persistDownload(buildDownloadSong(song, blob, url), blob)
+    const lrc = await resolveLyricsForSave(song)
+    await persistDownload(buildDownloadSong(song, blob, url, lrc), blob)
     // 通知首页刷新"我的下载"：App.vue 用 keep-alive 缓存首页，onMounted 只跑一次，
     // 不主动发信号的话新下载的歌要刷新页面才看得到
     try { usePlayerStore().touchDlVersion() } catch (e) { console.warn('[下载] 刷新下载列表失败:', e && e.message) }
