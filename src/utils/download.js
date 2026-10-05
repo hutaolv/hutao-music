@@ -14,6 +14,9 @@ const READ_CHUNK = 2 * 1024 * 1024
 const DM_SUCCESS = 8
 const DM_FAILED = 16
 const DM_TIMEOUT = 15 * 60 * 1000
+// 流式下载停滞超时：15s 收不到任何新字节（含响应头）视为半开连接/上游挂起，主动掐断走重试，
+// 否则 reader.read() 永远 pending → 进度冻结、isDownloading 锁死按钮无法再下载
+const STREAM_IDLE_MS = 15000
 
 const EXT_BY_MIME = {
   'audio/mpeg': '.mp3',
@@ -214,8 +217,16 @@ function resetDlProgress() {
 async function fetchBlob(url, onProgress, retries = 2) {
   let lastErr = null
   for (let i = 0; i <= retries; i++) {
+    const ctrl = new AbortController()
+    let lastActivity = performance.now()
+    const watchdog = setInterval(() => {
+      if (performance.now() - lastActivity > STREAM_IDLE_MS) {
+        try { ctrl.abort() } catch (e) { /* 已中止时忽略 */ }
+      }
+    }, 1000)
     try {
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: ctrl.signal })
+      lastActivity = performance.now()
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       // 无流式响应体的老浏览器：退化为一次性读取，读完补报一次
       if (!res.body || !res.body.getReader) {
@@ -233,6 +244,7 @@ async function fetchBlob(url, onProgress, retries = 2) {
       for (;;) {
         const { done, value } = await reader.read()
         if (done) break
+        lastActivity = performance.now()
         parts.push(value)
         loaded += value.length
         // 150ms 节流上报，避免高频更新触发密集渲染
@@ -252,6 +264,8 @@ async function fetchBlob(url, onProgress, retries = 2) {
         if (onProgress) onProgress(0, 0)
         await new Promise(r => setTimeout(r, 600 * (i + 1)))
       }
+    } finally {
+      clearInterval(watchdog)
     }
   }
   throw lastErr || new Error('fetch failed')
