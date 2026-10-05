@@ -30,6 +30,9 @@ export const usePlayerStore = defineStore('player', () => {
   const favVersion = ref(0)
   // 下载变更版本号：入库「我的下载」后 +1，首页据此刷新下载列表（keep-alive 下 onMounted 只跑一次）
   const dlVersion = ref(0)
+  // PC 下载进度：-1 空闲，0-100 百分比，-2 无总长度（只显示已下载字节数）
+  const dlProgress = ref(-1)
+  const dlProgressLoaded = ref(0)
   // 音质切换信号：歌词页切换音质时 +1，PlayerBar 监听后立即重新获取对应音质的播放地址
   const qualityVersion = ref(0)
   // 歌词颜色：桌面歌词/歌词页共享，修改任一处同步生效
@@ -193,6 +196,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentSong, playlist, currentIndex, isPlaying, pendingUserPlay, volume, currentTime, duration,
     playMode,     showPlaylist, playModes, nextMode,
     rawLyrics, rawTransLyrics, currentLyricIndex, desktopLyrics, showLyricsPanel, seekTime, favVersion, dlVersion, qualityVersion, lyricColor,
+    dlProgress, dlProgressLoaded,
     playSong, togglePlay, playNext, playPrev, addToPlaylist, removeFromPlaylist,
     clearPlaylist, setVolume, togglePlayMode, togglePlaylist, closePlaylist, playAll, touchFavVersion, touchDlVersion, touchQualitySwitch
   }

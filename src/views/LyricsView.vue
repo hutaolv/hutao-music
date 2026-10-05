@@ -154,7 +154,7 @@
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <span class="ms-download-label">{{ isDownloading ? '下载中...' : (downloadFinished ? '已保存到我的下载' : (downloadUrl ? '点击下载' : '加载中...')) }}</span>
+            <span class="ms-download-label">{{ downloadLabel }}</span>
             <svg class="ms-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="9 18 15 12 9 6"/>
             </svg>
@@ -268,6 +268,15 @@ const downloadUrl = ref('')
 const isDownloading = ref(false)
 // 下载成功后的短暂完成反馈（避免按钮立即弹回「点击下载」）
 const downloadFinished = ref(false)
+// 下载行文案：下载中显示实时进度（有总长度显示百分比，否则显示已下载 MB）
+const downloadLabel = computed(() => {
+  if (!isDownloading.value) {
+    return downloadFinished.value ? '已保存到我的下载' : (downloadUrl.value ? '点击下载' : '加载中...')
+  }
+  if (store.dlProgress >= 0) return `下载中 ${store.dlProgress}%`
+  if (store.dlProgress === -2) return `下载中 ${(store.dlProgressLoaded / 1048576).toFixed(1)}MB`
+  return '下载中...'
+})
 
 // 切换并保存歌词界面播放器样式
 function setStyle(style) {

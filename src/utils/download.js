@@ -189,18 +189,69 @@ async function downloadViaSystem(url, song, baseName) {
   return true
 }
 
+// 进度上报到播放 store（PC 播放条按钮 / 歌词页下载行读取显示）
+// loaded/total 字节；total 为 0 表示响应无 Content-Length，UI 改显已下载字节数
+function reportDlProgress(loaded, total) {
+  try {
+    const store = usePlayerStore()
+    store.dlProgress = total > 0
+      ? Math.min(100, Math.round((loaded / total) * 100))
+      : (loaded > 0 ? -2 : 0)
+    store.dlProgressLoaded = loaded
+  } catch (e) { /* store 未初始化时忽略 */ }
+}
+
+function resetDlProgress() {
+  try {
+    const store = usePlayerStore()
+    store.dlProgress = -1
+    store.dlProgressLoaded = 0
+  } catch (e) { /* 忽略 */ }
+}
+
 // 音频代理有并发流上限（429）/ 上游偶发 502，短延迟重试比直接兜底浏览器成功率高得多
-async function fetchBlob(url, retries = 2) {  let lastErr = null
+// onProgress(loaded, total)：流式分块读取，边下边报进度
+async function fetchBlob(url, onProgress, retries = 2) {
+  let lastErr = null
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const blob = await res.blob()
-      if (!blob.size) throw new Error('empty body')
-      return blob
+      // 无流式响应体的老浏览器：退化为一次性读取，读完补报一次
+      if (!res.body || !res.body.getReader) {
+        const blob = await res.blob()
+        if (!blob.size) throw new Error('empty body')
+        if (onProgress) onProgress(blob.size, blob.size)
+        return blob
+      }
+      const total = Number(res.headers.get('content-length')) || 0
+      const type = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+      const reader = res.body.getReader()
+      const parts = []
+      let loaded = 0
+      let lastReport = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        parts.push(value)
+        loaded += value.length
+        // 150ms 节流上报，避免高频更新触发密集渲染
+        const now = performance.now()
+        if (onProgress && now - lastReport >= 150) {
+          lastReport = now
+          onProgress(loaded, total)
+        }
+      }
+      if (!loaded) throw new Error('empty body')
+      if (onProgress) onProgress(loaded, total)
+      return new Blob(parts, { type })
     } catch (e) {
       lastErr = e
-      if (i < retries) await new Promise(r => setTimeout(r, 600 * (i + 1)))
+      if (i < retries) {
+        // 重试从头下载，进度归零
+        if (onProgress) onProgress(0, 0)
+        await new Promise(r => setTimeout(r, 600 * (i + 1)))
+      }
     }
   }
   throw lastErr || new Error('fetch failed')
@@ -302,6 +353,8 @@ async function writeToNative(fs, data, filename) {
  */
 export async function downloadSong(url, song) {
   if (!url) return false
+  // 清掉上一次的进度残留（原生端走系统通知栏进度，这里保持 -1 显示转圈）
+  resetDlProgress()
 
   const cap = typeof window !== 'undefined' ? window.Capacitor : null
   const isNative = !!(cap && cap.isNativePlatform && cap.isNativePlatform())
@@ -321,9 +374,11 @@ export async function downloadSong(url, song) {
 
   let blob = null
   try {
-    blob = await fetchBlob(url)
+    reportDlProgress(0, 0)
+    blob = await fetchBlob(url, reportDlProgress)
   } catch (e) {
     console.error('[下载] 音频获取失败:', e && e.message)
+    resetDlProgress()
     if (isNative) {
       // 原生端跳系统浏览器接管下载（带上文件名，由服务端 Content-Disposition 决定保存名）
       openInBrowser(withFilenameParam(url, `${baseName}.mp3`))

@@ -112,12 +112,14 @@
         <button class="ctrl-btn desktop-lyrics-btn" :class="{ active: store.desktopLyrics }" @click="store.desktopLyrics = !store.desktopLyrics" title="桌面歌词">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
         </button>
-        <button v-if="downloadUrl && !store.currentSong?.fromDownload" class="ctrl-btn download-btn desktop-only" :disabled="isDownloading" @click="downloadSong" title="下载歌曲">
+        <button v-if="downloadUrl && !store.currentSong?.fromDownload" class="ctrl-btn download-btn desktop-only" :class="{ 'dl-active': isDownloading }" :disabled="isDownloading" :title="isDownloading ? dlBtnTitle : '下载歌曲'" @click="downloadSong">
           <svg v-if="!isDownloading" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
+          <span v-else-if="store.dlProgress >= 0" class="dl-progress-text">{{ store.dlProgress }}%</span>
+          <span v-else-if="store.dlProgress === -2" class="dl-progress-text">{{ dlMbText }}</span>
           <span v-else class="dl-spinner-desktop"></span>
         </button>
         <button v-else-if="store.currentSong?.fromDownload" class="ctrl-btn download-btn desktop-only downloaded" title="本地歌曲">
@@ -305,6 +307,14 @@ async function setQuality(q) {
   // 通知 PlayerBar 立即切换音质
   store.touchQualitySwitch()
 }
+
+// 下载进度展示：有总长度显示百分比，无总长度显示已下载 MB；转圈表示原生端/尚未开始
+const dlMbText = computed(() => (store.dlProgressLoaded / 1048576).toFixed(1) + 'MB')
+const dlBtnTitle = computed(() => {
+  if (store.dlProgress >= 0) return `下载中 ${store.dlProgress}%`
+  if (store.dlProgress === -2) return `下载中 ${dlMbText.value}`
+  return '下载中...'
+})
 
 // 下载歌曲：加锁防重复点击，完成后解锁
 // 音频抓取 / 入库「我的下载」/ 本地落盘统一封装在 downloadSong 内
@@ -1215,6 +1225,10 @@ onUnmounted(() => {
   animation: dl-spin-pb 0.7s linear infinite;
 }
 @keyframes dl-spin-pb { to { transform: rotate(360deg); } }
+
+/* 下载中：按钮由圆形图标变为胶囊，显示进度百分比 */
+.download-btn.dl-active { width: auto; min-width: 32px; padding: 0 8px; border-radius: 16px; }
+.dl-progress-text { font-size: 11px; font-weight: 600; color: var(--accent-light); font-variant-numeric: tabular-nums; letter-spacing: -0.2px; white-space: nowrap; }
 
 /* 已下载按钮样式 */
 .download-btn.downloaded {
