@@ -385,7 +385,8 @@ export async function removeDownload(songId) {
 }
 
 // 播放下载歌时在线拉到歌词 → 回写记录，下次离线播放直接有词（只动歌词字段，音频二进制原样保留）
-export async function updateDownloadLyrics(songId, lyrics, transLyrics) {
+// matchSource 可选：模糊匹配命中的来源信息（平台+原始 ID），P2 纠错入口用
+export async function updateDownloadLyrics(songId, lyrics, transLyrics, matchSource) {
   const db = await openDownloadsDB()
   try {
     return await new Promise((resolve, reject) => {
@@ -398,10 +399,15 @@ export async function updateDownloadLyrics(songId, lyrics, transLyrics) {
         if (!rec || !rec.song) return
         rec.song.lyrics = lyrics
         rec.song.transLyrics = transLyrics
+        // matchSource 可能是 Vue 响应式代理：Proxy 无法 structured clone，
+        // 直接 put 会抛 DataCloneError 且只触发 onabort（没监听就永远挂起）→ 必须转纯对象
+        if (matchSource !== undefined) rec.song.matchSource = matchSource ? JSON.parse(JSON.stringify(matchSource)) : matchSource
         store.put(rec)
       }
       req.onerror = () => reject(req.error)
       tx.oncomplete = () => resolve(true)
+      // put 抛异常（如 DataCloneError）时事务走 abort 而非 error，不监听会永远挂起
+      tx.onabort = () => reject(tx.error || new Error('transaction aborted'))
       tx.onerror = () => reject(tx.error)
     })
   } finally {

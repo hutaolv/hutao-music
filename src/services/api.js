@@ -200,6 +200,22 @@ export async function getLyrics(song) {
   }
 }
 
+// 本地导入歌模糊匹配歌词：服务端跨平台搜索 + 打分 + 取词一步到位
+// 返回 { matched, confidence, matchSource, lyrics, transLyrics }，失败/离线返回 null（调用方静默降级）
+export async function matchLyrics(song) {
+  const params = new URLSearchParams({ title: song.title || '' })
+  if (song.artist) params.set('artist', song.artist)
+  if (song.durationMs) params.set('durationMs', String(song.durationMs))
+  try {
+    const res = await apiFetch(`${API_BASE}/song/match-lyrics?${params}`)
+    const json = await res.json()
+    if (json.code === 200 && json.data) return json.data
+  } catch (e) {
+    console.warn('Match lyrics failed:', e.message)
+  }
+  return null
+}
+
 // 获取歌手歌曲。artistName 可选，供 B站/抖音/咪咕等需按歌手名辅助搜索的平台使用；
 // page 用于咪咕分页加载。返回 { songs, hasMore }
 export async function fetchLatestVersion() {

@@ -384,50 +384,49 @@ router.get('/url', async (req, res) => {
   }
 })
 
+// 按平台取歌词（/lyrics 与 /match-lyrics 共用），返回 { lyrics, transLyrics } 或 null
+async function fetchLyricsByPlatform(platform, opts = {}) {
+  const { id, mid, lyricUrl, contentId, timelength } = opts
+  switch (platform) {
+    case '网易云音乐':
+      return netease.getLyrics(id)
+    case 'QQ音乐':
+      return qqmusic.getLyrics(mid || id)
+    case 'B站':
+      return bilibili.getLyrics(id, lyricUrl)
+    case '抖音':
+    case '汽水音乐': {
+      if (!lyricUrl) return null
+      const { data } = await axios.get(lyricUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 })
+      if (!Array.isArray(data)) return null
+      const lrc = data.map(line => {
+        const t = parseFloat(line.timeId)
+        const m = Math.floor(t / 60)
+        const s = Math.floor(t % 60)
+        const ms = Math.round((t - Math.floor(t)) * 100)
+        return `[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}]${line.text}`
+      }).join('\n')
+      return { lyrics: lrc, transLyrics: '' }
+    }
+    case '咪咕音乐':
+      return migu.getLyrics(contentId || id)
+    case '酷我音乐':
+      // 酷我歌词：解析 m.kuwo.cn 播放详情页 __NUXT__ 内嵌歌词
+      return kuwo.getLyrics(id)
+    case '酷狗音乐':
+      // 酷狗官方歌词接口需要歌曲时长（毫秒）
+      return kugou.getLyrics(id, timelength)
+    default:
+      return null
+  }
+}
+
 router.get('/lyrics', async (req, res) => {
   const { platform, id, mid, lyricUrl, contentId } = req.query
   if (!platform || !id) return res.json({ code: 400, message: 'platform and id required' })
 
   try {
-    let lyrics = null
-    switch (platform) {
-      case '网易云音乐':
-        lyrics = await netease.getLyrics(id)
-        break
-      case 'QQ音乐':
-        lyrics = await qqmusic.getLyrics(mid || id)
-        break
-      case 'B站':
-        lyrics = await bilibili.getLyrics(id, lyricUrl)
-        break
-      case '抖音':
-      case '汽水音乐':
-        if (lyricUrl) {
-          const { data } = await axios.get(lyricUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 })
-          if (Array.isArray(data)) {
-            const lrc = data.map(line => {
-              const t = parseFloat(line.timeId)
-              const m = Math.floor(t / 60)
-              const s = Math.floor(t % 60)
-              const ms = Math.round((t - Math.floor(t)) * 100)
-              return `[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}]${line.text}`
-            }).join('\n')
-            lyrics = { lyrics: lrc, transLyrics: '' }
-          }
-        }
-        break
-      case '咪咕音乐':
-        lyrics = await migu.getLyrics(contentId || id)
-        break
-      case '酷我音乐':
-        // 酷我歌词：解析 m.kuwo.cn 播放详情页 __NUXT__ 内嵌歌词
-        lyrics = await kuwo.getLyrics(id)
-        break
-      case '酷狗音乐':
-        // 酷狗官方歌词接口需要歌曲时长（毫秒），由前端传入 timelength
-        lyrics = await kugou.getLyrics(id, req.query.timelength)
-        break
-    }
+    const lyrics = await fetchLyricsByPlatform(platform, { id, mid, lyricUrl, contentId, timelength: req.query.timelength })
     if (!lyrics) warn(`[Lyrics] ${platform} ${id} empty`)
     res.json({
       code: 200,
@@ -438,6 +437,157 @@ router.get('/lyrics', async (req, res) => {
   } catch (e) {
     warn(`[Lyrics] ${platform} ${id} error: ${e.message}`)
     res.json({ code: 200, data: { lyrics: '', transLyrics: '' } })
+  }
+})
+
+// ===== 本地导入歌模糊匹配歌词 =====
+// 跨平台搜索候选 → 打分（标题55% + 歌手25% + 时长20%，版本词降权）→ 取分最高且能取到词的候选
+const MATCH_TTL_MS = 30 * 60 * 1000
+const MATCH_CACHE_MAX = 300
+const MATCH_MIN_SCORE = 0.55
+const MATCH_MAX_TRIES = 3
+const matchCache = new Map() // cacheKey -> { data, exp }
+
+const normText = s => String(s || '').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '')
+const VERSION_WORDS = /(live|cover|remix|remaster|instrumental|demo|acoustic|现场|翻唱|伴奏|纯音乐)/i
+
+// 去掉版本词后的标题：主标题相似度用它算，避免 "xx (Live)" 与原版互相拉低分数
+function stripVersionWords(t) {
+  return normText(String(t || '')
+    .replace(/[（(\[【][^)）\]】]{0,20}[)）\]】]/g, ' ')
+    .replace(VERSION_WORDS, ' '))
+}
+
+// 二元组 Dice 相似度：对中英文标题都够用，且无需依赖库
+function diceSim(a, b) {
+  a = normText(a)
+  b = normText(b)
+  if (!a || !b) return 0
+  if (a === b) return 1
+  const grams = s => {
+    if (s.length < 2) return [s]
+    const arr = []
+    for (let i = 0; i < s.length - 1; i++) arr.push(s.slice(i, i + 2))
+    return arr
+  }
+  const ba = grams(a)
+  const bb = grams(b)
+  const pool = new Map()
+  for (const g of ba) pool.set(g, (pool.get(g) || 0) + 1)
+  let hit = 0
+  for (const g of bb) {
+    const c = pool.get(g) || 0
+    if (c > 0) { hit++; pool.set(g, c - 1) }
+  }
+  return (2 * hit) / (ba.length + bb.length)
+}
+
+function scoreCandidate(cand, q) {
+  const baseTitle = diceSim(stripVersionWords(cand.title), stripVersionWords(q.title))
+  const cHasVer = VERSION_WORDS.test(String(cand.title || ''))
+  const qHasVer = VERSION_WORDS.test(String(q.title || ''))
+  // 版本不一致（一方 Live/伴奏/翻唱等）是强降权信号，但不直接否决
+  const titleScore = baseTitle * (cHasVer !== qHasVer ? 0.55 : 1)
+  const artistKnown = q.artist && !/^(未知|unknown)$/i.test(q.artist.trim())
+  const artistScore = artistKnown ? diceSim(cand.artist, q.artist) : 0.7
+  let durScore = 0.7 // 双方任一缺时长时保持中性
+  const cd = Number(cand.durationMs) || 0
+  const qd = Number(q.durationMs) || 0
+  if (cd > 0 && qd > 0) {
+    const diff = Math.abs(cd - qd) / 1000
+    durScore = diff <= 2 ? 1 : diff <= 5 ? 0.9 : diff <= 10 ? 0.6 : 0.2 // 时长差是最强的反串台信号
+  }
+  return titleScore * 0.55 + artistScore * 0.25 + durScore * 0.2
+}
+
+// 候选来源：音频平台 5 家（B站/抖音是视频源，标题噪声大，不参与匹配）
+const MATCH_SEARCHES = [
+  { platform: '网易云音乐', run: kw => netease.searchSongs(kw, 10) },
+  { platform: 'QQ音乐', run: kw => qqmusic.searchSongs(kw, 10) },
+  { platform: '咪咕音乐', run: kw => migu.searchSongs(kw, 10) },
+  { platform: '酷我音乐', run: kw => kuwo.searchSongs(kw, 10) },
+  { platform: '酷狗音乐', run: kw => kugou.searchSongs(kw, 10, 1) }
+]
+
+router.get('/match-lyrics', async (req, res) => {
+  const title = String(req.query.title || '').trim()
+  const artist = String(req.query.artist || '').trim()
+  const durationMs = Number(req.query.durationMs) || 0
+  if (!title || title.length > 80) return res.json({ code: 400, message: 'title required' })
+
+  // 缓存按 标题+歌手+时长桶（5s 一桶，容忍导入测时长的小误差）
+  const cacheKey = `${normText(title)}|${normText(artist)}|${durationMs > 0 ? Math.round(durationMs / 5000) : 0}`
+  const cached = matchCache.get(cacheKey)
+  if (cached && cached.exp > Date.now()) return res.json({ code: 200, data: cached.data })
+  const respond = data => {
+    matchCache.set(cacheKey, { data, exp: Date.now() + MATCH_TTL_MS })
+    if (matchCache.size > MATCH_CACHE_MAX) matchCache.delete(matchCache.keys().next().value)
+    res.json({ code: 200, data })
+  }
+
+  try {
+    const q = { title, artist, durationMs }
+    // 全平台并行搜索，单平台 7s 兜底超时，慢平台不拖垮整体
+    const settled = await Promise.allSettled(MATCH_SEARCHES.map(s => Promise.race([
+      s.run(title),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('search timeout')), 7000))
+    ])))
+    const candidates = []
+    const seen = new Set()
+    settled.forEach((r, i) => {
+      if (r.status !== 'fulfilled' || !Array.isArray(r.value)) return
+      const platform = MATCH_SEARCHES[i].platform
+      r.value.slice(0, 5).forEach(c => {
+        const cid = String(c.platformId || c.id || '')
+        if (!cid) return
+        const key = `${platform}|${cid}`
+        if (seen.has(key)) return
+        seen.add(key)
+        candidates.push({ c, platform, cid, score: scoreCandidate(c, q) })
+      })
+    })
+    candidates.sort((a, b) => b.score - a.score)
+
+    for (const item of candidates.slice(0, MATCH_MAX_TRIES)) {
+      if (item.score < MATCH_MIN_SCORE) break
+      try {
+        // 单平台取词 8s 兜底超时：netease/qq 的 getLyrics 自身无超时，
+        // 上游悬挂会把整个匹配请求拖死（Promise.allSettled 的搜索超时护不住这里）
+        const lyrics = await Promise.race([
+          fetchLyricsByPlatform(item.platform, {
+            id: item.cid,
+            mid: item.c.platformSongMid,
+            contentId: item.c.contentId,
+            lyricUrl: item.c.lyricUrl,
+            timelength: item.c.durationMs || durationMs
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('lyrics timeout')), 8000))
+        ])
+        if (lyrics && lyrics.lyrics) {
+          warn(`[MatchLyrics] "${title}" -> ${item.platform} ${item.cid} score=${item.score.toFixed(2)}`)
+          return respond({
+            matched: true,
+            confidence: Number(item.score.toFixed(2)),
+            matchSource: {
+              platform: item.platform,
+              id: item.cid,
+              title: item.c.title || '',
+              artist: item.c.artist || '',
+              durationMs: Number(item.c.durationMs) || 0
+            },
+            lyrics: sanitizeLyricsText(lyrics.lyrics),
+            transLyrics: sanitizeLyricsText(lyrics.transLyrics)
+          })
+        }
+      } catch {
+        // 单平台取词失败，继续尝试下一个候选
+      }
+    }
+    warn(`[MatchLyrics] "${title}" no match (${candidates.length} candidates)`)
+    return respond({ matched: false })
+  } catch (e) {
+    warn(`[MatchLyrics] "${title}" error: ${e.message}`)
+    return res.json({ code: 200, data: { matched: false } })
   }
 })
 
