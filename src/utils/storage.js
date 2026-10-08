@@ -344,10 +344,35 @@ export async function addDownload(song, audioBlob) {
 export async function removeDownload(songId) {
   const db = await openDownloadsDB()
   try {
-    return await new Promise((resolve, reject) => {
+    return await new Promise((resolve) => {
       const tx = db.transaction(STORE_DOWNLOADS, 'readwrite')
       tx.objectStore(STORE_DOWNLOADS).delete(songId)
       tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+// 播放下载歌时在线拉到歌词 → 回写记录，下次离线播放直接有词（只动歌词字段，音频二进制原样保留）
+export async function updateDownloadLyrics(songId, lyrics, transLyrics) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readwrite')
+      const store = tx.objectStore(STORE_DOWNLOADS)
+      const req = store.get(songId)
+      req.onsuccess = () => {
+        const rec = req.result
+        // 记录已被删除时静默跳过
+        if (!rec || !rec.song) return
+        rec.song.lyrics = lyrics
+        rec.song.transLyrics = transLyrics
+        store.put(rec)
+      }
+      req.onerror = () => reject(req.error)
+      tx.oncomplete = () => resolve(true)
       tx.onerror = () => reject(tx.error)
     })
   } finally {

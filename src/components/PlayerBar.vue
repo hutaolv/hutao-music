@@ -201,7 +201,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { getFavorites, addFavorite, removeFavorite, getDownloadBlob } from '../utils/storage'
+import { getFavorites, addFavorite, removeFavorite, getDownloadBlob, updateDownloadLyrics } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
@@ -765,9 +765,19 @@ function loadSongLyrics(song) {
     }
     return
   }
+  // 本地导入的文件没有平台/原始 ID，歌词接口必然查不到，不发无效请求
+  if (song.platform === '本地导入') return
   getLyrics(song).then(lrc => {
+    if (!lrc) return
+    // 下载歌本地无词而在线拉到了 → 顺手回写记录（内存+IDB），下次离线播放直接有词
+    if (song.fromDownload && (lrc.lyrics || lrc.transLyrics)) {
+      song.lyrics = lrc.lyrics || ''
+      song.transLyrics = lrc.transLyrics || ''
+      updateDownloadLyrics(song.id, song.lyrics, song.transLyrics)
+        .catch(err => console.warn('[歌词回写] 失败:', err && err.message))
+    }
     // 切歌守卫：歌词返回晚于切歌时不覆盖新歌歌词
-    if (lrc && store.currentSong?.id === song.id) {
+    if (store.currentSong?.id === song.id) {
       store.rawLyrics = lrc.lyrics || ''
       store.rawTransLyrics = lrc.transLyrics || ''
     }
