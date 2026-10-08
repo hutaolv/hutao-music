@@ -30,7 +30,13 @@ const listRef = ref(null)
 const activeEl = ref(null)
 
 function hideImg(e) {
-  e.target.style.display = 'none'
+  const el = e.target
+  // 封面挂了先回退本地七七图，七七图也失败才隐藏
+  if (el.getAttribute('src') !== '/icons/qiqi.jpg') {
+    el.src = '/icons/qiqi.jpg'
+    return
+  }
+  el.style.display = 'none'
 }
 
 // 自定义平滑滚动：ease-out cubic 缓动，比原生 behavior: 'smooth' 更丝滑

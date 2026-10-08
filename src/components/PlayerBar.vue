@@ -201,11 +201,11 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { getFavorites, addFavorite, removeFavorite, getDownloadBlob, updateDownloadLyrics } from '../utils/storage'
+import { getFavorites, addFavorite, removeFavorite, getDownloadBlob, updateDownloadLyrics, updateDownloadCover } from '../utils/storage'
 import { getSongUrl, getLyrics } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
-import { downloadSong as saveSong } from '../utils/download'
+import { downloadSong as saveSong, fetchCoverBlob } from '../utils/download'
 import { MediaSession } from '@capgo/capacitor-media-session'
 import { Capacitor } from '@capacitor/core'
 import Playlist from './Playlist.vue'
@@ -784,6 +784,20 @@ function loadSongLyrics(song) {
   }).catch(() => {})
 }
 
+// 旧下载记录只存了封面 URL 没存图 → 在线播放时顺手抓一次存库，
+// 之后离线播放就是真封面；抓不到（离线/CORS）就走本地七七图兜底
+function backfillDownloadCover(song) {
+  if (!song?.fromDownload || song.coverBlob || !song.cover) return
+  if (String(song.cover).startsWith('blob:')) return
+  fetchCoverBlob(song.cover).then(blob => {
+    if (!blob) return
+    song.coverBlob = blob
+    song.cover = URL.createObjectURL(blob)
+    updateDownloadCover(song.id, blob)
+      .catch(err => console.warn('[封面回写] 失败:', err && err.message))
+  }).catch(() => {})
+}
+
 watch(() => store.currentSong, async (song) => {
   if (!audio) return
   if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
@@ -837,6 +851,8 @@ watch(() => store.currentSong, async (song) => {
           resolving.value = false
           // 歌词：下载时已存本地歌词直接用（离线可看），否则在线拉（老记录兜底）
           loadSongLyrics(song)
+          // 旧记录没有封面图：在线顺手补一次（离线/抓失败走七七图兜底）
+          backfillDownloadCover(song)
           return
         }
       } catch { /* Blob 读取失败，回退到普通解析 */ }
@@ -899,6 +915,7 @@ watch(() => store.currentSong, async (song) => {
       // 预取下一首 + 加载歌词并行，不阻塞播放
       prefetchNextUrl()
       loadSongLyrics(song)
+      backfillDownloadCover(song)
     } else {
       // 拿不到真实音频：提示并 5 秒后自动跳下一首
       showPlayFailed()
@@ -1095,7 +1112,13 @@ function formatTime(t) {
 }
 
 function onImgError(e) {
-  e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect fill="%23333" width="200" height="200"/><text fill="%23666" font-size="14" text-anchor="middle" x="100" y="105">暂无图片</text></svg>'
+  const el = e.target
+  // 封面 URL 挂了（离线/防盗链）先回退本地七七图，七七图也失败才显示占位块
+  if (el.getAttribute('src') !== '/icons/qiqi.jpg') {
+    el.src = '/icons/qiqi.jpg'
+    return
+  }
+  el.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect fill="%23333" width="200" height="200"/><text fill="%23666" font-size="14" text-anchor="middle" x="100" y="105">暂无图片</text></svg>'
 }
 
 onMounted(() => {

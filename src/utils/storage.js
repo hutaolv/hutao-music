@@ -310,7 +310,7 @@ export async function getDownloads() {
           }
           cursor.continue()
         } else {
-          resolve(results.sort((a, b) => (b.ts || 0) - (a.ts || 0)))
+          resolve(applyOfflineCover(results.sort((a, b) => (b.ts || 0) - (a.ts || 0))))
         }
       }
       req.onerror = () => resolve([])
@@ -323,15 +323,39 @@ export async function getDownloads() {
   }
 }
 
-// 添加下载歌曲：song 为元数据对象，audioBlob 为音频文件二进制
-export async function addDownload(song, audioBlob) {
+// 封面对象 URL 会话级缓存：同一首歌重复刷列表不重复 createObjectURL
+const coverUrlCache = new Map()
+function coverUrlFor(songId, blob) {
+  let u = coverUrlCache.get(songId)
+  if (!u) {
+    u = URL.createObjectURL(blob)
+    coverUrlCache.set(songId, u)
+  }
+  return u
+}
+
+// 有封面图的下载记录换成本会话对象 URL：离线播放/列表直接显示真封面
+function applyOfflineCover(rows) {
+  rows.forEach(s => {
+    if (s.coverBlob && s.id) s.cover = coverUrlFor(s.id, s.coverBlob)
+  })
+  return rows
+}
+
+// 添加下载歌曲：song 为元数据对象，audioBlob 为音频文件二进制，coverBlob 为封面图二进制（可选）
+export async function addDownload(song, audioBlob, coverBlob) {
   const db = await openDownloadsDB()
   try {
     return await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_DOWNLOADS, 'readwrite')
       const store = tx.objectStore(STORE_DOWNLOADS)
       const plain = toPlain(song)
-      store.put({ id: plain.id, song: { ...plain, audioBlob }, ts: Date.now() })
+      store.put({
+        id: plain.id,
+        // coverBlob 与 audioBlob 同理绕开 toPlain 的 JSON 序列化（Blob 会被 JSON 丢掉）
+        song: { ...plain, audioBlob, ...(coverBlob ? { coverBlob } : {}) },
+        ts: Date.now()
+      })
       tx.oncomplete = () => resolve(true)
       tx.onerror = () => { console.error('addDownload tx error:', tx.error); reject(tx.error) }
     })
@@ -342,6 +366,11 @@ export async function addDownload(song, audioBlob) {
 
 // 删除下载歌曲
 export async function removeDownload(songId) {
+  const cachedCoverUrl = coverUrlCache.get(songId)
+  if (cachedCoverUrl) {
+    URL.revokeObjectURL(cachedCoverUrl)
+    coverUrlCache.delete(songId)
+  }
   const db = await openDownloadsDB()
   try {
     return await new Promise((resolve) => {
@@ -369,6 +398,30 @@ export async function updateDownloadLyrics(songId, lyrics, transLyrics) {
         if (!rec || !rec.song) return
         rec.song.lyrics = lyrics
         rec.song.transLyrics = transLyrics
+        store.put(rec)
+      }
+      req.onerror = () => reject(req.error)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+// 旧下载记录没有封面图 → 在线播放时抓一次存库（只加 coverBlob 字段，不动音频/歌词）
+export async function updateDownloadCover(songId, coverBlob) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readwrite')
+      const store = tx.objectStore(STORE_DOWNLOADS)
+      const req = store.get(songId)
+      req.onsuccess = () => {
+        const rec = req.result
+        // 记录已被删除时静默跳过
+        if (!rec || !rec.song) return
+        rec.song.coverBlob = coverBlob
         store.put(rec)
       }
       req.onerror = () => reject(req.error)

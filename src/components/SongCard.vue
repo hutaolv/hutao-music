@@ -66,7 +66,15 @@ const favClass = computed(() => {
   return c
 })
 
-function hideImg(e) { e.target.style.display = 'none' }
+function hideImg(e) {
+  const el = e.target
+  // 封面挂了先回退本地七七图，七七图也失败才隐藏
+  if (el.getAttribute('src') !== '/icons/qiqi.jpg') {
+    el.src = '/icons/qiqi.jpg'
+    return
+  }
+  el.style.display = 'none'
+}
 
 async function toggleFav() {
   // IndexedDB 写入为异步，先翻转 UI 再落盘，避免等待造成卡顿

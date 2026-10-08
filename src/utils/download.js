@@ -1,6 +1,6 @@
 import { registerPlugin } from '@capacitor/core'
 import { addDownload } from './storage.js'
-import { getLyrics } from '../services/api'
+import { getLyrics, toAbsolute } from '../services/api'
 import { usePlayerStore } from '../stores/player.js'
 
 // 手机本地存储目录候选：优先公共「文档」目录（用户可见），
@@ -112,6 +112,39 @@ function absUrl(url) {
   try { return new URL(url, window.location.href).toString() } catch (e) { return url }
 }
 
+// 封面抓取地址：本服务器的地址直取；外部域名走服务端图片代理（同源免 CORS，APK 里也统一走线上）
+function coverFetchUrl(cover) {
+  try {
+    const abs = toAbsolute(String(cover || ''))
+    if (!/^https?:\/\//i.test(abs)) return null
+    const u = new URL(abs, window.location.href)
+    const serverOrigin = new URL(toAbsolute('/'), window.location.href).origin
+    if (u.origin === serverOrigin) return u.toString()
+    return toAbsolute(`/api/proxy/image?url=${encodeURIComponent(u.toString())}`)
+  } catch (e) {
+    return null
+  }
+}
+
+// 下载/回填时抓封面图（10s 超时、≤3MB），拿不到返回 null → 播放时走本地七七图兜底
+export async function fetchCoverBlob(cover) {
+  const target = coverFetchUrl(cover)
+  if (!target) return null
+  try {
+    const ctl = new AbortController()
+    const timer = setTimeout(() => ctl.abort(), 10000)
+    const res = await fetch(target, { signal: ctl.signal })
+    clearTimeout(timer)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    if (!blob.size || blob.size > 3 * 1024 * 1024) return null
+    if (blob.type && !blob.type.startsWith('image/')) return null
+    return blob
+  } catch (e) {
+    return null
+  }
+}
+
 // 系统下载前只能靠元数据猜扩展名（拿不到响应头 Content-Type）
 function guessMime(song) {
   const m = String(song?.mimeType || '').split(';')[0].trim().toLowerCase()
@@ -150,6 +183,8 @@ async function downloadViaSystem(url, song, baseName) {
 
   const mime = guessMime(song)
   const filename = `${baseName}${EXT_BY_MIME[mime] || '.mp3'}`
+  // 封面与系统下载并行抓，完成入库时拿结果（失败不阻塞，离线有七七图兜底）
+  const coverP = fetchCoverBlob(song && song.cover)
   const enq = await sd.enqueue({
     url: absUrl(withFilenameParam(url, filename)),
     filename,
@@ -179,7 +214,7 @@ async function downloadViaSystem(url, song, baseName) {
 
   if (song) {
     const lrc = await resolveLyricsForSave(song)
-    await persistDownload(buildDownloadSong(song, blob || { type: mime, size: info.total || 0 }, url, lrc), blob)
+    await persistDownload(buildDownloadSong(song, blob || { type: mime, size: info.total || 0 }, url, lrc), blob, await coverP)
     // 通知首页刷新"我的下载"（keep-alive 下 onMounted 只跑一次）
     try { usePlayerStore().touchDlVersion() } catch (e) { console.warn('[下载] 刷新下载列表失败:', e && e.message) }
   }
@@ -337,12 +372,12 @@ function buildDownloadSong(song, blob, url, lrc) {
 }
 
 // 入库：优先连音频一起存（离线可播），空间不足时退化为只存元数据
-async function persistDownload(dlSong, blob) {
+async function persistDownload(dlSong, blob, coverBlob) {
   try {
-    await addDownload(dlSong, blob)
+    await addDownload(dlSong, blob, coverBlob)
   } catch (e) {
     console.warn('[下载] 音频入库失败，仅存元数据:', e && e.message)
-    try { await addDownload(dlSong, null) } catch (e2) { console.error('[下载] 入库失败:', e2) }
+    try { await addDownload(dlSong, null, coverBlob) } catch (e2) { console.error('[下载] 入库失败:', e2) }
   }
 }
 
@@ -387,6 +422,8 @@ export async function downloadSong(url, song) {
   }
 
   let blob = null
+  // 封面与音频下载并行抓（原生分支已返回时不会走到这里，避免重复抓）
+  const coverP = fetchCoverBlob(song && song.cover)
   try {
     reportDlProgress(0, 0)
     blob = await fetchBlob(url, reportDlProgress)
@@ -408,7 +445,7 @@ export async function downloadSong(url, song) {
 
   if (song) {
     const lrc = await resolveLyricsForSave(song)
-    await persistDownload(buildDownloadSong(song, blob, url, lrc), blob)
+    await persistDownload(buildDownloadSong(song, blob, url, lrc), blob, await coverP)
     // 通知首页刷新"我的下载"：App.vue 用 keep-alive 缓存首页，onMounted 只跑一次，
     // 不主动发信号的话新下载的歌要刷新页面才看得到
     try { usePlayerStore().touchDlVersion() } catch (e) { console.warn('[下载] 刷新下载列表失败:', e && e.message) }

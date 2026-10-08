@@ -348,10 +348,14 @@ watch(() => store.qualityVersion, async () => {
   if (url) downloadUrl.value = url
 })
 
-// 封面加载失败或换歌后重置失败标记
-// 加防抖：短暂网络波动不立即放弃，延迟2秒确认真失败才隐藏
+// 封面加载失败：先回退本地七七图（离线可用）；七七图也失败（极罕见）才隐藏
 let coverErrorTimer = null
-function onImgError() {
+function onImgError(e) {
+  const el = e.target
+  if (el.getAttribute('src') !== '/icons/qiqi.jpg') {
+    el.src = '/icons/qiqi.jpg'
+    return
+  }
   clearTimeout(coverErrorTimer)
   coverErrorTimer = setTimeout(() => { coverBroken.value = true }, 2000)
 }
