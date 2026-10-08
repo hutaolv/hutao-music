@@ -130,7 +130,7 @@ public class SystemDownloaderPlugin extends Plugin {
      */
     @PluginMethod
     public void query(PluginCall call) {
-        Long id = call.getLong("id");
+        Long id = getDownloadId(call);
         if (dm == null || id == null) {
             call.reject("id required");
             return;
@@ -141,15 +141,18 @@ public class SystemDownloaderPlugin extends Plugin {
             call.reject("download not found");
             return;
         }
-        JSObject ret = new JSObject();
-        ret.put("status", readInt(cursor, DownloadManager.COLUMN_STATUS));
-        ret.put("reason", readInt(cursor, DownloadManager.COLUMN_REASON));
-        ret.put("bytes", readLong(cursor, DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-        ret.put("total", readLong(cursor, DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-        ret.put("localUri", readString(cursor, DownloadManager.COLUMN_LOCAL_URI));
-        ret.put("title", readString(cursor, DownloadManager.COLUMN_TITLE));
-        cursor.close();
-        call.resolve(ret);
+        try {
+            JSObject ret = new JSObject();
+            ret.put("status", readInt(cursor, DownloadManager.COLUMN_STATUS));
+            ret.put("reason", readInt(cursor, DownloadManager.COLUMN_REASON));
+            ret.put("bytes", readLong(cursor, DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+            ret.put("total", readLong(cursor, DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+            ret.put("localUri", readString(cursor, DownloadManager.COLUMN_LOCAL_URI));
+            ret.put("title", readString(cursor, DownloadManager.COLUMN_TITLE));
+            call.resolve(ret);
+        } finally {
+            cursor.close();
+        }
     }
 
     /**
@@ -159,7 +162,7 @@ public class SystemDownloaderPlugin extends Plugin {
      */
     @PluginMethod
     public void getContent(PluginCall call) {
-        Long id = call.getLong("id");
+        Long id = getDownloadId(call);
         int offset = call.getInt("offset", 0);
         int length = call.getInt("length", DEFAULT_CHUNK);
         if (dm == null || id == null) {
@@ -218,13 +221,31 @@ public class SystemDownloaderPlugin extends Plugin {
     /** 取消下载 */
     @PluginMethod
     public void cancel(PluginCall call) {
-        Long id = call.getLong("id");
+        Long id = getDownloadId(call);
         if (dm == null || id == null) {
             call.reject("id required");
             return;
         }
         dm.remove(id);
         call.resolve();
+    }
+
+    /**
+     * 取下载 id。桥接层 org.json 会把小整数解析成 Integer，
+     * 而 PluginCall.getLong 只认 Long（其余返回 null），
+     * 这里统一按 Number 宽容读取，避免 ≤ Integer.MAX_VALUE 的 id 全被拒。
+     */
+    private Long getDownloadId(PluginCall call) {
+        Object v = call.getData().opt("id");
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v instanceof String) {
+            try {
+                return Long.parseLong((String) v);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private int readInt(Cursor c, String col) {
