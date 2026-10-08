@@ -135,6 +135,7 @@ import { usePlayerStore } from '../stores/player'
 import { platforms, platformColors } from '../data/platforms'
 import { fetchCharts } from '../services/api'
 import { getRecentPlays, getFavorites, getDownloads, addDownload, removeDownload } from '../utils/storage'
+import { parseID3Tags } from '../utils/id3'
 import SongCard from '../components/SongCard.vue'
 
 const router = useRouter()
@@ -233,7 +234,11 @@ async function onImportFiles(e) {
         }
         const audioBuffer = await file.arrayBuffer()
         const audioBlob = new Blob([audioBuffer], { type: file.type || 'audio/mpeg' })
-        // 获取真实时长
+        // P0：解析 ID3 标签——内嵌歌名/歌手/专辑/时长比文件名准，内嵌歌词/封面直接用
+        const tags = parseID3Tags(audioBuffer)
+        if (tags.title) title = tags.title
+        if (tags.artist) artist = tags.artist
+        // 获取真实时长（测不出时退回 TLEN 标签）
         let realDuration = 0
         try {
           const audioEl = new Audio()
@@ -244,6 +249,7 @@ async function onImportFiles(e) {
           })
           URL.revokeObjectURL(audioEl.src)
         } catch { /* 无法获取时长则用 0 */ }
+        if (!realDuration && tags.durationMs) realDuration = tags.durationMs / 1000
         const m = Math.floor(realDuration / 60)
         const s = Math.floor(realDuration % 60)
         const durationStr = `${m}:${s.toString().padStart(2, '0')}`
@@ -251,7 +257,7 @@ async function onImportFiles(e) {
           id: `download_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           title,
           artist,
-          album: '',
+          album: tags.album || '',
           cover: '',
           duration: durationStr,
           durationMs: Math.floor(realDuration * 1000),
@@ -263,7 +269,9 @@ async function onImportFiles(e) {
           mimeType: file.type || 'audio/mpeg',
           fileSize: file.size
         }
-        await addDownload(song, audioBlob)
+        // 内嵌歌词随记录落库：离线可直接显示，在线也不再发匹配请求
+        if (tags.lyrics) song.lyrics = tags.lyrics
+        await addDownload(song, audioBlob, tags.cover)
         importProgress.value = `${i + 1}/${files.length}`
         console.log('导入成功:', title, `(${i + 1}/${files.length})`)
       } catch (err) {
