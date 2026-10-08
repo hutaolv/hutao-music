@@ -12,7 +12,7 @@ import { qqThirdPartyApis } from '../services/hutao-qq.js'
 import { kuwoThirdPartyApis } from '../services/hutao-kuwo.js'
 import { kugouThirdPartyApis } from '../services/hutao-kugou.js'
 import { fetchWithFallback } from '../services/thirdPartyApis.js'
-import { log } from '../logger.js'
+import { log, warn } from '../logger.js'
 
 const router = Router()
 
@@ -379,6 +379,7 @@ router.get('/url', async (req, res) => {
     if (url) setCachedUrl(cacheKey, url)
     res.json({ code: 200, data: { url, availableQualities } })
   } catch (e) {
+    warn(`[${ip}] [SongURL] ${platform} ${id} error: ${e.message}`)
     res.json({ code: 200, data: { url: null, availableQualities: null } })
   }
 })
@@ -427,6 +428,7 @@ router.get('/lyrics', async (req, res) => {
         lyrics = await kugou.getLyrics(id, req.query.timelength)
         break
     }
+    if (!lyrics) warn(`[Lyrics] ${platform} ${id} empty`)
     res.json({
       code: 200,
       data: lyrics
@@ -434,6 +436,7 @@ router.get('/lyrics', async (req, res) => {
         : { lyrics: '', transLyrics: '' }
     })
   } catch (e) {
+    warn(`[Lyrics] ${platform} ${id} error: ${e.message}`)
     res.json({ code: 200, data: { lyrics: '', transLyrics: '' } })
   }
 })

@@ -181,7 +181,7 @@ export async function getLyrics(id) {
   if (!rid) return null
   try {
     const url = `https://m.kuwo.cn/newh5app/play_detail/${rid}`
-    const resp = await fetch(url, { headers: chartHeaders })
+    const resp = await fetch(url, { headers: chartHeaders, signal: AbortSignal.timeout(8000) })
     if (!resp.ok) return null
     const html = await resp.text()
     const i = html.indexOf('__NUXT__=')

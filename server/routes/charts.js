@@ -114,6 +114,7 @@ router.get('/', async (req, res) => {
     if (data) res.json({ code: 200, data })
     else res.json({ code: 200, data: null, message: `${platform} toplist fetch failed` })
   } catch (e) {
+    console.error(`[Charts] ${platform} toplist error:`, e.message)
     res.json({ code: 200, data: null, message: e.message })
   }
 })
@@ -175,6 +176,7 @@ router.get('/more', async (req, res) => {
     }
     res.json({ code: 200, data: { songs: [], hasMore: false } })
   } catch (e) {
+    console.error(`[Charts] more ${name} page ${page} error:`, e.message)
     res.json({ code: 200, data: { songs: [], hasMore: false } })
   }
 })
