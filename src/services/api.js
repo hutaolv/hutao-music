@@ -32,10 +32,20 @@ function getNetworkType() {
   } catch { return '' }
 }
 
-// 统一请求封装：自动带上网络类型 header，供服务端访问日志记录真实网络状态
+// 统一请求封装：自动带上网络类型 header，供服务端访问日志记录真实网络状态。
+// 默认 30s 超时（AbortController），防止弱网下接口悬挂导致界面永久卡"加载中"；
+// 传 timeout: 0 可关闭超时（当前无调用方需要）
 async function apiFetch(url, options) {
-  const headers = { 'X-Network-Type': getNetworkType(), ...(options?.headers || {}) }
-  return fetch(url, { ...options, headers })
+  const { timeout = 30000, headers: extraHeaders, ...rest } = options || {}
+  const headers = { 'X-Network-Type': getNetworkType(), ...(extraHeaders || {}) }
+  if (!timeout) return fetch(url, { ...rest, headers })
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), timeout)
+  try {
+    return await fetch(url, { ...rest, headers, signal: ctl.signal })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function fetchCharts(platform, page, order, sublist) {
