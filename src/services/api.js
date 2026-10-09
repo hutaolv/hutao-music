@@ -201,11 +201,15 @@ export async function getLyrics(song) {
 }
 
 // 本地导入歌模糊匹配歌词：服务端跨平台搜索 + 打分 + 取词一步到位
-// 返回 { matched, confidence, matchSource, lyrics, transLyrics }，失败/离线返回 null（调用方静默降级）
-export async function matchLyrics(song) {
+// opts（P2 纠错用）：mode:'candidates' 回候选列表（不取词）、exclude:'平台|id,...' 换一批、fresh 跳过负缓存
+// 返回 { matched, confidence, matchSource, lyrics, transLyrics } 或 { candidates }，失败/离线返回 null
+export async function matchLyrics(song, opts = {}) {
   const params = new URLSearchParams({ title: song.title || '' })
   if (song.artist) params.set('artist', song.artist)
   if (song.durationMs) params.set('durationMs', String(song.durationMs))
+  if (opts.mode) params.set('mode', opts.mode)
+  if (opts.exclude) params.set('exclude', opts.exclude)
+  if (opts.fresh) params.set('fresh', '1')
   try {
     const res = await apiFetch(`${API_BASE}/song/match-lyrics?${params}`)
     const json = await res.json()

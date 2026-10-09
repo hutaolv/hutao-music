@@ -773,7 +773,8 @@ function loadSongLyrics(song) {
       if (!m?.matched || !m.lyrics) return
       song.lyrics = m.lyrics
       song.transLyrics = m.transLyrics || ''
-      song.matchSource = m.matchSource || null
+      // confidence 一并落进 matchSource：P2 歌词页徽标按分层展示（旧记录无此字段则只显示"猜测匹配"）
+      song.matchSource = m.matchSource ? { ...m.matchSource, confidence: m.confidence } : null
       if (song.fromDownload) {
         updateDownloadLyrics(song.id, song.lyrics, song.transLyrics, song.matchSource)
           .catch(err => console.warn('[歌词回写] 失败:', err && err.message))

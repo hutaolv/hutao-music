@@ -32,6 +32,7 @@
         <div class="song-meta">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
+          <div v-if="matchBadge" class="match-badge" :class="matchBadge.tier" @click.stop="onBadgeClick">{{ matchBadge.label }}</div>
         </div>
       </div>
       <!-- 经典样式 -->
@@ -41,10 +42,14 @@
         <div class="song-meta-h">
           <div class="song-title">{{ store.currentSong.title }}</div>
           <div class="song-artist">{{ store.currentSong.artist }}</div>
+          <div v-if="matchBadge" class="match-badge" :class="matchBadge.tier" @click.stop="onBadgeClick">{{ matchBadge.label }}</div>
         </div>
       </div>
       <div class="lyrics-scroll" ref="lyricsRef" :style="currentLyricsStyle">
-        <div v-if="!parsedLyrics.length" class="no-lyrics">暂无歌词</div>
+        <div v-if="!parsedLyrics.length" class="no-lyrics">
+          暂无歌词
+          <button v-if="canManualFind" class="rematch-link" @click.stop="openRematch(true)">手动找歌词</button>
+        </div>
         <div v-for="(line, i) in parsedLyrics" :key="i"
           class="lyric-line"
           :class="{ active: store.currentLyricIndex === i }"
@@ -60,6 +65,36 @@
     <button class="close-btn" @click="goBack" title="返回">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
+    <!-- P2 歌词纠错面板：候选列表手动挑选，换一批走 exclude，取词复用 /song/lyrics -->
+    <transition name="fade">
+      <div v-if="rematchOpen" class="rematch-mask" @click="closeRematch">
+        <div class="rematch-panel" @click.stop>
+          <div class="rm-header">
+            <span class="rm-header-title">歌词来源</span>
+            <button class="rm-close" @click="closeRematch" title="关闭">&#x2715;</button>
+          </div>
+          <div v-if="matchSourceInfo" class="rm-current">{{ matchSourceInfo }}</div>
+          <div v-if="candidates && candidates.length" class="rm-list">
+            <div v-for="c in candidates" :key="c.key" class="rm-item"
+                 :class="{ active: isCurrentCandidate(c), pending: pendingKey === c.key }"
+                 @click="applyCandidate(c)">
+              <div class="rm-item-main">
+                <div class="rm-item-title">{{ c.title }}</div>
+                <div class="rm-item-sub">{{ c.artist }}<span v-if="c.durationMs"> · {{ fmtDur(c.durationMs) }}</span></div>
+              </div>
+              <span class="rm-item-score" :class="{ low: c.score < 0.7 }">{{ Math.round(c.score * 100) }}%</span>
+              <span v-if="pendingKey === c.key" class="rm-item-spin" aria-label="加载中"></span>
+            </div>
+          </div>
+          <div v-else-if="candidates" class="rm-empty">没有更多候选了</div>
+          <div v-else class="rm-loading">搜索候选中…</div>
+          <div class="rm-footer">
+            <span class="rm-err" v-if="rematchErr">{{ rematchErr }}</span>
+            <button class="rm-more" :disabled="rematchLoading || !!pendingKey" @click="reloadCandidates">换一批</button>
+          </div>
+        </div>
+      </div>
+    </transition>
     <!-- 播放器样式切换：旋转 / 黑胶 / 经典 + 频谱开关 + 颜色选择 + 下载（桌面/平板横排展示） -->
     <div class="style-switch">
       <button :class="{ active: playerStyle === 'disc' }" @click="setStyle('disc')">旋转</button>
@@ -172,9 +207,10 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
-import { getSongUrl } from '../services/api'
+import { getSongUrl, getLyrics, matchLyrics } from '../services/api'
 import { registerCanvas, setSpectrumActive } from '../utils/spectrum'
 import { downloadSong as saveSong } from '../utils/download'
+import { updateDownloadLyrics } from '../utils/storage'
 
 const store = usePlayerStore()
 const router = useRouter()
@@ -194,6 +230,110 @@ const swipeOffset = ref(0)
 // 切换锁，防止连切
 const isSwitching = ref(false)
 const windowH = ref(window.innerHeight)
+
+// ===== P2 歌词纠错：来源徽标 + 候选面板 =====
+const rematchOpen = ref(false)
+const candidates = ref(null) // null=加载中，[]=无候选
+const pendingKey = ref('')   // 正在取词的候选 key，防连点
+const rematchErr = ref('')
+const rematchLoading = ref(false)
+const seenKeys = ref([])     // 本会话已见过的候选 key，"换一批"时拼 exclude
+
+// 来源徽标（仅本地导入歌显示）：内嵌=灰、≥90%=平台来源、55~90%=黄色"猜测匹配"
+const matchBadge = computed(() => {
+  const s = store.currentSong
+  if (!s || s.platform !== '本地导入' || !s.lyrics) return null
+  const ms = s.matchSource
+  if (!ms) return { tier: 'embedded', label: '内嵌歌词', clickable: false }
+  const conf = typeof ms.confidence === 'number' ? Math.round(ms.confidence * 100) : null
+  if (conf != null && conf >= 90) return { tier: 'high', label: `${ms.platform} · ${conf}%`, clickable: true }
+  return { tier: 'mid', label: conf != null ? `猜测匹配 · ${conf}%` : '猜测匹配', clickable: true }
+})
+
+// 匹配不到词时的"手动找歌词"入口
+const canManualFind = computed(() => store.currentSong?.platform === '本地导入' && !parsedLyrics.value.length)
+
+// 面板头部分行：当前来源（老记录无 confidence 则只显示平台）
+const matchSourceInfo = computed(() => {
+  const s = store.currentSong
+  if (!s || s.platform !== '本地导入') return ''
+  const ms = s.matchSource
+  if (!ms) return s.lyrics ? '当前：内嵌歌词' : ''
+  const conf = typeof ms.confidence === 'number' ? ` · ${Math.round(ms.confidence * 100)}%` : ''
+  return `当前：${ms.platform}${conf}`
+})
+
+function fmtDur(ms) {
+  const total = Math.round(Number(ms) / 1000)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+function onBadgeClick() {
+  if (matchBadge.value?.clickable) openRematch(false)
+}
+
+async function openRematch(fresh) {
+  rematchOpen.value = true
+  seenKeys.value = []
+  await loadCandidates(!!fresh)
+}
+
+function closeRematch() {
+  rematchOpen.value = false
+  pendingKey.value = ''
+  rematchErr.value = ''
+}
+
+async function loadCandidates(fresh) {
+  const s = store.currentSong
+  if (!s) return
+  rematchLoading.value = true
+  rematchErr.value = ''
+  candidates.value = null
+  const data = await matchLyrics(s, { mode: 'candidates', exclude: seenKeys.value.join(','), fresh })
+  rematchLoading.value = false
+  if (!data) { rematchErr.value = '网络异常，请稍后再试'; candidates.value = []; return }
+  candidates.value = Array.isArray(data.candidates) ? data.candidates : []
+  data.candidates?.forEach(c => { if (!seenKeys.value.includes(c.key)) seenKeys.value.push(c.key) })
+}
+
+// 换一批：exclude 里带上全部已见 key（服务端对带 exclude 的请求绕过缓存）
+function reloadCandidates() { loadCandidates(false) }
+
+function isCurrentCandidate(c) {
+  const ms = store.currentSong?.matchSource
+  return !!ms && ms.platform === c.platform && String(ms.id) === String(c.id)
+}
+
+async function applyCandidate(c) {
+  if (pendingKey.value || isCurrentCandidate(c)) return
+  const s = store.currentSong
+  if (!s) return
+  pendingKey.value = c.key
+  rematchErr.value = ''
+  try {
+    // 取词复用官方歌词接口：候选带 platformId/mid/durationMs，咪咕 platformId 即 contentId
+    const lrc = await getLyrics({ platform: c.platform, platformId: c.id, platformSongMid: c.mid, durationMs: c.durationMs })
+    if (!lrc || !lrc.lyrics) { rematchErr.value = '该候选没有歌词，换一个试试'; return }
+    s.lyrics = lrc.lyrics
+    s.transLyrics = lrc.transLyrics || ''
+    s.matchSource = { platform: c.platform, id: c.id, title: c.title, artist: c.artist, durationMs: c.durationMs, confidence: c.score }
+    if (s.fromDownload) {
+      updateDownloadLyrics(s.id, s.lyrics, s.transLyrics, s.matchSource)
+        .catch(err => console.warn('[歌词回写] 失败:', err && err.message))
+    }
+    // 切歌守卫：取词慢于切歌则不覆盖新歌
+    if (store.currentSong?.id === s.id) {
+      store.rawLyrics = s.lyrics
+      store.rawTransLyrics = s.transLyrics
+    }
+    closeRematch()
+  } catch (e) {
+    rematchErr.value = '取词失败，换一个试试'
+  } finally {
+    pendingKey.value = ''
+  }
+}
 
 // 卡片滑动：相邻歌曲 + 方向
 const adjacentSong = computed(() => {
@@ -1317,4 +1457,161 @@ watch(ringSpecRef, (el) => {
     to { opacity: 0; transform: scale(0.97); }
   }
 }
+
+/* ===== P2 歌词来源徽标 ===== */
+.match-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+}
+.match-badge.embedded {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+}
+.match-badge.high {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.match-badge.high:hover { background: rgba(255, 255, 255, 0.18); }
+.match-badge.mid {
+  background: rgba(255, 196, 0, 0.16);
+  color: #ffc400;
+  cursor: pointer;
+}
+.match-badge.mid:hover { background: rgba(255, 196, 0, 0.26); }
+
+.no-lyrics .rematch-link {
+  display: block;
+  margin: 12px auto 0;
+  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.no-lyrics .rematch-link:hover { background: rgba(255, 255, 255, 0.16); color: var(--text-primary); }
+
+/* ===== P2 纠错面板 ===== */
+.rematch-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rematch-panel {
+  width: min(460px, 92vw);
+  max-height: min(66vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+}
+.rm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.rm-header-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.rm-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.rm-close:hover { color: var(--text-primary); }
+.rm-current {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+.rm-list { overflow-y: auto; flex: 1; margin: 0 -6px; }
+.rm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.rm-item:hover { background: rgba(255, 255, 255, 0.07); }
+.rm-item.active { background: rgba(255, 255, 255, 0.09); outline: 1px solid var(--border-color); }
+.rm-item.pending { opacity: 0.6; pointer-events: none; }
+.rm-item-main { flex: 1; min-width: 0; }
+.rm-item-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rm-item-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rm-item-score {
+  font-size: 12px;
+  color: var(--accent-light, #7ec8ff);
+  flex-shrink: 0;
+}
+.rm-item-score.low { color: var(--text-muted); }
+.rm-item-spin {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: rm-spin 0.8s linear infinite;
+}
+@keyframes rm-spin { to { transform: rotate(360deg); } }
+.rm-empty, .rm-loading {
+  padding: 22px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.rm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+.rm-err { font-size: 12px; color: #ff7b7b; }
+.rm-more {
+  margin-left: auto;
+  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.rm-more:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); color: var(--text-primary); }
+.rm-more:disabled { opacity: 0.5; cursor: default; }
 </style>

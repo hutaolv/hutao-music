@@ -515,13 +515,27 @@ router.get('/match-lyrics', async (req, res) => {
   const durationMs = Number(req.query.durationMs) || 0
   if (!title || title.length > 80) return res.json({ code: 400, message: 'title required' })
 
+  const mode = req.query.mode === 'candidates' ? 'candidates' : ''
+  // 纠错用：排除已试过的来源（"换一批"），格式 平台|id,平台|id
+  const excluded = new Set(
+    String(req.query.exclude || '').split(',').map(s => s.trim()).filter(Boolean)
+  )
+  const fresh = req.query.fresh === '1'
+  // candidates/exclude 是手动纠错路径：结果形状不同/要求实时性 → 绕过缓存读写；
+  // fresh 只跳过读（负缓存手动重试），新结果仍回写
+  const useCache = !mode && !excluded.size
+
   // 缓存按 标题+歌手+时长桶（5s 一桶，容忍导入测时长的小误差）
   const cacheKey = `${normText(title)}|${normText(artist)}|${durationMs > 0 ? Math.round(durationMs / 5000) : 0}`
-  const cached = matchCache.get(cacheKey)
-  if (cached && cached.exp > Date.now()) return res.json({ code: 200, data: cached.data })
+  if (useCache && !fresh) {
+    const cached = matchCache.get(cacheKey)
+    if (cached && cached.exp > Date.now()) return res.json({ code: 200, data: cached.data })
+  }
   const respond = data => {
-    matchCache.set(cacheKey, { data, exp: Date.now() + MATCH_TTL_MS })
-    if (matchCache.size > MATCH_CACHE_MAX) matchCache.delete(matchCache.keys().next().value)
+    if (useCache) {
+      matchCache.set(cacheKey, { data, exp: Date.now() + MATCH_TTL_MS })
+      if (matchCache.size > MATCH_CACHE_MAX) matchCache.delete(matchCache.keys().next().value)
+    }
     res.json({ code: 200, data })
   }
 
@@ -547,8 +561,31 @@ router.get('/match-lyrics', async (req, res) => {
       })
     })
     candidates.sort((a, b) => b.score - a.score)
+    // "换一批"：滤掉已试过的来源
+    const filtered = candidates.filter(it => !excluded.has(`${it.platform}|${it.cid}`))
 
-    for (const item of candidates.slice(0, MATCH_MAX_TRIES)) {
+    if (mode === 'candidates') {
+      // 手动纠错（P2）：只回 top5 候选元数据，不设分数门槛、不取词，
+      // 挑选与取词由前端完成（取词复用现成 /song/lyrics 接口）
+      return res.json({
+        code: 200,
+        data: {
+          candidates: filtered.slice(0, 5).map(it => ({
+            key: `${it.platform}|${it.cid}`,
+            platform: it.platform,
+            id: it.cid,
+            mid: it.c.platformSongMid || '',
+            contentId: it.c.contentId || '',
+            title: it.c.title || '',
+            artist: it.c.artist || '',
+            durationMs: Number(it.c.durationMs) || 0,
+            score: Number(it.score.toFixed(2))
+          }))
+        }
+      })
+    }
+
+    for (const item of filtered.slice(0, MATCH_MAX_TRIES)) {
       if (item.score < MATCH_MIN_SCORE) break
       try {
         // 单平台取词 8s 兜底超时：netease/qq 的 getLyrics 自身无超时，
