@@ -223,14 +223,26 @@ async function onImportFiles(e) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
       try {
-        // 解析文件名：尝试 "歌手 - 歌名" 格式，否则用文件名作标题
+        // 解析文件名：按 " - " 分成左右两段。本应用下载的文件固定命名为
+        // "歌名 - 歌手"（见 download.js filenameFromSong），B站等第三方工具也多是此格式，
+        // 所以默认按 "歌名 - 歌手"（左歌名、右歌手）解析，保证自家下载的文件再导入不反；
+        // 唯一例外：艺名/UP主 ID 常带 _ 或 @（歌名几乎不会）——带该特征的一侧强制判为歌手，
+        // 以兼容少数 "歌手 - 歌名" 且歌手带下划线的文件（如 "马也_Crabbit - 海屿你"）
         const name = file.name.replace(/\.[^.]+$/, '')
         let title = name
         let artist = '未知'
         const dashIdx = name.indexOf(' - ')
         if (dashIdx > 0) {
-          artist = name.slice(0, dashIdx).trim()
-          title = name.slice(dashIdx + 3).trim()
+          const left = name.slice(0, dashIdx).trim()
+          const right = name.slice(dashIdx + 3).trim()
+          const isHandle = s => /[_@]/.test(s)
+          if (isHandle(left) && !isHandle(right)) {
+            artist = left   // 左侧带艺名特征 → "歌手 - 歌名" 格式
+            title = right
+          } else {
+            title = left    // 默认 "歌名 - 歌手" 格式（与本应用下载命名一致）
+            artist = right
+          }
         }
         const audioBuffer = await file.arrayBuffer()
         const audioBlob = new Blob([audioBuffer], { type: file.type || 'audio/mpeg' })
