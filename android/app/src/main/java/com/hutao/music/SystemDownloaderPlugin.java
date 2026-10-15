@@ -2,12 +2,15 @@ package com.hutao.music;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.util.Base64;
+
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -228,6 +231,51 @@ public class SystemDownloaderPlugin extends Plugin {
         }
         dm.remove(id);
         call.resolve();
+    }
+
+    /**
+     * 拉起系统安装器安装已下载的 APK（应用内更新用，不再跳浏览器）
+     * 入参：id（DownloadManager 下载 id）
+     */
+    @PluginMethod
+    public void install(PluginCall call) {
+        Long id = getDownloadId(call);
+        if (dm == null || id == null) {
+            call.reject("id required");
+            return;
+        }
+        Cursor cursor = dm.query(new DownloadManager.Query().setFilterById(id));
+        if (cursor == null || !cursor.moveToFirst()) {
+            if (cursor != null) cursor.close();
+            call.reject("download not found");
+            return;
+        }
+        try {
+            String localUri = readString(cursor, DownloadManager.COLUMN_LOCAL_URI);
+            int status = readInt(cursor, DownloadManager.COLUMN_STATUS);
+            if (status != DownloadManager.STATUS_SUCCESSFUL || localUri == null) {
+                call.reject("download not complete");
+                return;
+            }
+            // localUri 形如 file:///storage/emulated/0/Download/xxx.apk
+            File file = new File(Uri.parse(localUri).getPath());
+            if (!file.exists()) {
+                call.reject("file not found");
+                return;
+            }
+            Uri apkUri = FileProvider.getUriForFile(
+                    getContext(), getContext().getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("install failed: " + e.getMessage());
+        } finally {
+            cursor.close();
+        }
     }
 
     /**

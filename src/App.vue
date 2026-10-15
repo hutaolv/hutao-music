@@ -31,11 +31,15 @@
         </div>
         <div class="dialog-body">
           <p v-if="updateInfo.notes" class="update-notes">{{ updateInfo.notes }}</p>
-          <p>点击「下载更新」将通过系统浏览器下载最新安装包。下载完成后请前往通知栏点击安装（首次安装需在系统设置中允许"安装未知应用"）。</p>
+          <p v-if="updateStatus === 'idle'">点击「下载更新」开始下载最新安装包，下载完成后自动弹出安装界面（首次安装需允许"安装未知应用"）。</p>
+          <p v-else-if="updateStatus === 'downloading'" class="update-progress">正在下载… {{ updateProgress }}%</p>
+          <p v-else-if="updateStatus === 'done'" class="update-progress">下载完成，正在打开安装…</p>
         </div>
         <div class="dialog-foot">
           <button class="dialog-btn ghost" @click="showUpdate = false">稍后再说</button>
-          <button class="dialog-btn primary" @click="downloadUpdate">下载更新</button>
+          <button class="dialog-btn primary" :disabled="updateStatus === 'downloading'" @click="downloadUpdate">
+            {{ updateStatus === 'downloading' ? updateProgress + '%' : updateStatus === 'done' ? '安装' : '下载更新' }}
+          </button>
         </div>
       </div>
     </div>
@@ -84,10 +88,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { registerPlugin, Capacitor } from '@capacitor/core'
 import NavBar from './components/NavBar.vue'
 import PlayerBar from './components/PlayerBar.vue'
 import DesktopLyrics from './components/DesktopLyrics.vue'
-import { Capacitor } from '@capacitor/core'
 import { APP_VERSION } from './version'
 import { fetchLatestVersion } from './services/api'
 
@@ -96,6 +100,23 @@ const showDisclaimer = ref(false)
 // APK 版本检测：仅打包成 APK（Capacitor）时启用，网页版始终是最新不需提示
 const showUpdate = ref(false)
 const updateInfo = ref({ version: '', notes: '', apkUrl: '' })
+// 应用内更新下载状态：idle=未开始 downloading=下载中 done=下载完成待安装
+const updateStatus = ref('idle')
+const updateProgress = ref(0)
+let updateDownloadId = null
+let updatePollTimer = null
+
+// 系统下载插件（MainActivity 注册的本地插件）
+let sysDownloader
+function getSystemDownloader() {
+  if (sysDownloader !== undefined) return sysDownloader
+  try {
+    sysDownloader = Capacitor.isNativePlatform() ? registerPlugin('SystemDownloader') : false
+  } catch (e) {
+    sysDownloader = false
+  }
+  return sysDownloader
+}
 
 // 点分版本号比较：a > b 返回 1，a === b 返回 0，a < b 返回 -1
 function compareVersions(a, b) {
@@ -118,9 +139,59 @@ async function checkForUpdate() {
   }
 }
 
-// 跳转系统浏览器下载安装包（WebView 内无法直接安装）
-function downloadUpdate() {
-  if (updateInfo.value.apkUrl) window.open(updateInfo.value.apkUrl, '_system')
+// 应用内下载 APK（不跳浏览器）：DownloadManager 通知栏实时进度，完成后直接拉起安装器
+async function downloadUpdate() {
+  const sd = getSystemDownloader()
+  if (!sd) {
+    // 网页端兜底：直接打开（服务端 attachment 头触发下载）
+    if (updateInfo.value.apkUrl) window.open(updateInfo.value.apkUrl, '_blank')
+    return
+  }
+  if (updateStatus.value === 'downloading') return
+  if (updateStatus.value === 'done' && updateDownloadId) {
+    // 已下载完成，直接拉起安装器
+    try { await sd.install({ id: updateDownloadId }) } catch (e) { console.warn('Install failed:', e.message) }
+    return
+  }
+  updateStatus.value = 'downloading'
+  updateProgress.value = 0
+  try {
+    const filename = updateInfo.value.apkUrl.split('/').pop() || 'hutao-music.apk'
+    const enq = await sd.enqueue({
+      url: updateInfo.value.apkUrl,
+      filename: decodeURIComponent(filename),
+      mimeType: 'application/vnd.android.package-archive'
+    })
+    updateDownloadId = enq.id
+    // 轮询下载进度（1s 间隔），完成后拉起安装器
+    updatePollTimer = setInterval(async () => {
+      try {
+        const q = await sd.query({ id: updateDownloadId })
+        if (q.total > 0) updateProgress.value = Math.round(q.bytes / q.total * 100)
+        // 8 = STATUS_SUCCESSFUL
+        if (q.status === 8) {
+          clearInterval(updatePollTimer)
+          updatePollTimer = null
+          updateStatus.value = 'done'
+          updateProgress.value = 100
+          await sd.install({ id: updateDownloadId })
+        }
+        // 16 = STATUS_FAILED
+        if (q.status === 16) {
+          clearInterval(updatePollTimer)
+          updatePollTimer = null
+          updateStatus.value = 'idle'
+        }
+      } catch (e) {
+        clearInterval(updatePollTimer)
+        updatePollTimer = null
+        updateStatus.value = 'idle'
+      }
+    }, 1000)
+  } catch (e) {
+    console.warn('Download failed:', e.message)
+    updateStatus.value = 'idle'
+  }
 }
 
 onMounted(() => {
@@ -265,6 +336,16 @@ onMounted(() => {
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   white-space: pre-line;
+}
+
+.update-progress {
+  color: var(--accent-light, #7ec8ff);
+  font-weight: 500;
+}
+
+.dialog-btn.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .dialog-foot {
