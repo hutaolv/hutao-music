@@ -445,16 +445,28 @@ app.get('/api/version', (req, res) => {
 const downloadsDir = resolve(__dirname, 'downloads')
 const versionJsonPath = resolve(downloadsDir, 'version.json')
 if (existsSync(downloadsDir)) {
-  // 固定URL：/downloads/胡桃音悦.apk 重定向到最新版文件（绕浏览器缓存）
+  // 固定URL：/downloads/胡桃音悦.apk 直接流式返回最新版文件
+  // 不用 302 重定向：浏览器跟随重定向会丢掉 <a download> 属性，
+  // 部分手机浏览器对重定向后的 content-disposition: attachment 不生效，导致打开空白页不下载。
+  // res.download 直接带 attachment 头返回文件，首次响应即触发下载。
   app.get('/downloads/%E8%83%A1%E6%A1%83%E9%9F%B3%E6%82%A6.apk', (req, res) => {
     try {
-      const data = JSON.parse(readFileSync(versionJsonPath, 'utf8').replace(/^\uFEFF/, ''))
+      const data = JSON.parse(readFileSync(versionJsonPath, 'utf8').replace(/^﻿/, ''))
       if (data?.apkFile) {
-        return res.redirect(302, `/downloads/${encodeURIComponent(data.apkFile)}`)
+        const filePath = resolve(downloadsDir, data.apkFile)
+        if (existsSync(filePath)) {
+          res.set('Cache-Control', 'no-cache')
+          return res.download(filePath, data.apkFile)
+        }
       }
     } catch {}
     // fallback：直接尝试读取固定文件名
-    res.redirect(302, '/downloads/%E8%83%A1%E6%A1%83%E9%9F%B3%E6%82%A6-1.0.4.apk')
+    const fallback = resolve(downloadsDir, '胡桃音悦.apk')
+    if (existsSync(fallback)) {
+      res.set('Cache-Control', 'no-cache')
+      return res.download(fallback, '胡桃音悦.apk')
+    }
+    res.status(404).send('Not found')
   })
   app.use('/downloads', express.static(downloadsDir, {
     setHeaders: (res) => res.setHeader('Content-Disposition', 'attachment')
