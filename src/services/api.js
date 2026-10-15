@@ -19,7 +19,7 @@ export function toAbsolute(url) {
 function getNetworkType() {
   try {
     const conn = navigator?.connection
-    if (!conn) return ''
+    if (!conn) return 'unknown'
     if (conn.type === 'wifi' || conn.type === 'ethernet') return 'wifi'
     if (conn.type === 'none') return 'offline'
     if (conn.effectiveType) {
@@ -28,8 +28,8 @@ function getNetworkType() {
       if (et === '3g') return '3G'
       if (et === '2g' || et === 'slow-2g') return '2G'
     }
-    return ''
-  } catch { return '' }
+    return 'unknown'
+  } catch { return 'unknown' }
 }
 
 // 统一请求封装：自动带上网络类型 header，供服务端访问日志记录真实网络状态。

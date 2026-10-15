@@ -78,7 +78,9 @@ app.use('/api', globalLimiter)
 //   若拦截会导致旧 APK 永远无法收到更新通知
 // - /api/health 不查：监控探针高频调用
 function clientHeaderGuard(req, res, next) {
-  if (!req.headers['x-network-type']) {
+  // 只要带了 header 就放行（值可以为空）：手机 WebView 里 navigator.connection
+  // 可能不可用导致客户端发空值，空值仍说明是 App 发的请求，不该拦
+  if (req.headers['x-network-type'] === undefined) {
     return res.status(403).json({ code: 403, message: 'forbidden' })
   }
   next()
