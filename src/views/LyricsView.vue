@@ -662,6 +662,14 @@ function animateTo(target, duration, onDone) {
 let touchStartY = 0
 let touchStartId = null
 let touchStartTarget = null
+// 触摸起点落在可交互 UI（歌词滚动区/按钮/来源徽标/弹层）时不接管手势。
+// 关键原因：touchstart 里 preventDefault 会吞掉浏览器随后合成的 click，
+// 徽标"猜测匹配"是打开"歌词来源"匹配面板的唯一入口，被吞后手机上点了永远没反应
+// （PC 用鼠标 click 不经过触摸事件流，所以 PC 正常）——歌词滚动区本身要原生滚动和点击行跳转
+const TAP_UI = '.lyrics-scroll, button, a, input, label, .match-badge, .rematch-mask, .mobile-settings-mask, .style-switch'
+function touchOnUi() {
+  return !!(touchStartTarget && touchStartTarget.closest(TAP_UI))
+}
 function onTouchStart(e) {
   // 起始手指仍在触摸中则保持不变（第二根手指落下不覆盖起点）
   if (touchStartId === null || !Array.from(e.touches).some(t => t.identifier === touchStartId)) {
@@ -670,14 +678,14 @@ function onTouchStart(e) {
     touchStartY = t.clientY
     touchStartTarget = e.target
   }
-  if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
+  if (touchOnUi()) return
   e.preventDefault()
 }
 function onTouchMove(e) {
   if (isSwitching.value) return
   const t = Array.from(e.touches).find(t => t.identifier === touchStartId)
   if (!t) return
-  if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
+  if (touchOnUi()) return
   e.preventDefault()
   swipeOffset.value = t.clientY - touchStartY
 }
@@ -685,7 +693,7 @@ function onTouchEnd(e) {
   const t = Array.from(e.changedTouches).find(t => t.identifier === touchStartId)
   if (!t) return
   touchStartId = null
-  if (touchStartTarget && touchStartTarget.closest('.lyrics-scroll')) return
+  if (touchOnUi()) return
   const dy = t.clientY - touchStartY
   if (Math.abs(dy) < SWIPE_THRESHOLD) {
     if (!isSwitching.value) animateTo(0, 200)
