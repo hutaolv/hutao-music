@@ -82,6 +82,8 @@
                 <div class="rm-item-title">{{ c.title }}</div>
                 <div class="rm-item-sub">{{ c.artist }}<span v-if="c.durationMs"> · {{ fmtDur(c.durationMs) }}</span></div>
               </div>
+              <!-- 平台标签绝对定位到行中部，混排候选时一眼区分出处 -->
+              <span class="rm-plat-tag">{{ c.platform }}</span>
               <span class="rm-item-score" :class="{ low: c.score < 0.7 }">{{ Math.round(c.score * 100) }}%</span>
               <span v-if="pendingKey === c.key" class="rm-item-spin" aria-label="加载中"></span>
             </div>
@@ -1559,6 +1561,7 @@ watch(ringSpecRef, (el) => {
   padding: 9px 10px;
   border-radius: 10px;
   cursor: pointer;
+  position: relative; /* 平台标签绝对定位居中的定位参照 */
 }
 .rm-item:hover { background: rgba(255, 255, 255, 0.07); }
 .rm-item.active { background: rgba(255, 255, 255, 0.09); outline: 1px solid var(--border-color); }
@@ -1577,6 +1580,19 @@ watch(ringSpecRef, (el) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 候选行平台标签：绝对定位到行水平中心（不参与 flex 排布，左右留白对称），纯文字无底色 */
+.rm-plat-tag {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 10px;
+  pointer-events: none; /* 不挡整行点击 */
 }
 .rm-item-score {
   font-size: 12px;
