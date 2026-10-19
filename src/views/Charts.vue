@@ -75,6 +75,7 @@
         </span>
           <span class="col-title">
             <span class="row-title">{{ song.title }}</span>
+            <span class="row-artist">{{ song.artist }}</span>
             <div v-if="song.vip" class="meta-row">
               <span class="meta-tag vip">胡桃</span>
             </div>
@@ -648,6 +649,9 @@ async function toggleFav(song) {
   color: var(--text-primary);
 }
 
+/* 标题下歌手行：仅手机端显示（桌面端有独立歌手列） */
+.row-artist { display: none; }
+
 .col-title {
   flex: 1;
   min-width: 0;
@@ -873,6 +877,15 @@ async function toggleFav(song) {
   }
 
   .col-artist { display: none; }
+  /* 隐藏歌手列后，在歌名下补一行小字歌手，避免信息缺失 */
+  .row-artist {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .col-hutao-avatar { display: none; }
   .col-cover { width: 36px; }
   .row-cover { width: 36px; height: 36px; border-radius: 10px; }
