@@ -142,8 +142,8 @@
     </div>
 
     <transition name="slide-up">
-      <div v-if="store.showLyricsPanel && parsedLyrics.length" class="lyrics-panel" ref="lyricsRef">
-        <div class="lyrics-content">
+      <div v-if="store.showLyricsPanel" class="lyrics-panel" :class="{ 'no-lyrics': !parsedLyrics.length }" ref="lyricsRef">
+        <div v-if="parsedLyrics.length" class="lyrics-content">
           <div v-for="(line, i) in parsedLyrics" :key="i"
             class="lyric-line"
             :class="{ active: store.currentLyricIndex === i }"
@@ -151,6 +151,11 @@
             @click="seekTo(line.time)">
             {{ line.text }}
           </div>
+        </div>
+        <!-- 无歌词：给一个跳歌词页手动匹配的入口 -->
+        <div v-else class="lyrics-empty">
+          <span>暂无歌词</span>
+          <button class="lyrics-empty-btn" @click.stop="goLyricsMatch">匹配歌词</button>
         </div>
       </div>
     </transition>
@@ -399,6 +404,14 @@ function goLyrics() {
   if (router.currentRoute.value.path === '/lyrics') {
     router.back()
   } else {
+    router.push('/lyrics')
+  }
+}
+
+// 无歌词时从面板去歌词页匹配：总是跳过去（已在歌词页则只收起面板）
+function goLyricsMatch() {
+  store.showLyricsPanel = false
+  if (router.currentRoute.value.path !== '/lyrics') {
     router.push('/lyrics')
   }
 }
@@ -1473,6 +1486,42 @@ onUnmounted(() => {
   max-height: 260px;
   overflow-y: auto;
   scroll-behavior: smooth;
+}
+
+/* 无歌词面板：居中显示"暂无歌词"+匹配入口 */
+.lyrics-panel.no-lyrics {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 110px;
+}
+
+.lyrics-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.lyrics-empty span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.lyrics-empty-btn {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.lyrics-empty-btn:hover {
+  color: var(--accent-light, #7ec8ff);
+  border-color: var(--accent-light, #7ec8ff);
 }
 
 .lyric-line {

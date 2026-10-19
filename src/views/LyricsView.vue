@@ -48,7 +48,7 @@
       <div class="lyrics-scroll" ref="lyricsRef" :style="currentLyricsStyle">
         <div v-if="!parsedLyrics.length" class="no-lyrics">
           暂无歌词
-          <button v-if="canManualFind" class="rematch-link" @click.stop="openRematch(true)">手动找歌词</button>
+          <button v-if="canManualFind" class="rematch-link" @click.stop="openRematch(true)">匹配歌词</button>
         </div>
         <div v-for="(line, i) in parsedLyrics" :key="i"
           class="lyric-line"
@@ -241,26 +241,28 @@ const rematchErr = ref('')
 const rematchLoading = ref(false)
 const seenKeys = ref([])     // 本会话已见过的候选 key，"换一批"时拼 exclude
 
-// 来源徽标（仅本地导入歌显示）：内嵌=灰、≥90%=平台来源、55~90%=黄色"猜测匹配"
+// 来源徽标：本地导入歌内嵌=灰、≥90%=平台来源、55~90%=黄色"猜测匹配"；在线歌仅手动匹配过（有 matchSource）才显示
 const matchBadge = computed(() => {
   const s = store.currentSong
-  if (!s || s.platform !== '本地导入' || !s.lyrics) return null
+  if (!s || !s.lyrics) return null
   const ms = s.matchSource
+  // 在线歌没手动匹配过就不挂徽标（官方取的词不是"匹配"来的）
+  if (s.platform !== '本地导入' && !ms) return null
   if (!ms) return { tier: 'embedded', label: '内嵌歌词', clickable: false }
   const conf = typeof ms.confidence === 'number' ? Math.round(ms.confidence * 100) : null
   if (conf != null && conf >= 90) return { tier: 'high', label: `${ms.platform} · ${conf}%`, clickable: true }
   return { tier: 'mid', label: conf != null ? `猜测匹配 · ${conf}%` : '猜测匹配', clickable: true }
 })
 
-// 匹配不到词时的"手动找歌词"入口
-const canManualFind = computed(() => store.currentSong?.platform === '本地导入' && !parsedLyrics.value.length)
+// 没有歌词时的"匹配歌词"入口：不区分来源，在线歌官方接口取不到词也能手动匹配
+const canManualFind = computed(() => !!store.currentSong && !parsedLyrics.value.length)
 
 // 面板头部分行：当前来源（老记录无 confidence 则只显示平台）
 const matchSourceInfo = computed(() => {
   const s = store.currentSong
-  if (!s || s.platform !== '本地导入') return ''
+  if (!s) return ''
   const ms = s.matchSource
-  if (!ms) return s.lyrics ? '当前：内嵌歌词' : ''
+  if (!ms) return s.platform === '本地导入' && s.lyrics ? '当前：内嵌歌词' : ''
   const conf = typeof ms.confidence === 'number' ? ` · ${Math.round(ms.confidence * 100)}%` : ''
   return `当前：${ms.platform}${conf}`
 })
