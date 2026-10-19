@@ -337,6 +337,8 @@ function coverUrlFor(songId, blob) {
 // 有封面图的下载记录换成本会话对象 URL：离线播放/列表直接显示真封面
 function applyOfflineCover(rows) {
   rows.forEach(s => {
+    // 先留一份原始远程封面地址：通知栏/锁屏的 media session 原生侧加载不了页内 blob: 地址
+    if (s.cover && !String(s.cover).startsWith('blob:')) s.coverRemote = s.cover
     if (s.coverBlob && s.id) s.cover = coverUrlFor(s.id, s.coverBlob)
   })
   return rows

@@ -706,8 +706,12 @@ function setupMediaSession() {
   // 更新元数据与播放状态
   const update = async () => {
     if (!store.currentSong) return
-    const cover = store.currentSong.cover
-    const artwork = cover ? [{ src: toAbsolute(cover), sizes: '512x512', type: 'image/jpeg' }] : []
+    const s = store.currentSong
+    // 媒体控制条封面：页内 blob: 地址原生侧加载不了 → 回退原始远程封面，仍没有则用本地默认图，
+    // 保证通知栏/锁屏控制条始终有封面（此前无封面时 artwork 传空数组，控制条什么都不显示）
+    let cover = s.cover
+    if (!cover || String(cover).startsWith('blob:')) cover = s.coverRemote || '/icons/qiqi.jpg'
+    const artwork = [{ src: toAbsolute(cover), sizes: '512x512', type: 'image/jpeg' }]
     const state = store.isPlaying ? 'playing' : 'paused'
     if (Capacitor.isNativePlatform()) {
       // Android/iOS：通过 Capacitor 插件设置原生媒体会话
