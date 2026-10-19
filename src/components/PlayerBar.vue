@@ -207,7 +207,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { getFavorites, addFavorite, removeFavorite, getDownloadBlob, updateDownloadLyrics, updateDownloadCover } from '../utils/storage'
-import { getSongUrl, getLyrics, matchLyrics } from '../services/api'
+import { getSongUrl, getLyrics, matchLyrics, thirdPartySearch } from '../services/api'
 import { toAbsolute } from '../services/api'
 import { initAudioGraph, enableSpectrumGraph, setGraphVolume, resumeAudio, setSpectrumActive, registerCanvas, isGraphActive } from '../utils/spectrum'
 import { downloadSong as saveSong, fetchCoverBlob } from '../utils/download'
@@ -413,6 +413,35 @@ function goLyricsMatch() {
   store.showLyricsPanel = false
   if (router.currentRoute.value.path !== '/lyrics') {
     router.push('/lyrics')
+  }
+}
+
+// VIP 歌处理方式（仅开发者可控，无 UI 开关）：'on'=手动（弹提示条等用户点封面搜）；
+// 缺省/其他=自动第三方搜索直接播放。开发者可在控制台执行
+// localStorage.setItem('vipManualSearch', 'on'/'off') 切换
+function vipManualSearchEnabled() {
+  return localStorage.getItem('vipManualSearch') === 'on'
+}
+
+// VIP 兜底（手动模式，或自动搜索没搜到）：提示条 + 5 秒后自动跳下一首
+function showVipBlocked() {
+  vipBlockedToast.value = true
+  store.isPlaying = false
+  store.pendingUserPlay = false
+  if (vipBlockedTimer) clearTimeout(vipBlockedTimer)
+  vipBlockedTimer = setTimeout(() => {
+    vipBlockedToast.value = false
+    if (store.currentSong) store.playNext()
+  }, 5000)
+}
+
+// 自动模式：第三方搜第一首可播放源，搜到/失败都返回结果（切歌守卫由调用方负责）
+async function searchVipPlayable(song) {
+  try {
+    const data = await thirdPartySearch(song.title, song.platform)
+    return data?.songs?.[0] || null
+  } catch {
+    return null
   }
 }
 
@@ -853,17 +882,36 @@ watch(() => store.currentSong, async (song) => {
     if (!store.pendingUserPlay) store.isPlaying = false
   }
   if (song) {
-    // VIP 歌曲拦截：显示提示，5秒后自动跳下一首
+    // VIP 歌曲处理：手动模式弹提示条等用户点；自动模式（默认）第三方搜索可播放源直接播
     if (song.vip) {
-      vipBlockedToast.value = true
-      store.isPlaying = false
-      store.pendingUserPlay = false
-      if (vipBlockedTimer) clearTimeout(vipBlockedTimer)
-      vipBlockedTimer = setTimeout(() => {
-        vipBlockedToast.value = false
-        if (store.currentSong) store.playNext()
-      }, 5000)
-      return
+      if (vipManualSearchEnabled()) {
+        showVipBlocked()
+        return
+      }
+      resolving.value = true
+      const match = await searchVipPlayable(song)
+      // 切歌守卫：搜索期间用户已切歌则放弃本轮
+      if (store.currentSong?.id !== song.id) { resolving.value = false; return }
+      if (!match) {
+        // 搜不到 → 退化回提示条兜底
+        resolving.value = false
+        showVipBlocked()
+        return
+      }
+      // 保留当前歌 id（播放列表与切歌守卫依赖），元数据换成第三方可播放源后继续走正常解析
+      Object.assign(song, {
+        platform: match.platform || song.platform,
+        realPlatform: match.realPlatform || song.realPlatform,
+        platformId: match.platformId || song.platformId,
+        platformSongMid: match.platformSongMid || song.platformSongMid,
+        durationMs: match.durationMs || song.durationMs,
+        audioUrl: match.audioUrl || '',
+        sourceUrl: match.sourceUrl || '',
+        vip: false
+      })
+      // 封面优先保留原图（榜单/搜索封面通常更清晰），没有才用第三方结果
+      if (!song.cover && match.cover) song.cover = match.cover
+      resolving.value = false
     }
     // 收藏状态从 IndexedDB 异步读取（同步读取已不适用）
     getFavorites().then(list => {
