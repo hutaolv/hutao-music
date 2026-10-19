@@ -17,10 +17,10 @@
           <span class="song-rank">{{ idx + 1 }}</span>
           <img :src="song.cover" :alt="song.title" class="song-cover" @error="e => e.target.style.display = 'none'" />
           <div class="song-info">
-            <!-- 标题右侧显示 VIP 标识（付费歌曲），与搜索/榜单卡片样式一致 -->
-            <div class="song-title">
-              {{ song.title }}
-              <span v-if="song.vip" class="vip-badge">VIP</span>
+            <div class="song-title">{{ song.title }}</div>
+            <!-- 胡桃徽标：与排行榜列表同位置（标题下方单独一行） -->
+            <div v-if="song.vip" class="song-meta-row">
+              <span class="vip-badge">胡桃</span>
             </div>
             <div class="song-album">{{ song.album }}</div>
           </div>
@@ -188,16 +188,23 @@ function playAll() {
   gap: 6px;
 }
 
-/* VIP 付费歌曲徽标 */
+/* 胡桃付费歌曲徽标：字体/颜色与排行榜列表的「胡桃」完全一致 */
 .vip-badge {
   font-size: 10px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: white;
-  font-weight: 700;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  font-weight: 500;
   flex-shrink: 0;
-  letter-spacing: 0.5px;
+}
+
+/* 徽标行：位于歌曲标题下方，与排行榜列表位置一致 */
+.song-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
 }
 
 .song-album {

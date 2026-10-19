@@ -9,7 +9,7 @@
     <div class="info">
       <span class="title">{{ song.title }}</span>
       <div class="meta-row">
-        <span v-if="song.vip" class="meta-tag vip">VIP</span>
+        <span v-if="song.vip" class="meta-tag vip">胡桃</span>
         <span class="meta-tag platform">{{ song.platform }}</span>
         <span class="meta-sep" v-if="song.artist">&middot;</span>
         <span class="meta-artist">{{ song.artist }}</span>
