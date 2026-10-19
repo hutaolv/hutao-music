@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# 数据接口与安装包不参与收录，节省抓取配额
+Disallow: /api/
+Disallow: /downloads/
+
+Sitemap: https://hutaolv.com/sitemap.xml
