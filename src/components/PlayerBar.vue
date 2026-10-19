@@ -730,10 +730,14 @@ async function prefetchNextUrl() {
 // 媒体会话：锁屏/通知栏显示歌曲信息与播放控制，也是 iOS Safari 后台持续播放的必要条件
 // 使用 @capgo/capacitor-media-session 插件提供原生 MediaSession 支持
 function setupMediaSession() {
+  // 元数据更新序号：异步原生调用可能乱序返回，只让最后一次生效，
+  // 否则快速切歌时旧歌的 setMetadata 后完成，会把通知栏/锁屏顶回旧歌
+  let metaSeq = 0
   // 更新元数据与播放状态
   const update = async () => {
     if (!store.currentSong) return
     const s = store.currentSong
+    const seq = ++metaSeq
     // 媒体控制条封面：页内 blob: 地址原生侧加载不了 → 回退原始远程封面，仍没有则用本地默认图，
     // 保证通知栏/锁屏控制条始终有封面（此前无封面时 artwork 传空数组，控制条什么都不显示）
     let cover = s.cover
@@ -743,15 +747,17 @@ function setupMediaSession() {
     if (Capacitor.isNativePlatform()) {
       // Android/iOS：通过 Capacitor 插件设置原生媒体会话
       try {
+        if (seq !== metaSeq) return
         await MediaSession.setMetadata({
-          title: store.currentSong.title || '未知歌曲',
-          artist: store.currentSong.artist || '未知歌手',
-          album: store.currentSong.album || '胡桃音悦',
+          title: s.title || '未知歌曲',
+          artist: s.artist || '未知歌手',
+          album: s.album || '胡桃音悦',
           artwork
         })
+        if (seq !== metaSeq) return
         await MediaSession.setPlaybackState({ playbackState: state })
         // 同步播放进度到原生（锁屏进度条显示）
-        if (audio) {
+        if (seq === metaSeq && audio) {
           await MediaSession.setPositionState({
             duration: audio.duration || 0,
             position: audio.currentTime || 0,
@@ -761,11 +767,12 @@ function setupMediaSession() {
       } catch { /* 插件调用失败时静默 */ }
     } else if ('mediaSession' in navigator) {
       // Web：使用浏览器原生 Media Session API
+      if (seq !== metaSeq) return
       try {
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: store.currentSong.title || '未知歌曲',
-          artist: store.currentSong.artist || '未知歌手',
-          album: store.currentSong.album || '胡桃音悦',
+          title: s.title || '未知歌曲',
+          artist: s.artist || '未知歌手',
+          album: s.album || '胡桃音悦',
           artwork
         })
         navigator.mediaSession.playbackState = state
@@ -921,6 +928,9 @@ watch(() => store.currentSong, async (song) => {
     if (song.fromDownload) {
       try {
         const blob = await getDownloadBlob(song.id)
+        // 切歌守卫：IndexedDB 读取是异步的，等待期间用户已切歌时丢弃本轮结果。
+        // 缺这个守卫时旧歌 blob 会晚于新歌挂到 audio.src 上 → 控制栏显示新歌、实际在放旧歌
+        if (store.currentSong?.id !== song.id) return
         if (blob) {
           // 释放旧的 Blob URL 避免内存泄漏
           if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null }
@@ -931,6 +941,8 @@ watch(() => store.currentSong, async (song) => {
           resumeAudio()
           setSpectrumActive(true)
           const played = await safePlay()
+          // 切歌守卫：起播等待期间又切歌则不再改状态，避免顶掉新歌的加载态
+          if (store.currentSong?.id !== song.id) return
           resolving.value = false
           // 歌词：下载时已存本地歌词直接用（离线可看），否则在线拉（老记录兜底）
           loadSongLyrics(song)
