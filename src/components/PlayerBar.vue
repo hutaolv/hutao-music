@@ -416,12 +416,10 @@ function goLyricsMatch() {
   }
 }
 
-// VIP 歌处理方式（仅开发者可控，无 UI 开关）：'on'=手动（弹提示条等用户点封面搜）；
-// 缺省/其他=自动第三方搜索直接播放。开发者可在控制台执行
-// localStorage.setItem('vipManualSearch', 'on'/'off') 切换
-function vipManualSearchEnabled() {
-  return localStorage.getItem('vipManualSearch') === 'on'
-}
+// VIP 歌处理方式（写死在源码，仅开发者/作者改这一行切换；不读 localStorage、控制台改不了）：
+// true  = 手动模式：弹提示条"VIP资源无法播放，点击封面尝试胡桃搜索~~~"，等用户点封面去胡桃搜
+// false = 自动模式：后台第三方搜索可播放源，搜到第一首直接播放
+const VIP_MANUAL_SEARCH = false
 
 // VIP 兜底（手动模式，或自动搜索没搜到）：提示条 + 5 秒后自动跳下一首
 function showVipBlocked() {
@@ -884,7 +882,7 @@ watch(() => store.currentSong, async (song) => {
   if (song) {
     // VIP 歌曲处理：手动模式弹提示条等用户点；自动模式（默认）第三方搜索可播放源直接播
     if (song.vip) {
-      if (vipManualSearchEnabled()) {
+      if (VIP_MANUAL_SEARCH) {
         showVipBlocked()
         return
       }
