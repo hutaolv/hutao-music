@@ -490,9 +490,15 @@ if (existsSync(distDir)) {
     }
   }))
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(resolve(distDir, 'index.html'))
+    if (req.path.startsWith('/api')) return
+    // 带扩展名的路径视为静态资源（图片/字体/apk 等）：没被 express.static 命中说明文件不存在，
+    // 直接 404，不能用 index.html 兜底 —— 否则浏览器/Cloudflare 会把 HTML 当成图片缓存下来，
+    // 表现为同一个图标"有的时候加载不出来"（不同边缘节点缓存到 HTML）
+    if (/\.[a-z0-9]+$/i.test(req.path)) {
+      res.status(404).type('text/plain').send('Not Found')
+      return
     }
+    res.sendFile(resolve(distDir, 'index.html'))
   })
 }
 
