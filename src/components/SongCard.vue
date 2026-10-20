@@ -8,13 +8,16 @@
     </div>
     <div class="info">
       <span class="title">{{ song.title }}</span>
+      <!-- 手机端作者行：桌面端有独立歌手列，隐藏它避免重复 -->
+      <span class="artist artist-inline">{{ song.artist }}</span>
       <div class="meta-row">
-        <span v-if="song.vip" class="meta-tag vip">胡桃</span>
-        <span class="meta-tag platform">{{ song.platform }}</span>
-        <span class="meta-sep" v-if="song.artist">&middot;</span>
-        <span class="meta-artist">{{ song.artist }}</span>
+        <span class="meta-tags">
+          <span v-if="song.vip" class="meta-tag vip">胡桃</span>
+          <span class="meta-tag platform">{{ song.platform }}</span>
+        </span>
       </div>
     </div>
+    <span class="artist artist-col">{{ song.artist }}</span>
     <span class="duration">{{ song.duration }}</span>
     <button v-if="showPlay" class="action-btn play-btn reveal-btn" @click.stop="$emit('play', song)" title="播放">&#x25B6;</button>
     <template v-if="showActions">
@@ -184,6 +187,14 @@ async function toggleFav() {
   margin-top: 3px;
 }
 
+/* 平台/胡桃徽标成组，手机端才能整体排到作者下一行 */
+.meta-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .meta-tag {
   font-size: 10px;
   padding: 1px 6px;
@@ -202,14 +213,13 @@ async function toggleFav() {
   color: var(--text-muted);
 }
 
-.meta-sep {
-  color: var(--text-muted);
-  opacity: 0.3;
-  font-size: 10px;
-}
+/* 桌面端：平台徽标在歌名下方；歌手单独成列（与排行榜一致） */
+.artist-inline { display: none; }
 
-.meta-artist {
-  font-size: 12px;
+.artist-col {
+  width: 140px;
+  flex-shrink: 0;
+  font-size: 13px;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -217,6 +227,8 @@ async function toggleFav() {
 }
 
 .duration {
+  width: 60px;
+  text-align: right;
   font-size: 12px;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -294,6 +306,51 @@ async function toggleFav() {
   .reveal-btn, .fav-btn {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+/* ===== 手机端：与排行榜行保持一致的排版（歌名可换行完整显示 + 作者/平台在下方） ===== */
+@media (max-width: 767px) {
+  .song-card {
+    gap: 8px;
+    padding: 10px 10px;
+  }
+  .cover {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  /* 歌名不再单行省略号截断：允许换行，长英文/无空格也强制断行，与手机端排行榜一致 */
+  .title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  /* 手机端信息分三行：歌名 / 作者 / 平台（徽标），不再挤在一行 */
+  .artist-col { display: none; }
+  .artist-inline {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .meta-row {
+    margin-top: 3px;
+  }
+  .meta-tags { flex-wrap: wrap; }
+  .duration {
+    width: 44px;
+    text-align: right;
+  }
+  .action-btn, .fav-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
   }
 }
 </style>
