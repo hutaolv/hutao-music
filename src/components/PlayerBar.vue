@@ -870,6 +870,9 @@ function backfillDownloadCover(song) {
 }
 
 watch(() => store.currentSong, async (song) => {
+  // 切歌瞬间先清空播放进度：新音频加载完成前不会再有 timeupdate 回写，
+  // 否则左侧时间与进度条会一直停在上一首的位置，直到新歌真正开始播放才归零
+  store.currentTime = 0
   if (!audio) return
   if (playFailedTimer) { clearTimeout(playFailedTimer); playFailedTimer = null }
   if (vipBlockedTimer) { clearTimeout(vipBlockedTimer); vipBlockedTimer = null }
