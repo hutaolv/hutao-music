@@ -182,6 +182,13 @@ function isPrivateIp(ip) {
   return true   // 无法识别的一律按私网拒绝
 }
 
+// 代理目标主机校验结果缓存：音频 Range 分片会对同一主机连续发起几十次请求，
+// 若每个分片都 dns.lookup，会明显拖慢首包并放大 DNS 压力。
+// 按主机名缓存（成功 2 分钟、失败 30 秒）：既避免重复解析，又把 DNS rebinding 窗口压到很短
+const proxyHostVerdicts = new Map()
+const PROXY_VERDICT_TTL_OK = 2 * 60 * 1000
+const PROXY_VERDICT_TTL_FAIL = 30 * 1000
+
 async function validateProxyUrl(target) {
   let u
   try { u = new URL(target) } catch { return { ok: false, status: 400 } }
@@ -192,11 +199,26 @@ async function validateProxyUrl(target) {
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
       host.endsWith('.internal') || host === 'metadata.google.internal') return { ok: false, status: 403 }
   if (!host.includes('.')) return { ok: false, status: 403 }      // 单标签主机名按内网服务处理
+
+  const now = Date.now()
+  const cached = proxyHostVerdicts.get(host)
+  if (cached && cached.exp > now) return cached.verdict
+
+  let verdict
   let addrs
-  try { addrs = await dns.lookup(host, { all: true }) } catch { return { ok: false, status: 502 } }
-  if (!addrs.length) return { ok: false, status: 502 }
-  for (const a of addrs) if (isPrivateIp(a.address)) return { ok: false, status: 403 }
-  return { ok: true }
+  try { addrs = await dns.lookup(host, { all: true }) } catch { verdict = { ok: false, status: 502 } }
+  if (!verdict) {
+    if (!addrs.length) verdict = { ok: false, status: 502 }
+    else if (addrs.some(a => isPrivateIp(a.address))) verdict = { ok: false, status: 403 }
+    else verdict = { ok: true }
+  }
+  // 容量上限：异常场景下不让缓存无限膨胀
+  if (proxyHostVerdicts.size > 1000) proxyHostVerdicts.clear()
+  proxyHostVerdicts.set(host, {
+    verdict,
+    exp: now + (verdict.ok ? PROXY_VERDICT_TTL_OK : PROXY_VERDICT_TTL_FAIL)
+  })
+  return verdict
 }
 
 // 带校验的 fetch：每次请求（含重定向每一跳）先过 validateProxyUrl，

@@ -57,8 +57,8 @@
           </button>
           <button class="ctrl-btn" @click="store.playPrev"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
           <button class="ctrl-btn play-btn" @click="onPlayClick">
-            <!-- 解析中显示旋转圈，让用户知道正在加载而不是卡死 -->
-            <span v-if="resolving && !store.isPlaying" class="loading-spinner"></span>
+            <!-- 解析中/缓冲中显示旋转圈：转圈是否结束由 playing 事件决定，避免"先变播放态、后出声" -->
+            <span v-if="resolving || (buffering && store.isPlaying)" class="loading-spinner"></span>
             <svg v-else-if="store.isPlaying" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
             <svg v-else viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           </button>
@@ -485,17 +485,36 @@ let currentBlobUrl = null
 
 // 直链解析进行中标记：点播到开播之间为 true，播放按钮显示旋转圈反馈
 const resolving = ref(false)
+// 缓冲中标记：已起播但数据没跟上（waiting 事件），用于播放中继续显示转圈
+const buffering = ref(false)
+
+// 播放确认看门狗：play() 已发起但迟迟没有 playing 事件时（上游卡住/解码失败），
+// 6 秒后解除转圈，交给错误/重试逻辑处理，避免转圈无限转
+let playConfirmTimer = null
+function armPlayConfirm() {
+  clearTimeout(playConfirmTimer)
+  const songId = store.currentSong?.id
+  playConfirmTimer = setTimeout(() => {
+    // 期间已切歌就放过：不能把新歌的加载态清掉
+    if (store.currentSong?.id === songId) resolving.value = false
+  }, 6000)
+}
 
 // 安全播放：包装 audio.play() 的 Promise，失败时自动回退 isPlaying 状态，
-// 避免状态显示"播放中"但实际无声的卡死问题
+// 避免状态显示"播放中"但实际无声的卡死问题。
+// 注意：play() 的 Promise 只保证 paused 变 false，不保证已经解码出声；
+// 因此这里不直接标记 isPlaying/resolving，真正的"播放中"由 playing 事件落定
 async function safePlay() {
   if (!audio || !audio.src) return false
   try {
     await audio.play()
-    store.isPlaying = true
     store.pendingUserPlay = false
+    armPlayConfirm()
     return true
   } catch {
+    clearTimeout(playConfirmTimer)
+    resolving.value = false
+    buffering.value = false
     store.isPlaying = false
     store.pendingUserPlay = false
     return false
@@ -547,8 +566,8 @@ function showPlayFailed() {
       if (retryUrl) {
         audio.src = retryUrl
         downloadUrl.value = retryUrl
+        // 转圈不在这里解除：由 playing 事件结束（见 initAudio 的 playing 监听）
         await safePlay()
-        resolving.value = false
         prefetchNextUrl()
       } else {
         // 重试仍失败，跳下一首
@@ -602,6 +621,7 @@ function initAudio() {
   // 外部打断同步：其他App播放声音时系统会直接暂停 audio，不回写 isPlaying 的话
   // 播放条按钮与锁屏/通知栏媒体栏会一直停在"播放中"（两者都读 store.isPlaying）
   audio.addEventListener('pause', () => {
+    buffering.value = false
     // 延后一拍再判断：换源/主动切歌会先 pause 再 play，这种瞬时状态不纠正
     setTimeout(() => {
       if (!audio || audio.ended || !audio.paused || resolving.value) return
@@ -614,7 +634,24 @@ function initAudio() {
   })
   audio.addEventListener('play', () => {
     externallyPaused = false
+    store.pendingUserPlay = false
+    // 此处不置 isPlaying：play 事件只代表"开始尝试播放"，真正出声要等 playing 事件
+  })
+  // 真正出声（数据足够 + 解码器就绪）：此刻才确认"播放中"并结束转圈，
+  // 避免 play() Promise 提前 resolve 导致的"先变播放态、还要等一段才有声音"
+  audio.addEventListener('playing', () => {
+    clearTimeout(playConfirmTimer)
+    externallyPaused = false
+    resolving.value = false
+    buffering.value = false
     if (!store.isPlaying) store.isPlaying = true
+  })
+  // 缓冲等待：已在播放但数据没跟上，继续显示转圈，而不是让进度条卡在半路
+  audio.addEventListener('waiting', () => {
+    if (audio && !audio.paused) buffering.value = true
+  })
+  audio.addEventListener('canplay', () => {
+    buffering.value = false
   })
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
@@ -622,6 +659,8 @@ function initAudio() {
   // 音频加载/解码失败时自动恢复：防止播放器卡死无声
   audio.addEventListener('error', () => {
     if (store.currentSong) {
+      clearTimeout(playConfirmTimer)
+      buffering.value = false
       resolving.value = false
       showPlayFailed()
     }
@@ -714,17 +753,22 @@ function getNextSong() {
   return list[(store.currentIndex + 1) % list.length]
 }
 
+// 正在预取中的歌曲 id：用户快速点下一首时，避免预取与正式解析同时对同一首发起请求
+let prefetchingId = null
 async function prefetchNextUrl() {
   const next = getNextSong()
   if (!next || next.id === store.currentSong?.id) return
   // 直链歌曲和下载歌曲无需预取，播放时直接可用
   if (next.audioUrl || next.sourceUrl || next.fromDownload) return
-  if (nextUrlCache.id === next.id) return
+  if (nextUrlCache.id === next.id || prefetchingId === next.id) return
+  prefetchingId = next.id
   try {
     const url = await getSongUrl(next, quality.value)
     if (url) nextUrlCache.id = next.id
     nextUrlCache.url = url
-  } catch { /* 预取失败不影响正常播放 */ }
+  } catch { /* 预取失败不影响正常播放 */ } finally {
+    prefetchingId = null
+  }
 }
 
 // 媒体会话：锁屏/通知栏显示歌曲信息与播放控制，也是 iOS Safari 后台持续播放的必要条件
@@ -935,6 +979,8 @@ watch(() => store.currentSong, async (song) => {
         // 缺这个守卫时旧歌 blob 会晚于新歌挂到 audio.src 上 → 控制栏显示新歌、实际在放旧歌
         if (store.currentSong?.id !== song.id) return
         if (blob) {
+          // 从 IndexedDB 读出 blob 到真正出声之间也显示转圈
+          resolving.value = true
           // 释放旧的 Blob URL 避免内存泄漏
           if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null }
           currentBlobUrl = URL.createObjectURL(blob)
@@ -943,10 +989,10 @@ watch(() => store.currentSong, async (song) => {
           downloadUrl.value = ''
           resumeAudio()
           setSpectrumActive(true)
-          const played = await safePlay()
+          await safePlay()
           // 切歌守卫：起播等待期间又切歌则不再改状态，避免顶掉新歌的加载态
           if (store.currentSong?.id !== song.id) return
-          resolving.value = false
+          // 转圈由 playing 事件解除（真正出声才算起播完成）
           // 歌词：下载时已存本地歌词直接用（离线可看），否则在线拉（老记录兜底）
           loadSongLyrics(song)
           // 旧记录没有封面图：在线顺手补一次（离线/抓失败走七七图兜底）
@@ -972,44 +1018,30 @@ watch(() => store.currentSong, async (song) => {
       // 切歌守卫：等待期间用户已切到其他歌时，丢弃本轮结果，
       // 防止旧地址覆盖新歌的音频源（同时保证加载态状态正确）
       if (store.currentSong?.id !== song.id) return
-      // 音质探测放后台，不阻塞播放；结果仅更新音质菜单与自动升档
+      // 音质探测放后台，不阻塞播放；结果仅更新音质菜单
       getSongUrl(song, quality.value, true).then(res => {
         availableQualities.value = res.availableQualities || ['standard']
-        // 若当前音质不可用，自动切到可用最高档
+        // 若当前音质不在探测结果里，只更新菜单/后续选档，绝不在起播后换源：
+        // 换 audio.src 会中断正在播放的音频（声音中断、重新缓冲），
+        // 而探测本身可能因超时误报，当前地址仍然是能播的
         if (!availableQualities.value.includes(quality.value)) {
           const prefer = ['lossless', 'high', 'standard'].find(q => availableQualities.value.includes(q))
-          if (prefer && prefer !== quality.value) {
-            // 起播还没结束时换 src 会打断进行中的 audio.play()（AbortError → safePlay
-            // 把 isPlaying 回落成 false，表现为"转圈结束变暂停，再点一次才播"）。
-            // 而此刻当前地址明明已可播，只是探测超时误报：此时只保留菜单数据，不动地址
-            if (resolving.value || !store.isPlaying) return
-            quality.value = prefer
-            getSongUrl(song, prefer).then(fallbackUrl => {
-              // 切歌守卫：探测回调较慢，期间已切歌则不得覆盖新歌的音频源
-              if (fallbackUrl && audio && store.currentSong?.id === song.id) {
-                const wasPlaying = store.isPlaying
-                audio.src = fallbackUrl
-                downloadUrl.value = fallbackUrl
-                // 换 src 会中止当前播放，保持播放中就重新起播，避免无声卡住
-                if (wasPlaying) safePlay()
-              }
-            })
-          }
+          if (prefer && prefer !== quality.value) quality.value = prefer
         }
       }).catch(() => {})
     }
     if (url) {
       // 切到非下载歌曲时释放旧的 Blob URL，避免内存泄漏
       if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null }
+      // 换源到真正出声之间保持转圈
+      resolving.value = true
       audio.pause()
       audio.src = url
       downloadUrl.value = url
       resumeAudio()
       setSpectrumActive(true)
-      // 安全播放：成功才标记 isPlaying，失败则回退状态避免卡死
-      const played = await safePlay()
-      // 成功起播，解除加载态
-      resolving.value = false
+      // 安全播放：失败时 safePlay 内部会回退状态；成功后的"播放中"由 playing 事件落定
+      await safePlay()
       // 预取下一首 + 加载歌词并行，不阻塞播放
       prefetchNextUrl()
       loadSongLyrics(song)
@@ -1029,11 +1061,17 @@ watch(() => store.isPlaying, (playing) => {
     resumeAudio()
     setSpectrumActive(true)
     // 切歌期间 URL 正在解析，不调 safePlay()（会用旧 audio.src 导致失败并重置 isPlaying）
-    if (audio.src && !resolving.value) {
+    if (audio.src && !resolving.value && audio.paused) {
       safePlay()
     }
   } else {
     setSpectrumActive(false)
+    buffering.value = false
+    // 用户主动暂停/系统打断：结束加载态，避免转圈一直转到看门狗超时才停
+    if (resolving.value) {
+      clearTimeout(playConfirmTimer)
+      resolving.value = false
+    }
     audio.pause()
   }
 })
