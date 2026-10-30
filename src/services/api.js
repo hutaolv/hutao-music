@@ -165,7 +165,10 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
   if (song.copyrightId) params.set('copyrightId', song.copyrightId)
 
   try {
-    const res = await apiFetch(`${API_BASE}/song/url?${params}`)
+    // 播放地址解析 10 秒超时（与播放器 10 秒转圈上限一致），超时按解析失败处理；
+    // 后台音质探测放宽到 15 秒，避免探测被误杀（不阻塞播放）
+    const timeout = detect ? 15000 : 10000
+    const res = await apiFetch(`${API_BASE}/song/url?${params}`, { timeout })
     const json = await res.json()
     if (json.code === 200 && json.data?.url) {
       // 探测时返回对象（含可用音质列表），否则返回 url 字符串，兼容两种调用方式
@@ -239,11 +242,12 @@ export async function fetchLatestVersion() {
   return null
 }
 
-export async function thirdPartySearch(keyword, platform) {
+export async function thirdPartySearch(keyword, platform, timeout) {
   let url = `${API_BASE}/search/thirdparty?keyword=${encodeURIComponent(keyword)}`
   if (platform) url += `&platform=${encodeURIComponent(platform)}`
   try {
-    const res = await apiFetch(url)
+    // 默认沿用 apiFetch 的 30 秒；VIP 播放匹配传入 10 秒，避免起播转圈过久
+    const res = await apiFetch(url, timeout ? { timeout } : undefined)
     const json = await res.json()
     if (json.code === 200) {
       const data = json.data

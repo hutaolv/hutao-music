@@ -194,7 +194,7 @@
     </transition>
 
     <transition name="fade">
-      <div v-if="playFailedToast" class="vip-toast failed-toast">胡桃暂时无法获取该歌曲，2秒后自动跳过</div>
+      <div v-if="playFailedToast" class="vip-toast failed-toast">{{ playFailedText }}</div>
     </transition>
     <transition name="fade">
       <div v-if="vipBlockedToast" class="vip-toast blocked-toast" @click="goHutaoSearch">VIP资源无法播放，点击封面尝试胡桃搜索~~~</div>
@@ -433,10 +433,14 @@ function showVipBlocked() {
   }, 5000)
 }
 
-// 自动模式：第三方搜第一首可播放源，搜到/失败都返回结果（切歌守卫由调用方负责）
+// 自动模式：第三方搜第一首可播放源；搜不到返回 null，超时返回 RESOLVE_TIMED_OUT
+// 搜索同样限制 10 秒：超时单独走"解析失败"提示，不再按 VIP 资源缺失处理
 async function searchVipPlayable(song) {
   try {
-    const data = await thirdPartySearch(song.title, song.platform)
+    const data = await resolveWithTimeout(
+      thirdPartySearch(song.title, song.platform, RESOLVE_TIMEOUT)
+    )
+    if (data === RESOLVE_TIMED_OUT) return RESOLVE_TIMED_OUT
     return data?.songs?.[0] || null
   } catch {
     return null
@@ -472,7 +476,11 @@ const playModeText = computed(() => {
   }
 })
 
+// 取不到播放地址时的提示文案：普通失败与解析超时分开措辞
+const PLAY_FAILED_TEXT = '胡桃暂时无法获取该歌曲，2秒后自动跳过'
+const RESOLVE_FAILED_TEXT = '解析失败，2秒后自动跳过'
 const playFailedToast = ref(false)
+const playFailedText = ref(PLAY_FAILED_TEXT)
 const vipBlockedToast = ref(false)
 let playFailedTimer = null
 let vipBlockedTimer = null
@@ -498,6 +506,18 @@ function armPlayConfirm() {
     // 期间已切歌就放过：不能把新歌的加载态清掉
     if (store.currentSong?.id === songId) resolving.value = false
   }, 6000)
+}
+
+// 播放地址解析硬超时：10 秒内没拿到地址就按解析失败处理，不再等 apiFetch 的 30 秒上限，
+// 也不做二次重试，避免转圈一直拖到二十多秒
+const RESOLVE_TIMEOUT = 10000
+const RESOLVE_TIMED_OUT = Symbol('resolve-timeout')
+function resolveWithTimeout(promise, ms = RESOLVE_TIMEOUT) {
+  let timer = null
+  const timeout = new Promise(resolve => {
+    timer = setTimeout(() => resolve(RESOLVE_TIMED_OUT), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
 // 安全播放：包装 audio.play() 的 Promise，失败时自动回退 isPlaying 状态，
@@ -550,19 +570,22 @@ function onControlsTouch(e) {
 
 // 拿不到真实音频时：先重新解析一次，仍失败再跳下一首
 let audioRetryCount = 0
-function showPlayFailed() {
+function showPlayFailed(reason = '') {
   if (playFailedTimer) clearTimeout(playFailedTimer)
   const song = store.currentSong
+  // 解析超时不再重试：已经等满 10 秒，再试一次会把转圈拖到 20 秒以上；
+  // 其余失败（上游秒回 null、音频元素报错）仍保留一次快速重试
   // 首次失败：重新调用 getSongUrl 解析（修复胡桃搜歌曲从收藏播放间歇性失败）
   // 旧逻辑只 audio.load() 重试，但 getSongUrl 返回 null 时 audio.src 从未设置，重试无效
-  if (audioRetryCount < 1 && song) {
+  if (reason !== 'timeout' && audioRetryCount < 1 && song) {
     audioRetryCount++
     resolving.value = true
     playFailedTimer = setTimeout(async () => {
       // 切歌守卫：重试期间用户已切歌则放弃本轮
       if (store.currentSong?.id !== song.id) { resolving.value = false; return }
-      const retryUrl = await getSongUrl(song, quality.value)
+      const retryResult = await resolveWithTimeout(getSongUrl(song, quality.value))
       if (store.currentSong?.id !== song.id) { resolving.value = false; return }
+      const retryUrl = retryResult === RESOLVE_TIMED_OUT ? null : retryResult
       if (retryUrl) {
         audio.src = retryUrl
         downloadUrl.value = retryUrl
@@ -573,6 +596,7 @@ function showPlayFailed() {
         // 重试仍失败，跳下一首
         resolving.value = false
         audioRetryCount = 0
+        playFailedText.value = retryResult === RESOLVE_TIMED_OUT ? RESOLVE_FAILED_TEXT : PLAY_FAILED_TEXT
         playFailedToast.value = true
         playFailedTimer = setTimeout(() => {
           playFailedToast.value = false
@@ -585,6 +609,7 @@ function showPlayFailed() {
   audioRetryCount = 0
   store.isPlaying = false
   resolving.value = false
+  playFailedText.value = reason === 'timeout' ? RESOLVE_FAILED_TEXT : PLAY_FAILED_TEXT
   playFailedToast.value = true
   playFailedTimer = setTimeout(() => {
     playFailedToast.value = false
@@ -944,8 +969,14 @@ watch(() => store.currentSong, async (song) => {
       const match = await searchVipPlayable(song)
       // 切歌守卫：搜索期间用户已切歌则放弃本轮
       if (store.currentSong?.id !== song.id) { resolving.value = false; return }
+      if (match === RESOLVE_TIMED_OUT) {
+        // 搜索超过 10 秒：与普通解析一致，提示"解析失败"并 2 秒后跳过
+        resolving.value = false
+        showPlayFailed('timeout')
+        return
+      }
       if (!match) {
-        // 搜不到 → 退化回提示条兜底
+        // 搜不到可播源 → 退化回 VIP 提示条兜底（5 秒后跳下一首）
         resolving.value = false
         showVipBlocked()
         return
@@ -1010,16 +1041,24 @@ watch(() => store.currentSong, async (song) => {
       nextUrlCache.id = null
       nextUrlCache.url = ''
     }
+    // 本轮解析是否因 10 秒超时失败：超时直接提示，不再走重试
+    let resolveTimedOut = false
     if (!url) {
       // 进入解析阶段：播放按钮切换为加载态（P2）
       resolving.value = true
       // 先快速获取当前音质的播放地址，不等音质探测
-      url = await getSongUrl(song, quality.value)
+      const startedAt = Date.now()
+      const result = await resolveWithTimeout(getSongUrl(song, quality.value))
       // 切歌守卫：等待期间用户已切到其他歌时，丢弃本轮结果，
       // 防止旧地址覆盖新歌的音频源（同时保证加载态状态正确）
       if (store.currentSong?.id !== song.id) return
+      // apiFetch 自己 10 秒超时也会返回 null，按耗时一并归为解析超时
+      resolveTimedOut = result === RESOLVE_TIMED_OUT ||
+        (result === null && Date.now() - startedAt >= RESOLVE_TIMEOUT - 300)
+      url = result === RESOLVE_TIMED_OUT ? null : result
       // 音质探测放后台，不阻塞播放；结果仅更新音质菜单
-      getSongUrl(song, quality.value, true).then(res => {
+      // 解析失败/超时就不再探测，省一次无效请求
+      if (url) getSongUrl(song, quality.value, true).then(res => {
         availableQualities.value = res.availableQualities || ['standard']
         // 若当前音质不在探测结果里，只更新菜单/后续选档，绝不在起播后换源：
         // 换 audio.src 会中断正在播放的音频（声音中断、重新缓冲），
@@ -1047,8 +1086,8 @@ watch(() => store.currentSong, async (song) => {
       loadSongLyrics(song)
       backfillDownloadCover(song)
     } else {
-      // 拿不到真实音频：提示并 5 秒后自动跳下一首
-      showPlayFailed()
+      // 拿不到真实音频：10 秒解析超时直接提示解析失败，其余失败先快速重试一次
+      showPlayFailed(resolveTimedOut ? 'timeout' : '')
     }
   }
 }, { immediate: true })
