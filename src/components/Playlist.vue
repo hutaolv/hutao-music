@@ -9,7 +9,7 @@
     </div>
     <div class="playlist-list" ref="listRef" v-if="store.playlist.length">
       <div v-for="(song, idx) in store.playlist" :key="song.id" :ref="el => { if (idx === store.currentIndex) activeEl = el }" class="playlist-item" :class="{ active: idx === store.currentIndex }" @click="store.playSong(song)">
-        <img :src="song.cover || '/icons/qiqi.jpg'" :alt="song.title" class="item-cover" />
+        <img :src="song.cover || '/icons/qiqi.jpg'" :alt="song.title" class="item-cover" @error="hideImg" />
         <div class="item-info">
           <div class="item-title">{{ song.title }}</div>
           <div class="item-artist">{{ song.artist }}</div>
@@ -25,6 +25,7 @@
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
+import { getDownloadCoverUrl } from '../utils/storage'
 const store = usePlayerStore()
 const listRef = ref(null)
 const activeEl = ref(null)
@@ -73,8 +74,27 @@ function scrollToCurrent() {
   })
 }
 
+// 下载/本地导入歌曲的封面在会话内是 blob: URL，写进 localStorage 后重启必然失效，
+// 播放列表会显示裂图；打开列表时按歌曲 ID 从下载库重新生成对象 URL 恢复真封面
+async function reviveOfflineCovers() {
+  const items = store.playlist.filter(s => s.fromDownload &&
+    (!s.cover || String(s.cover).startsWith('blob:')))
+  if (!items.length) return
+  await Promise.all(items.map(async (s) => {
+    const url = await getDownloadCoverUrl(s.id)
+    // 等待期间封面可能已被其他逻辑修复，只填仍然无效的
+    if (url && (!s.cover || String(s.cover).startsWith('blob:'))) s.cover = url
+  }))
+}
+
 // 组件挂载时（v-if 首次渲染）自动滚动
-onMounted(scrollToCurrent)
+onMounted(() => {
+  scrollToCurrent()
+  reviveOfflineCovers()
+})
+
+// 面板打开期间新增歌曲时也补一次（只对无封面/失效封面的下载歌查库）
+watch(() => store.playlist.length, reviveOfflineCovers)
 
 // 打开播放列表时自动滚动到当前播放歌曲位置
 watch(() => store.showPlaylist, (v) => {

@@ -470,3 +470,24 @@ export async function getDownloadBlob(songId) {
     db.close()
   }
 }
+
+// 获取下载歌曲封面（会话级对象 URL）：播放列表只存了上一次会话的 blob: 地址，
+// 重启后必然失效，按歌曲 ID 从下载记录重新生成；没有封面图时返回空串
+export async function getDownloadCoverUrl(songId) {
+  const db = await openDownloadsDB()
+  try {
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE_DOWNLOADS, 'readonly')
+      const req = tx.objectStore(STORE_DOWNLOADS).get(songId)
+      req.onsuccess = () => {
+        const blob = req.result?.song?.coverBlob
+        resolve(blob ? coverUrlFor(songId, blob) : '')
+      }
+      req.onerror = () => resolve('')
+    })
+  } catch {
+    return ''
+  } finally {
+    db.close()
+  }
+}
