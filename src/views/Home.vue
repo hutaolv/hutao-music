@@ -4,11 +4,11 @@
       <h2 class="section-title">热门榜单速览</h2>
       <div v-if="Object.keys(top5ByPlatform).length" class="bento-grid">
         <div
-          v-for="(songs, platform) in top5ByPlatform"
+          v-for="(songs, platform, pIdx) in top5ByPlatform"
           :key="platform"
           class="bento-card glass-card hover-lift card-enter"
           :class="'bento-' + bentoSize(platform)"
-          :style="{ '--card-accent': platformColors[platform], '--card-grad': 'var(--grad-' + platform + ')' }"
+          :style="{ '--card-accent': platformColors[platform], '--card-grad': 'var(--grad-' + platform + ')', '--enter-i': pIdx }"
           @click="router.push({ path: '/charts', query: { platform } })"
         >
           <div class="bento-header">
@@ -27,7 +27,32 @@
           </div>
         </div>
       </div>
-      <p v-else class="no-result">正在加载榜单数据...</p>
+      <!-- 骨架屏：保持与真实卡片一致的尺寸占位。
+           原来只有一行「正在加载」，数据回来时布局会突然被撑开（CLS），
+           页面切换/首次进入时观感就是「先空白再猛地跳一下」 -->
+      <div v-else class="bento-grid">
+        <div
+          v-for="(p, i) in homePlatforms"
+          :key="p"
+          class="bento-card glass-card bento-skeleton"
+          :class="i === 0 ? 'bento-large' : 'bento-small'"
+        >
+          <div class="skeleton-header">
+            <span class="skeleton-bar sk-title"></span>
+            <span class="skeleton-bar sk-more"></span>
+          </div>
+          <div class="bento-songs">
+            <div v-for="n in 5" :key="n" class="bento-song">
+              <span class="skeleton-rank"></span>
+              <span class="skeleton-cover"></span>
+              <div class="bento-song-info">
+                <span class="skeleton-bar sk-line-1"></span>
+                <span class="skeleton-bar sk-line-2"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 我的喜欢 / 最近播放 / 下载 标签切换 -->
@@ -338,6 +363,64 @@ async function removeDl(song) {
   grid-column: span 2;
 }
 
+/* ===== 榜单骨架屏 =====
+   尺寸刻意与真实卡片对齐（头部 height、行高 36px 封面、22px 排名），
+   数据回来时只替换内容不改变布局，避免切换回来时页面高度突变造成跳动 */
+.bento-skeleton {
+  cursor: default;
+}
+.bento-skeleton:hover {
+  transform: none;
+}
+.skeleton-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.skeleton-bar {
+  display: block;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+.sk-title { width: 96px; height: 15px; }
+.sk-more { width: 58px; height: 11px; }
+.skeleton-rank {
+  width: 22px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+.skeleton-cover {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.07);
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+.sk-line-1 { width: 72%; height: 12px; }
+.sk-line-2 { width: 42%; height: 10px; margin-top: 6px; }
+
+@keyframes skeleton-shimmer {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+/* 减少动态效果偏好下停止呼吸动画，保留静态占位 */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar,
+  .skeleton-rank,
+  .skeleton-cover {
+    animation: none;
+  }
+}
+
 .bento-header {
   display: flex;
   justify-content: space-between;
@@ -568,6 +651,8 @@ async function removeDl(song) {
     grid-column: span 1;
   }
   .bento-cover { display: none; }
+  /* 手机端真实卡片不显示封面，骨架屏同步隐藏，保证占位高度一致 */
+  .skeleton-cover { display: none; }
   .fav-recent-tabs { gap: 2px; }
   .tab-btn { padding: 8px 14px; font-size: 14px; }
 }
