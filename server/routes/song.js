@@ -13,6 +13,9 @@ import { kuwoThirdPartyApis } from '../services/hutao-kuwo.js'
 import { kugouThirdPartyApis } from '../services/hutao-kugou.js'
 import { fetchWithFallback } from '../services/thirdPartyApis.js'
 import { log, warn } from '../logger.js'
+// 归属地精简行：仅当该 IP 已有 2 小时内的解析缓存时才输出，
+// 同步读内存、无网络请求，失败时静默（不影响下面的业务日志）
+import { logGeoBrief } from '../ip-location.js'
 
 const router = Router()
 
@@ -217,6 +220,10 @@ router.get('/url', async (req, res) => {
   const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source } = req.query
   const ip = getClientIp(req)
   log(`[${ip}] [SongURL]`, { platform, id, source, quality, mid, mediaMid, title: req.query.title })
+  // 紧跟在入口业务行之后补一行归属地。
+  // 每个请求只在入口处调用一次：缓存命中分支与异常分支本身还会再写一行业务日志，
+  // 若各自都补一遍，同一个请求会输出多行重复的归属地
+  logGeoBrief(ip)
   if (!platform || !id) {
     return res.json({ code: 400, message: 'platform and id required' })
   }

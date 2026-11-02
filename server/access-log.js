@@ -14,6 +14,11 @@ import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from '
 import { writeFile, rename } from 'fs/promises'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
+// hiofd 归属地服务：精确到区县/街道/经纬度，命中 2 小时缓存时零网络开销。
+// 它与本模块的访问统计是独立职责，故障只影响 geoFull 字段，不影响统计本身
+import { geoFullOf, lookupOrQueue, takeIpLookupStats } from './ip-location.js'
+// 归档汇总写到独立的 ip-geo 日志，避免业务日志里混入运维信息
+import { writeGeoArchive } from './geo-log.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // 日志目录：server/log
@@ -98,6 +103,9 @@ async function flushTick() {
 // 2. 归档成功后才清空内存、更新当前日期并重置 access.json —— 保证"先落地再清理"，不丢数据
 async function archiveNow() {
   const hasData = stats.size > 0
+  // 归档前先记住所属日期：下面会把 currentDate 切到新的一天，
+  // 汇总日志里必须写被归档的那一天，而不是新的一天
+  const archivedDate = currentDate
   if (hasData) {
     const histFile = resolve(HISTORY_DIR, `access-${currentDate}.json`)
     if (!existsSync(histFile)) {
@@ -110,6 +118,12 @@ async function archiveNow() {
   stats.clear()
   currentDate = localDateStr(new Date())
   await writeToday()
+  // 归属地解析的当日汇总：查了多少次、命中多少、失败多少、队列有没有丢数据。
+  // 写到独立的 ip-geo 日志，业务日志不掺运维信息。
+  // takeIpLookupStats 会顺手清零计数，保证次日汇总只统计次日
+  if (hasData) {
+    writeGeoArchive({ date: archivedDate, ...takeIpLookupStats() })
+  }
 }
 
 // 凌晨定时器：计算距离下一个本地 0 点的毫秒数，睡到点后归档，再安排下一天。
@@ -191,13 +205,57 @@ function isExternalIp(ip) {
   return true
 }
 
-// 在线解析 IP 归属地。优先级（实测结论）：
+// 把 hiofd 的完整记录写进统计对象。
+// 注意字段拆分方式：geo 用"国家 省 市"三段拼接，与本模块原有格式保持一致；
+// 区县/街道/经纬度只存在于 geoFull，不塞进 geo，避免污染已有的展示逻辑
+function applyHiofdGeo(s, rec) {
+  if (!s || !rec) return
+  const loc = [rec.country, rec.province, rec.city].filter(Boolean).join(' ')
+  if (loc) s.geo = loc
+  if (rec.isp) s.isp = rec.isp
+  s.geoFull = {
+    country: rec.country,
+    province: rec.province,
+    city: rec.city,
+    district: rec.district,
+    street: rec.street,
+    isp: rec.isp,
+    longitude: rec.longitude,
+    latitude: rec.latitude,
+    source: rec.source,
+    queryAt: rec.queryAt,
+    fetchedAt: rec.fetchedAt,
+    costMs: rec.costMs
+  }
+}
+
+// 归属地解析编排：hiofd 优先，原解析链只做兜底。
+// 为什么不 await hiofd：
+// hiofd 有每分钟 5 次的硬限流，新 IP 要排队，可能几分钟才有结果。若在这里等它，
+// 访问统计会被一个第三方接口拖住，得不偿失。所以拆成两路：
+// ① 缓存命中（2 小时内查过）→ 立即填充，零网络；
+// ② 未命中 → 入队等 hiofd，结果回来后再覆盖（此时用户可能早已又请求过几次）；
+// 同时用原有解析链先填一个大概的省市，保证这段时间统计里不至于整片空白。
+async function resolveGeo(ip, s) {
+  if (!isExternalIp(ip)) return
+  const cached = geoFullOf(ip)
+  if (cached) {
+    applyHiofdGeo(s, cached)
+    return
+  }
+  // 入队：成功后用更精确的数据覆盖兜底结果；失败则保留兜底值
+  lookupOrQueue(ip, rec => { if (rec) applyHiofdGeo(s, rec) })
+  await fallbackGeo(ip, s)
+}
+
+// 原有的在线解析链（pconline → ip-api → ipinfo），仅作为 hiofd 未命中/失败时的兜底。
+// 优先级（实测结论）：
 // 接口一 pconline 太平洋电脑网：全中文含运营商；注意必须 https，http 会被 403 封禁；
 //         返回 GBK 编码需用 TextDecoder 解码
 // 接口二 ip-api.com：zh-CN 下国家省份中文，免费版限 45 次/分钟
 // 接口三 ipinfo.io：全英文，仅作最终兜底
-// 新访客突发超限时归属地会留空，属可接受降级（解析异步执行，不阻塞请求主流程）
-async function resolveGeo(ip, s) {
+// 该链给不出区县/街道/经纬度，所以不会写 [IP-GEO] 日志行，只用于补 geo/isp
+async function fallbackGeo(ip, s) {
   if (!isExternalIp(ip)) return
   const isV6 = ip.includes(':')
   // 接口一：pconline —— 仅用于 IPv4！
