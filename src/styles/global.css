@@ -140,6 +140,51 @@ img {
   opacity: 0;
 }
 
+/* ===== 路由页面切换过渡 =====
+   与通用 .fade 的区别：淡出刻意做得更快（130ms）、淡入稍长并带上移（220ms）。
+   原因是 out-in 模式下两段动画串行播放，等长的话总时长接近 600ms，
+   中间还会露出一段「旧页已消失、新页未出现」的空白，主观上就是卡顿。
+   淡出快、淡入慢且带位移，既缩短了总时长，也让新内容出现有方向感。 */
+.route-enter-active {
+  transition: opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1), transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.route-leave-active {
+  transition: opacity 0.13s ease-in;
+}
+.route-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.route-leave-to {
+  opacity: 0;
+}
+
+/* 页面切换过渡期间的性能保护：
+   1. 关掉毛玻璃模糊——十几处 backdrop-filter 在过渡重绘时开销极高，是掉帧主因；
+      这里只去掉模糊，背景色与边框保留，视觉上几乎看不出差别
+   2. 锁住内容区交互——out-in 模式下旧页面在淡出期间仍在 DOM 中可点击，
+      误点会触发旧页面的操作，且连点会打断过渡造成状态残留 */
+body.route-switching .glass-card,
+body.route-switching .navbar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body.route-switching main.page-container {
+  pointer-events: none;
+}
+
+/* 尊重系统「减少动态效果」偏好：直接呈现内容，不做位移与淡入淡出 */
+@media (prefers-reduced-motion: reduce) {
+  .route-enter-active,
+  .route-leave-active {
+    transition: none;
+  }
+  .route-enter-from {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .slide-up-enter-active, .slide-up-leave-active {
   transition: all 0.3s ease;
 }

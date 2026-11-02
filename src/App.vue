@@ -2,7 +2,17 @@
   <NavBar />
   <main class="page-container">
     <router-view v-slot="{ Component }">
-      <transition name="fade" mode="out-in">
+      <!-- 过渡钩子：切换期间给 body 打标记，过渡期临时关掉毛玻璃并锁住内容区交互。
+           onLeaveCancelled/onEnterCancelled 兜底快速连点导致过渡被打断的情况，
+           否则标记会残留，页面会一直处于「无毛玻璃」状态 -->
+      <transition
+        name="route"
+        mode="out-in"
+        @before-leave="setRouteSwitching(true)"
+        @after-enter="setRouteSwitching(false)"
+        @leave-cancelled="setRouteSwitching(false)"
+        @enter-cancelled="setRouteSwitching(false)"
+      >
         <keep-alive :max="5">
           <component :is="Component" />
         </keep-alive>
@@ -87,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { registerPlugin, Capacitor } from '@capacitor/core'
 import NavBar from './components/NavBar.vue'
 import PlayerBar from './components/PlayerBar.vue'
@@ -96,6 +106,17 @@ import { APP_VERSION } from './version'
 import { fetchLatestVersion } from './services/api'
 
 const showDisclaimer = ref(false)
+
+// 页面切换过渡标记：过渡期间给 body 加 class。
+// 页面里有十几处 backdrop-filter 毛玻璃层，切换时新旧页面同时重绘这些模糊层，
+// 中低端机和 WebView 上会明显掉帧；过渡期间临时关掉模糊，过渡结束再恢复。
+// 用 body 而不是容器：navbar/播放条在容器外，同样需要覆盖。
+function setRouteSwitching(on) {
+  document.body.classList.toggle('route-switching', on)
+}
+
+// 极端情况下（路由跳转失败、组件被直接卸载）清理标记，避免毛玻璃永久失效
+onBeforeUnmount(() => setRouteSwitching(false))
 
 // APK 版本检测：仅打包成 APK（Capacitor）时启用，网页版始终是最新不需提示
 const showUpdate = ref(false)

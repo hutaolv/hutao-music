@@ -206,7 +206,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlayerStore } from '../stores/player'
 import { getSongUrl, getLyrics, matchLyrics } from '../services/api'
@@ -768,6 +768,30 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('resize', onWinResize)
   if (animRafId) cancelAnimationFrame(animRafId)
+})
+
+// 本页被 keep-alive 缓存，切走时只会触发 deactivated 而不是 unmounted，
+// 频谱的 requestAnimationFrame 循环会继续在后台逐帧绘制看不见的 canvas，
+// 白白占用主线程，表现为「从歌词页切走后其他页面滚动/切换都变卡」。
+// 这里在失活时注销频谱与手势动画，回到本页时再重新注册。
+onDeactivated(() => {
+  if (unregisterRingSpec) {
+    unregisterRingSpec()
+    unregisterRingSpec = null
+  }
+  if (animRafId) {
+    cancelAnimationFrame(animRafId)
+    animRafId = null
+  }
+  if (mouseRafId) {
+    cancelAnimationFrame(mouseRafId)
+    mouseRafId = null
+  }
+})
+
+onActivated(() => {
+  // canvas 由 v-if 控制，激活后 DOM 已存在，nextTick 只是确保在同批更新之后再注册
+  if (showSpectrum.value) nextTick(() => registerRingSpec())
 })
 
 // 彩虹配色：青→蓝→紫→粉→橙
