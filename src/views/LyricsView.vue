@@ -46,6 +46,8 @@
         </div>
       </div>
       <div class="lyrics-scroll" ref="lyricsRef" :style="currentLyricsStyle">
+        <!-- 上下占位：让第一句和最后一句也能停在歌词区正中间 -->
+        <div v-if="parsedLyrics.length" class="lyric-spacer" aria-hidden="true"></div>
         <div v-if="!parsedLyrics.length" class="no-lyrics">
           暂无歌词
           <button v-if="canManualFind" class="rematch-link" @click.stop="openRematch(true)">匹配歌词</button>
@@ -57,6 +59,7 @@
                 @click="seekTo(line.time)">
           {{ line.text }}
         </div>
+        <div v-if="parsedLyrics.length" class="lyric-spacer" aria-hidden="true"></div>
       </div>
     </div>
     <button class="desktop-btn" @click="toggleDesktop" :class="{ active: store.desktopLyrics }" title="桌面歌词">
@@ -555,7 +558,12 @@ const parsedLyrics = computed(() => {
 })
 
 // 自定义平滑滚动：ease-out cubic 缓动，比原生 behavior: 'smooth' 更丝滑
-function smoothScrollTo(container, target, duration = 400) {
+// 歌词行会频繁切换：新动画开始前必须取消上一帧循环，否则两个循环同时写 scrollTop，
+// 最终停在哪取决于哪个先结束，当前句可能停在半路没居中
+let scrollRaf = 0
+let recenterTimer = null
+function smoothScrollTo(container, target, duration = 320) {
+  if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = 0 }
   const containerRect = container.getBoundingClientRect()
   const targetRect = target.getBoundingClientRect()
   const offset = targetRect.top - containerRect.top + container.scrollTop
@@ -569,19 +577,39 @@ function smoothScrollTo(container, target, duration = 400) {
     const progress = Math.min(elapsed / duration, 1)
     const ease = 1 - Math.pow(1 - progress, 3)
     container.scrollTop = start + distance * ease
-    if (progress < 1) requestAnimationFrame(step)
+    if (progress < 1) {
+      scrollRaf = requestAnimationFrame(step)
+    } else {
+      scrollRaf = 0
+    }
   }
-  requestAnimationFrame(step)
+  scrollRaf = requestAnimationFrame(step)
+}
+
+// 把当前播放句滚到歌词区正中间；字号/行高有 0.4s 过渡，
+// 等过渡结束按最终行高再校正一次，避免当前句长期偏上/偏下半行
+function centerActiveLyric() {
+  const container = lyricsRef.value
+  if (!container) return
+  const activeEl = container.querySelector('.lyric-line.active')
+  if (!activeEl) return
+  smoothScrollTo(container, activeEl)
+  if (recenterTimer) clearTimeout(recenterTimer)
+  recenterTimer = setTimeout(() => {
+    recenterTimer = null
+    const c = lyricsRef.value
+    const el = c?.querySelector('.lyric-line.active')
+    if (c && el) smoothScrollTo(c, el, 120)
+  }, 420)
 }
 
 watch(() => store.currentLyricIndex, () => {
-  nextTick(() => {
-    if (!lyricsRef.value) return
-    const activeEl = lyricsRef.value.querySelector('.lyric-line.active')
-    if (activeEl) {
-      smoothScrollTo(lyricsRef.value, activeEl, 400)
-    }
-  })
+  nextTick(centerActiveLyric)
+})
+
+// 重新匹配/首次载入歌词时行数会变，但当前句索引可能不变 → 也补一次居中
+watch(() => parsedLyrics.value.length, () => {
+  nextTick(centerActiveLyric)
 })
 
 function toggleDesktop() {
@@ -760,6 +788,8 @@ onMounted(() => {
     registerRingSpec()
   }
   window.addEventListener('resize', onWinResize)
+  // 中途进入歌词页时 currentLyricIndex 不会变化，这里主动把当前句居中
+  nextTick(centerActiveLyric)
 })
 
 onUnmounted(() => {
@@ -768,6 +798,8 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('resize', onWinResize)
   if (animRafId) cancelAnimationFrame(animRafId)
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  if (recenterTimer) clearTimeout(recenterTimer)
 })
 
 // 本页被 keep-alive 缓存，切走时只会触发 deactivated 而不是 unmounted，
@@ -787,11 +819,22 @@ onDeactivated(() => {
     cancelAnimationFrame(mouseRafId)
     mouseRafId = null
   }
+  // 页面被缓存时停掉歌词居中动画/校正，回到本页再重新居中
+  if (scrollRaf) {
+    cancelAnimationFrame(scrollRaf)
+    scrollRaf = 0
+  }
+  if (recenterTimer) {
+    clearTimeout(recenterTimer)
+    recenterTimer = null
+  }
 })
 
 onActivated(() => {
   // canvas 由 v-if 控制，激活后 DOM 已存在，nextTick 只是确保在同批更新之后再注册
   if (showSpectrum.value) nextTick(() => registerRingSpec())
+  // 缓存期间歌可能已经播到新的一句，回来时重新居中
+  nextTick(centerActiveLyric)
 })
 
 // 彩虹配色：青→蓝→紫→粉→橙
@@ -1039,6 +1082,10 @@ watch(ringSpecRef, (el) => {
   padding: 6px 0;
   cursor: pointer;
 }
+/* 上下各留半屏高度：首句/末句也能滚到正中间，不再贴顶/贴底 */
+.lyric-spacer {
+  height: 34vh;
+}
 .lyric-line.active {
   color: var(--text-primary);
   font-size: 24px;
@@ -1272,6 +1319,7 @@ watch(ringSpecRef, (el) => {
   }
   .song-info-art { width: 80px; height: 80px; }
   .lyrics-scroll { max-height: 40vh; }
+  .lyric-spacer { height: 20vh; }
 }
 
 /* 手机端（≤767px，避开 iPad 768px）：隐藏横排样式切换，改为齿轮设置按钮 + 底部弹出面板 */
