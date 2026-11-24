@@ -1,4 +1,6 @@
 import axios from 'axios'
+// 目前只有被注释掉的 xuanluoge / 317ak 两个源用到（需忽略证书校验），
+// 保留导入是为了源恢复时取消注释即可直接用，不必再补 import
 import https from 'https'
 
 // 公共请求头
@@ -28,11 +30,75 @@ async function parseKugouFormApi(id, baseUrl) {
   return { url: new URL(item.url, baseUrl).href, name: item.name, artist: item.artist, cover: item.cover, lyric: item.lrc }
 }
 
+
+
+// 该 cookie 有效期 12 小时，取一次缓存复用；真过期了接口会再回 403，此时刷新重试一次。
+// 注意：它返回的中转地址 api.php?get=url... 无需 cookie 即可 302 到酷狗 CDN，服务端代理直接跟即可。
+const JBSOU_BASE = 'https://www.jbsou.cn/'
+const JBSOU_COOKIE_TTL = 6 * 60 * 60 * 1000
+let jbsouCookie = ''
+let jbsouCookieAt = 0
+let jbsouCookieTask = null
+
+function fetchJbsouCookie() {
+  if (jbsouCookie && Date.now() - jbsouCookieAt < JBSOU_COOKIE_TTL) return Promise.resolve(jbsouCookie)
+  // 并发场景下只取一次，避免字幕式重复请求
+  if (jbsouCookieTask) return jbsouCookieTask
+  jbsouCookieTask = axios.get(JBSOU_BASE, { headers, timeout: 5000 })
+    .then(({ data }) => {
+      const m = String(data).match(/mk_visit=([^;"]+)/)
+      if (!m) throw new Error('challenge cookie not found')
+      jbsouCookie = `mk_visit=${m[1]}`
+      jbsouCookieAt = Date.now()
+      return jbsouCookie
+    })
+    .finally(() => { jbsouCookieTask = null })
+  return jbsouCookieTask
+}
+
+async function parseJbsouApi(id) {
+  const call = async () => {
+    const cookie = await fetchJbsouCookie()
+    const { data } = await axios.post(JBSOU_BASE, new URLSearchParams({ input: id, filter: 'id', type: 'kugou', page: '1' }), {
+      headers: {
+        ...headers,
+        Cookie: cookie,
+        Referer: JBSOU_BASE,
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      timeout: 5000
+    })
+    return data
+  }
+  let data = await call()
+  if (data?.code === 403) {
+    jbsouCookie = ''
+    jbsouCookieAt = 0
+    data = await call()
+  }
+  const item = data?.data?.[0]
+  if (!item?.url) return { url: null }
+  if (!item.name && !item.artist) return { url: null }
+  return { url: new URL(item.url, JBSOU_BASE).href, name: item.name, artist: item.artist, cover: item.cover, lyric: item.lrc }
+}
+
 // ==================== 酷狗音乐第三方 API ====================
 // 酷狗官方 playInfo 对免费歌曲返回直链，付费（VIP）歌曲 url 为空。
-// 以下第三方 API 用于解析 VIP 歌曲的真实播放地址，优先级参考 musicdl 项目：
-// l1（svip）：xuanluoge / 317ak；l2（vip）：baka / tom / jbsou / 90svip；l3：cocodownloader / haitangw
+// 以下第三方 API 用于解析 VIP 歌曲的真实播放地址。
+// 注意：原 musicdl 的分层顺序（l1 xuanluoge/317ak、l2 baka/tom/jbsou/90svip、
+// l3 cocodownloader/haitangw）已随源大面积失效而失去意义，现由 jbsou + 90svip 并行兜底。
 export const kugouThirdPartyApis = [
+  /* ===== 以下 6 个源于 2026-11-24 逐个实测不可用，先注释保留、暂不删除 =====
+     xuanluoge        ECONNABORTED 5s（118.24.104.108:3456 端口已关闭，TCP 直连也超时）
+     317ak            HTTP 403（nginx 默认拒绝页，疑似 WAF/UA 拦截）
+     baka             HTTP 503「Temporarily unavailable」
+     tom              POST 405（接口不接受 POST，GET 返回的是首页，接口路径已变）
+     cocodownloader   站点公告「线上演示已关闭」
+     haitangw         code 201 error（musicapi / music 两个域名均如此）
+     接口恢复后把这段外层注释去掉即可复原，无需改动其他代码。
+  */
+  /*
   // xuanluoge：支持多档音质，需忽略 SSL 证书验证
   {
     name: 'xuanluoge-kugou',
@@ -83,16 +149,28 @@ export const kugouThirdPartyApis = [
     name: 'tom-kugou',
     fetch: async (id) => parseKugouFormApi(id, 'https://music.tom.moe/')
   },
-  // jbsou：POST 表单解析
+  // jbsou：原实现，直连不带 cookie，会被反爬层 403 拦掉，仅留作记录
   {
     name: 'jbsou-kugou',
     fetch: async (id) => parseKugouFormApi(id, 'https://www.jbsou.cn/')
   },
-  // 90svip：POST 表单解析
+  */
+  // jbsou：站点有 JS 反爬，需先拿 mk_visit cookie；parseJbsouApi 内部处理并缓存
+  {
+    name: 'jbsou-kugou',
+    fetch: async (id) => parseJbsouApi(id)
+  },
+  // 90svip：实测可用（726ms 拿到 VIP 歌地址）
+  // POST 表单解析
   {
     name: '90svip-kugou',
     fetch: async (id) => parseKugouFormApi(id, 'https://music.90svip.cn/')
   },
+  /* ===== cocodownloader / haitangw 同上，2026-11-24 实测不可用，注释保留 =====
+     cocodownloader   站点公告「线上演示已关闭」
+     haitangw         code 201 error（musicapi / music 两个域名均如此）
+  */
+  /*
   // cocodownloader：简单 GET，返回 JSON
   {
     name: 'cocodownloader-kugou',
@@ -123,4 +201,5 @@ export const kugouThirdPartyApis = [
       }
     }
   }
+  */
 ]
