@@ -18,6 +18,25 @@ const RANK_IDS = [
   { id: '27553408', name: '原创榜' }
 ]
 
+// 咪咕 VIP/付费标记统一判定。
+// 三条数据来源（榜单 contents、搜索 items、歌手页 songItem）字段口径不一致：
+//   榜单外层给 item.vip === '1'，搜索/歌手页给 song.restrictType === 1，
+//   showTags 里的 'vip' 标签只在部分接口出现且不总是准确。
+// 原来三处各写一套，导致榜单能判出的 VIP 歌在歌手页漏判；一旦漏判，
+// 前端 song.vip 为 false 就不会触发"换平台播放"，直接掉进"无法获取、2 秒跳过"。
+// 这里统一为：任一信号命中即视为 VIP（宁可多判一次换源，也不漏判导致播放失败）。
+// 参数 s 是歌曲对象本体，outer 是榜单/列表中包在歌曲外层的原始项（可选）。
+function isVipSong(s, outer) {
+  const a = s || {}
+  const b = outer || {}
+  // 数字 1 与字符串 '1' 都算命中：不同接口的类型不一致
+  const isOne = v => v === 1 || v === '1' || v === true
+  return isOne(a.restrictType) || isOne(b.restrictType)
+    || isOne(a.vip) || isOne(b.vip)
+    || !!a.showTags?.includes?.('vip') || !!b.showTags?.includes?.('vip')
+    || !!a.showTagsStr?.includes?.('vip') || !!b.showTagsStr?.includes?.('vip')
+}
+
 function mapSong(item) {
   const s = item.songData ? (typeof item.songData === 'string' ? JSON.parse(item.songData) : item.songData) : item
   return {
@@ -32,7 +51,7 @@ function mapSong(item) {
     durationMs: (s.duration || 0) * 1000,
     platform: '咪咕音乐',
     audioUrl: '',
-    vip: item.vip === '1' || s.restrictType === 1,
+    vip: isVipSong(s, item),
     contentId: item.contentId || item.resId || s.contentId || '',
     copyrightId: item.copyrightId || s.copyrightId || ''
   }
@@ -86,7 +105,7 @@ export async function searchSongs(keyword, limit = 50) {
         durationMs: (s.duration || 0) * 1000,
         platform: '咪咕音乐',
         audioUrl: '',
-        vip: s.restrictType === 1 || s.showTags?.includes?.('vip'),
+        vip: isVipSong(s, item),
         contentId: s.contentId || '',
         copyrightId: s.copyrightId || ''
       }
@@ -184,7 +203,7 @@ export async function getArtistSongs(singerId, artistName, pageNo = 1) {
         durationMs: (s.duration || 0) * 1000,
         platform: '咪咕音乐',
         audioUrl: '',
-        vip: s.showTags?.includes?.('vip') || s.restrictType === 1,
+        vip: isVipSong(s, item),
         contentId: s.contentId || '',
         copyrightId: s.copyrightId || ''
       }
@@ -200,7 +219,12 @@ export async function getArtistSongs(singerId, artistName, pageNo = 1) {
 // 咪咕音质档位映射：PQ=标准 HQ=高音质 SQ=无损（HQ/SQ 一般需要会员，获取失败时由路由回退标准）
 const TONE_MAP = { standard: 'PQ', high: 'HQ', lossless: 'SQ' }
 
-export async function getSongUrl(contentId, copyrightId, quality = 'standard') {
+// 取播放地址。
+// officialOnly=true 时只走官方接口，拿不到立即返回 null，不在函数内部再串第三方。
+// 这是给路由层双路竞速用的：路由那边已经并行挂了"酷我搜索→第三方解析"的兜底，
+// 若这里也串一层第三方，两条兜底链会重复跑，而且官方这条要等第三方源全部超时
+// （实测 3 秒以上）才算失败，直接把竞速窗口浪费掉 —— VIP 歌的总耗时就是这么被拖长的。
+export async function getSongUrl(contentId, copyrightId, quality = 'standard', officialOnly = false) {
   // 1. 先尝试官方 API
   try {
     const { data } = await axios.get(`${BASE}/MIGUM3.0/strategy/pc/listen/v1.0`, {
@@ -215,7 +239,9 @@ export async function getSongUrl(contentId, copyrightId, quality = 'standard') {
     console.error('MiGu official API error:', e.message)
   }
 
-  // 2. 官方 API 失败时，使用第三方 API
+  if (officialOnly) return null
+
+  // 2. 官方 API 失败时，使用第三方 API（歌词/独立调用等不走竞速的场景仍保留这条兜底）
   console.log(`[MiGu] Official API failed for ${contentId}, trying third-party APIs...`)
   const result = await fetchWithFallback(miguThirdPartyApis, contentId, quality)
   return result?.url || null

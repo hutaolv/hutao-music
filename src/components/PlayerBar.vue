@@ -583,7 +583,9 @@ function showPlayFailed(reason = '') {
     playFailedTimer = setTimeout(async () => {
       // 切歌守卫：重试期间用户已切歌则放弃本轮
       if (store.currentSong?.id !== song.id) { resolving.value = false; return }
-      const retryResult = await resolveWithTimeout(getSongUrl(song, quality.value))
+      // 重试必须带 refresh：缓存里那条地址很可能已经过期（第三方中转地址带签名时限），
+      // 不跳过缓存就等于拿同一条死链再试一次，必然再失败
+      const retryResult = await resolveWithTimeout(getSongUrl(song, quality.value, false, true))
       if (store.currentSong?.id !== song.id) { resolving.value = false; return }
       const retryUrl = retryResult === RESOLVE_TIMED_OUT ? null : retryResult
       if (retryUrl) {
@@ -990,6 +992,10 @@ watch(() => store.currentSong, async (song) => {
         durationMs: match.durationMs || song.durationMs,
         audioUrl: match.audioUrl || '',
         sourceUrl: match.sourceUrl || '',
+        // 必须复制第三方标记：getSongUrl 靠它决定「用 realPlatform 请求」并带上 source=thirdparty。
+        // 原来漏了这一项，换源后仍按原平台（如咪咕）发起请求，而 platformId 已经是第三方平台的ID，
+        // 结果必然拿不到地址 —— 这就是"VIP 歌换源后照样 2 秒跳过"的直接原因
+        isThirdParty: true,
         vip: false
       })
       // 封面优先保留原图（榜单/搜索封面通常更清晰），没有才用第三方结果

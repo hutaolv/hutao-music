@@ -44,6 +44,16 @@ const chartHeaders = {
   'Accept': 'application/json, text/plain, */*'
 }
 
+// 酷我付费标记统一判定。
+// paytype 语义：0=免费、非 0=需付费/VIP。
+// 原写法 `item.payInfo?.paytype !== 0` 有 bug：payInfo 缺失时 undefined !== 0 恒为 true，
+// 会把整张榜单的歌全标成 VIP（前端随之全部显示"胡桃"标签、并被 VIP 筛选误判）。
+// 这里改为显式比较 paytype 数值，缺失即视为免费。参数 item 为接口返回的原始榜单项。
+function isVipSong(item) {
+  const payType = Number(item?.payInfo?.paytype)
+  return Number.isFinite(payType) && payType !== 0
+}
+
 // 拉取单个榜单歌曲列表（接口对同一 IP 有 QPS 限流，快速重试会加剧风控，故单次请求）
 async function fetchChart(sourceid) {
   const { data } = await axios.get('https://m.kuwo.cn/newh5app/wapi/api/www/bang/bang/musicList', {
@@ -65,7 +75,7 @@ async function fetchChart(sourceid) {
     platform: '酷我音乐',
     audioUrl: '',
     sourceUrl: '',
-    vip: item.payInfo?.paytype !== 0
+    vip: isVipSong(item)
   }))
 }
 
@@ -95,7 +105,9 @@ export async function searchSongs(keyword, limit = 50) {
       platform: '酷我音乐',
       audioUrl: '',
       sourceUrl: '',
-      vip: false
+      // 搜索结果的付费标记有意保持 false：酷我播放走第三方解析，paytype=3 的歌同样能拿到地址，
+      // 标记成 VIP 反而会让前端多绕一次"换源搜索"。榜单不同（见 fetchChart 上方 isVipSong），
+      // 那里的 VIP 标记用于列表筛选与标签展示。
     }))
   } catch (e) {
     console.error('Kuwo search error:', e.message)

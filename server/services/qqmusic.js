@@ -10,6 +10,24 @@ const headers = {
 
 const QQ_TOP_IDS = [26, 27, 4, 62, 28, 60, 17, 72]
 
+// QQ 音乐付费标记统一判定。
+// 三个接口返回的字段命名与覆盖范围都不一样：
+//   musicu（榜单）用下划线 pay_play / pay_download，且 songInfoList 里 track.pay 可能直接是数字；
+//   client_search_cp（搜索）用驼峰 payplay / paydownload；
+//   歌手页又是下划线。原来三处各写一套，歌手页漏了 pay_download、搜索漏了 vip 标记，
+//   导致同一首歌在不同页面 vip 结论不同 —— 漏判时前端不触发换源，直接"无法获取 2 秒跳过"。
+// 统一为：任一付费信号命中即视为需换源，参数 track 为接口返回的歌曲原始对象。
+function isVipTrack(track) {
+  const p = track?.pay
+  if (p === 1 || p === '1') return true              // 少数接口 pay 字段直接给数字
+  if (!p || typeof p !== 'object') return false
+  const isOne = v => v === 1 || v === '1'
+  return isOne(p.pay_play) || isOne(p.payplay)
+    || isOne(p.pay_status)
+    || isOne(p.pay_download) || isOne(p.paydownload)
+    || isOne(p.vip)
+}
+
 // 获取榜单元数据（名称+封面），只调1次API，不拉歌曲
 async function getToplistMeta(order) {
   const { data } = await axios.get(BASE, {
@@ -95,8 +113,7 @@ async function getToplistDetail(topId) {
     })
     const songList = data?.detail?.data?.songInfoList || []
     return songList.map((track, i) => {
-      const pay = track.pay || {}
-      const isVip = pay.pay_play === 1 || pay.pay_status === 1 || pay.pay_download === 1 || pay.vip === 1 || track.pay === 1
+      const isVip = isVipTrack(track)
       return {
         id: `qqmusic_${track.id || track.mid}`,
         platformId: String(track.mid || track.id),
@@ -154,8 +171,8 @@ export async function searchSongs(keyword, limit = 50) {
         durationMs: (track.interval || 0) * 1000,
         platform: 'QQ音乐',
         audioUrl: '',
-        // 付费标记：client_search_cp 用 payplay/pay_status，命中即为需付费歌曲
-        vip: track.pay?.payplay === 1 || track.pay?.pay_status === 1 || track.pay?.paydownload === 1,
+        // 付费标记统一走 isVipTrack：client_search_cp 用驼峰 payplay/pay_status
+        vip: isVipTrack(track),
         platformSongMid: songMid,
         platformMediaMid: track.media_mid || track.file?.media_mid || songMid
       }
@@ -264,7 +281,7 @@ export async function getArtistSongs(artistMid, artistName, page = 1, order = 1)
         durationMs: (track.interval || 0) * 1000,
         platform: 'QQ音乐',
         audioUrl: '',
-        vip: track.pay?.pay_play === 1 || track.pay?.pay_status === 1,
+        vip: isVipTrack(track),
         platformSongMid: track.mid || track.id,
         platformMediaMid: track.file?.media_mid || track.mid
       }

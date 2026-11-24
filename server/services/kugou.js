@@ -59,7 +59,7 @@ async function fetchRankPage(rankid) {
         durationMs: (Number(s.timeLen) || 0) * 1000,
         platform: '酷狗音乐',
         audioUrl: '',
-        vip: Number(s.privilege) === 10
+        vip: isVipSong(s)
       }
     }))
     return songs
@@ -90,6 +90,18 @@ const ALL_KUGOU_RANKS = [
 
 // 获取酷狗音乐排行榜（全部走 PC 网页版）
 // sublistIndex=null 只返回榜单名+封面（元数据），指定索才拉歌曲
+// 酷狗付费标记统一判定。
+// 酷狗接口返回两个付费字段：pay_type（搜索接口）与 privilege（榜单/详情）。
+// privilege 实测取值：0=免费、8=试听片段、10=需购买，均需换源才能完整播放；
+// 榜单接口原来只判 === 10，会漏掉 privilege=8 的试听歌（前端不触发换源，播到 30 秒就断）。
+// 因此统一为：pay_type > 0 或 privilege 属于付费档位（8/10）即视为 VIP。
+// 参数 s 为接口返回的原始歌曲项。
+function isVipSong(s) {
+  const payType = Number(s?.pay_type)
+  const privilege = Number(s?.privilege)
+  return (Number.isFinite(payType) && payType > 0) || privilege === 8 || privilege === 10
+}
+
 export async function getToplist(page = 1, sublistIndex) {
   // 无 sublistIndex：只返回元数据
   if (sublistIndex == null) {
@@ -143,7 +155,7 @@ export async function searchSongs(keyword, limit = 50, page = 1) {
       durationMs: (Number(s.duration) || 0) * 1000,
       platform: '酷狗音乐',
       audioUrl: '',
-      vip: Number(s.pay_type) > 0 || Number(s.privilege) > 0
+      vip: isVipSong(s)
     }))
     songs.hasMore = offset + limit < total
     return songs
