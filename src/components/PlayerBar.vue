@@ -568,6 +568,25 @@ function onControlsTouch(e) {
   setTimeout(clear, 200)
 }
 
+// ===== 播放中断自愈 =====
+// 各平台 CDN 签发的都是短时效直链（酷狗路径里带分钟级时间戳、酷我地址里编码了签发时刻），
+// 长歌播到中途、或 WebView 缓冲耗尽后要再发 Range 请求时，上游可能已经不认这条地址了。
+// 服务端音频缓存能覆盖"地址仍有效"的重连续传，覆盖不到"地址已过期"——
+// 那种情况只能在前端重新解析一条新地址，seek 回断点接着播，否则就是反复失败的一顿一顿。
+const HEAL_MAX_ATTEMPTS = 3        // 单曲最多自愈几次：地址持续失效时不能无限重试打爆服务端
+const HEAL_MIN_INTERVAL = 3000     // 两次自愈最短间隔，防止 error/stalled 事件风暴连续触发
+const HEAL_STALL_MS = 5000         // 停滞多久才算真卡死；CDN 抖半秒就换地址反而打断播放
+let healAttempts = 0
+let healLastAt = 0
+let healStallTimer = null
+let healQueueTimer = null
+let healResetTimer = null
+let healExhausted = false
+// error 事件里先抓一次播放位置：部分 WebView 在报错时会先把 currentTime 归零，
+// 等到自愈真正读取时已经拿不到断点了
+let healResumeAt = 0
+const healing = ref(false)
+
 // 拿不到真实音频时：先重新解析一次，仍失败再跳下一首
 let audioRetryCount = 0
 function showPlayFailed(reason = '') {
@@ -592,19 +611,24 @@ function showPlayFailed(reason = '') {
         audio.src = retryUrl
         downloadUrl.value = retryUrl
         // 转圈不在这里解除：由 playing 事件结束（见 initAudio 的 playing 监听）
-        await safePlay()
-        prefetchNextUrl()
-      } else {
-        // 重试仍失败，跳下一首
+        const playOk = await safePlay()
+        // 拿到地址 ≠ 能播：新地址也可能立刻失效（403/410），
+        // 只判断"拿到地址"会停在"有播放态、没声音"的状态，必须看数据是否真的来了
+        if (playOk && await waitPlaybackAlive(5000) && store.isPlaying) {
+          prefetchNextUrl()
+          return
+        }
         resolving.value = false
-        audioRetryCount = 0
-        playFailedText.value = retryResult === RESOLVE_TIMED_OUT ? RESOLVE_FAILED_TEXT : PLAY_FAILED_TEXT
-        playFailedToast.value = true
-        playFailedTimer = setTimeout(() => {
-          playFailedToast.value = false
-          if (store.currentSong) store.playNext()
-        }, 2000)
       }
+      // 重试仍失败（或新地址同样播不出来），跳下一首
+      resolving.value = false
+      audioRetryCount = 0
+      playFailedText.value = retryResult === RESOLVE_TIMED_OUT ? RESOLVE_FAILED_TEXT : PLAY_FAILED_TEXT
+      playFailedToast.value = true
+      playFailedTimer = setTimeout(() => {
+        playFailedToast.value = false
+        if (store.currentSong) store.playNext()
+      }, 2000)
     }, 1500)
     return
   }
@@ -617,6 +641,175 @@ function showPlayFailed(reason = '') {
     playFailedToast.value = false
     if (store.currentSong) store.playNext()
   }, 2000)
+}
+
+// 切歌时清空自愈额度：换一首歌就该重新给满机会
+function resetHealState() {
+  clearTimeout(healStallTimer)
+  clearTimeout(healQueueTimer)
+  clearTimeout(healResetTimer)
+  healStallTimer = null
+  healQueueTimer = null
+  healResetTimer = null
+  healAttempts = 0
+  healLastAt = 0
+  healExhausted = false
+  healResumeAt = 0
+  healing.value = false
+}
+
+// 自愈成功后给一次"额度恢复"：长歌可能反复跨过地址有效期，需要新的机会；
+// 但不能立刻清零，否则"卡顿→自愈→立刻又卡"会变成无限自愈
+function scheduleHealReset() {
+  clearTimeout(healResetTimer)
+  healResetTimer = setTimeout(() => {
+    healResetTimer = null
+    healAttempts = 0
+    healLastAt = 0
+  }, 60000)
+}
+
+// 换地址后要等元数据就绪才能 seek：HAVE_NOTHING 阶段设 currentTime 会被直接忽略，
+// 表现成"自愈成功却回到开头"。往回留 1 秒重叠，避开断点处可能的坏帧
+function seekAfterSwap(target) {
+  const songId = store.currentSong?.id
+  let applied = false
+  const apply = () => {
+    if (applied) return
+    applied = true
+    clearTimeout(guard)
+    if (audio) audio.removeEventListener('loadedmetadata', apply)
+    if (!audio || store.currentSong?.id !== songId) return
+    try {
+      const safe = Math.max(0, target - 1)
+      if (safe > 0 && safe < (audio.duration || Infinity)) audio.currentTime = safe
+    } catch { /* seek 失败就从头播，不阻断恢复 */ }
+  }
+  const guard = setTimeout(apply, 4000)
+  if (audio) audio.addEventListener('loadedmetadata', apply)
+}
+
+// 排队执行自愈：间隔不够就等一会，避免连续失败把服务端打成连击
+function scheduleHeal(trigger) {
+  if (!audio || !store.currentSong || !store.isPlaying) return
+  if (store.currentSong.fromDownload) return
+  // 各入口统一补记断点（error 里已记过、且可能更早更准，这里只补漏）
+  if (audio.currentTime > 0) healResumeAt = audio.currentTime
+  clearTimeout(healQueueTimer)
+  const wait = Math.max(0, HEAL_MIN_INTERVAL - (Date.now() - healLastAt))
+  healQueueTimer = setTimeout(() => {
+    healQueueTimer = null
+    maybeHeal(trigger)
+  }, wait)
+}
+
+// 换源后确认"数据真的能来"：play() 的 Promise 只代表开始尝试播放，
+// 新地址若同样失效（403/410），play() 照样 resolve，只看它会把失败误判成成功，
+// 之后 error 又被 healing 守卫吃掉，最终表现为无声卡死
+function waitPlaybackAlive(ms) {
+  return new Promise(resolve => {
+    if (!audio) return resolve(false)
+    if (audio.readyState >= 3 && !audio.paused) return resolve(true)
+    let settled = false
+    const cleanup = () => {
+      clearTimeout(timer)
+      if (audio) {
+        audio.removeEventListener('canplay', onReady)
+        audio.removeEventListener('playing', onReady)
+        audio.removeEventListener('error', onErr)
+      }
+    }
+    const finish = (v) => { if (settled) return; settled = true; cleanup(); resolve(v) }
+    const onReady = () => finish(true)
+    const onErr = () => finish(false)
+    const timer = setTimeout(() => finish(false), ms)
+    audio.addEventListener('canplay', onReady)
+    audio.addEventListener('playing', onReady)
+    audio.addEventListener('error', onErr)
+  })
+}
+
+// 真正的自愈：重新解析地址 → 换源 → seek 回断点 → 继续播
+// 返回 true 表示新地址确实能出数据（能否出声由 playing 事件落定）
+async function maybeHeal(trigger) {
+  const song = store.currentSong
+  if (!audio || !song) return false
+  if (healing.value) return false          // 已有自愈在跑，别叠加
+  if (!store.isPlaying) return false       // 用户已暂停/已切歌，不该被"救"回来
+  if (resolving.value) return false        // 正在解析地址，让主流程自己完成
+  if (song.fromDownload) return false      // 本地 Blob 播放，与地址时效无关
+  if (healExhausted) return false
+  if (healAttempts >= HEAL_MAX_ATTEMPTS) {
+    // 额度用尽：交回原有失败流程（提示 + 2 秒后跳下一首），不能一直卡在无声状态
+    healExhausted = true
+    healing.value = false
+    buffering.value = false
+    showPlayFailed()
+    return false
+  }
+
+  healing.value = true
+  healAttempts++
+  healLastAt = Date.now()
+  const resumeAt = healResumeAt || audio.currentTime || 0
+  healResumeAt = 0
+  buffering.value = true
+  console.log(`[Player] 播放中断自愈 #${healAttempts}（${trigger}）@ ${resumeAt.toFixed(1)}s`)
+
+  let ok = false
+  try {
+    // 必须带 refresh：缓存里那条地址很可能正是刚失效的那条，不刷新等于拿死链再试一次
+    const res = await resolveWithTimeout(getSongUrl(song, quality.value, false, true))
+    if (store.currentSong?.id !== song.id) return false
+    if (!store.isPlaying) return false     // 解析期间用户按了暂停
+    const url = res === RESOLVE_TIMED_OUT ? null : res
+    if (!url) return false
+    // APK 里代理地址是相对路径，必须转绝对，否则 WebView 无法加载
+    const abs = toAbsolute(url)
+    audio.src = abs
+    downloadUrl.value = abs
+    if (resumeAt > 0.5) seekAfterSwap(resumeAt)
+    // 这里不用 safePlay：它在失败时会把 store.isPlaying 置 false，
+    // 而"自愈失败"不等于"用户不想听了"，状态被篡改后失败分支会误判成用户已暂停，直接静默卡死
+    try { await audio.play() } catch { /* 成败交由下面的存活探测判定 */ }
+    // 等到真的能出数据才算救回来；只看 play() 结果会把"新地址也失效"当成成功
+    ok = (await waitPlaybackAlive(5000)) && store.isPlaying
+  } catch {
+    ok = false
+  } finally {
+    healing.value = false
+    if (ok) {
+      scheduleHealReset()
+    } else {
+      buffering.value = false
+      // 换源过程中触发的 error 会被 healing 守卫吃掉，失败后不会再有事件推动流程，
+      // 必须自己安排下一轮：还有额度就隔一会儿重试，额度用尽则交回原流程跳下一首。
+      // 少了这段会出现"自愈失败后静默卡住、不重试也不跳歌"（实测暴露的问题）
+      if (store.isPlaying && store.currentSong?.id === song.id) {
+        if (healAttempts < HEAL_MAX_ATTEMPTS) {
+          scheduleHeal('retry')
+        } else {
+          healExhausted = true
+          showPlayFailed()
+        }
+      }
+    }
+  }
+  return ok
+}
+
+// 停滞观察：stalled（网络断供）与 waiting（缓冲欠载）都先等 HEAL_STALL_MS，
+// 期间若恢复播放就作废，避免把正常缓冲误判成故障
+function watchStall() {
+  if (!audio || audio.paused || !store.isPlaying) return
+  clearTimeout(healStallTimer)
+  healStallTimer = setTimeout(() => {
+    healStallTimer = null
+    if (!audio || audio.paused || !store.isPlaying) return
+    // readyState >= HAVE_FUTURE_DATA 说明数据还够播，只是网络层空闲，不必救
+    if (audio.readyState >= 3) return
+    scheduleHeal('stall')
+  }, HEAL_STALL_MS)
 }
 
 function initAudio() {
@@ -649,8 +842,13 @@ function initAudio() {
   // 播放条按钮与锁屏/通知栏媒体栏会一直停在"播放中"（两者都读 store.isPlaying）
   audio.addEventListener('pause', () => {
     buffering.value = false
+    clearTimeout(healStallTimer)
+    healStallTimer = null
     // 延后一拍再判断：换源/主动切歌会先 pause 再 play，这种瞬时状态不纠正
     setTimeout(() => {
+      // 自愈换源必然经历一次 paused，不能当成交互打断，否则会把 isPlaying 置 false
+      // 导致自愈流程后面那句"用户已暂停就直接放弃"误判（自愈自我中断）
+      if (healing.value) return
       if (!audio || audio.ended || !audio.paused || resolving.value) return
       // 用户主动暂停时 isPlaying 已是 false，不会误标成"被打断"
       if (store.isPlaying) {
@@ -668,6 +866,9 @@ function initAudio() {
   // 避免 play() Promise 提前 resolve 导致的"先变播放态、还要等一段才有声音"
   audio.addEventListener('playing', () => {
     clearTimeout(playConfirmTimer)
+    // 真正出声说明停滞已解除：作废挂起的自愈判定，避免晚一步把正在播的音频换掉
+    clearTimeout(healStallTimer)
+    healStallTimer = null
     externallyPaused = false
     resolving.value = false
     buffering.value = false
@@ -676,21 +877,40 @@ function initAudio() {
   // 缓冲等待：已在播放但数据没跟上，继续显示转圈，而不是让进度条卡在半路
   audio.addEventListener('waiting', () => {
     if (audio && !audio.paused) buffering.value = true
+    watchStall()
+  })
+  // 网络断供：浏览器尝试取媒体数据却长时间没到。与 waiting 一起纳入停滞观察
+  audio.addEventListener('stalled', () => {
+    if (audio && !audio.paused) buffering.value = true
+    watchStall()
   })
   audio.addEventListener('canplay', () => {
+    clearTimeout(healStallTimer)
+    healStallTimer = null
     buffering.value = false
   })
   audio.addEventListener('loadedmetadata', () => {
     store.duration = audio.duration
   })
-  // 音频加载/解码失败时自动恢复：防止播放器卡死无声
+  // 音频加载/解码失败：优先尝试换新地址接续（地址过期是常态），救不回来才放弃
   audio.addEventListener('error', () => {
-    if (store.currentSong) {
-      clearTimeout(playConfirmTimer)
-      buffering.value = false
-      resolving.value = false
-      showPlayFailed()
+    if (!store.currentSong) return
+    clearTimeout(playConfirmTimer)
+    clearTimeout(healStallTimer)
+    healStallTimer = null
+    // 趁 currentTime 还有效先记下断点，供自愈时 seek 回去
+    if (audio && audio.currentTime > 0) healResumeAt = audio.currentTime
+    // 自愈流程自己换源时也会触发 error，交给它处理，避免重复触发
+    if (healing.value) return
+    // 播放中途掉流：缓存里那条地址多半已经过期，先重新解析一条再 seek 回原进度
+    if (store.isPlaying && !resolving.value && !store.currentSong.fromDownload && !healExhausted) {
+      buffering.value = true
+      scheduleHeal('error')
+      return
     }
+    buffering.value = false
+    resolving.value = false
+    showPlayFailed()
   })
   // 后台回来时若状态是播放中但音频暂停（如后台切歌被系统打断/拒绝），自动恢复
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -956,6 +1176,8 @@ watch(() => store.currentSong, async (song) => {
   // 切歌时立即暂停旧歌曲，避免新URL加载期间旧歌继续播放
   // 若用户主动触发播放（playAll/playNext等），保留 isPlaying=true 不重置
   audioRetryCount = 0
+  // 换歌重置自愈额度与挂起的判定，上一首的失败次数不该带到这一首
+  resetHealState()
   if (audio && !audio.paused) {
     audio.pause()
     if (!store.pendingUserPlay) store.isPlaying = false
@@ -1315,6 +1537,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (playFailedTimer) clearTimeout(playFailedTimer)
+  resetHealState()
   if (unregisterMiniSpec) unregisterMiniSpec()
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('visibilitychange', onVisibilityChange)
