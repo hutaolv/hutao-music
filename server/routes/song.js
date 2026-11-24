@@ -30,14 +30,34 @@ function getClientIp(req) {
 // （主流平台签名直链实际有效期普遍在20分钟左右，10分钟取中间安全值）
 const urlCache = new Map()
 const URL_CACHE_TTL = 10 * 60 * 1000
+
+// 带签名的中转地址（如 90svip 的 api.php?get=url&...&sign=xxx&t=1795401852）有效期
+// 远短于普通直链：t 是签发时刻（实测与请求时刻只差几秒），真实有效期上游未公开。
+// 这类地址若按 10 分钟缓存，过期后同一请求会反复返回死链 —— 表现就是"重试也播不了"。
+// 这里按保守的 3 分钟缓存：宁可多解析一次，也不返回可能已失效的地址。
+const SIGNED_URL_TTL = 3 * 60 * 1000
+function hasShortLivedSign(url) {
+  if (!url) return false
+  // 注意：这里的入参可能是已经过 /api/proxy/audio?url=encodeURIComponent(...) 包装的地址，
+  // 包装后原始查询串里的 ? & = 都变成了 %3F %26 %3D，直接拿正则去匹配 ?
+  // 永远不会命中 —— 这个判定曾因此实际失效，签名地址仍按 10 分钟缓存。
+  // 先解码一次再判断（不是代理包装的地址解码后不变，无副作用）。
+  let raw = url
+  if (raw.includes('%26') || raw.includes('%3F')) {
+    try { raw = decodeURIComponent(raw) } catch { /* 非法转义保持原样 */ }
+  }
+  return /[?&]sign=/i.test(raw) && /[?&]t=\d{9,13}/i.test(raw)
+}
 function getCachedUrl(key) {
   const entry = urlCache.get(key)
-  if (entry && Date.now() - entry.ts < URL_CACHE_TTL) return entry.url
+  if (entry && Date.now() - entry.ts < entry.ttl) return entry.url
   urlCache.delete(key)
   return null
 }
 function setCachedUrl(key, url) {
-  if (url) urlCache.set(key, { url, ts: Date.now() })
+  if (!url) return
+  const ttl = hasShortLivedSign(url) ? SIGNED_URL_TTL : URL_CACHE_TTL
+  urlCache.set(key, { url, ts: Date.now(), ttl })
   // 限制缓存大小
   if (urlCache.size > 200) {
     const oldest = urlCache.keys().next().value
@@ -166,19 +186,54 @@ function raceDualPath(preferredFn, fallbackFn, graceMs = 600, ip) {
   })
 }
 
+// ---------- 多路并行取首个有效地址 ----------
+// 用途：一条兜底链里有多个互相独立、都可能成功的解析路径（如第三方源组 + 换平台搜索）。
+// 与 Promise.all 的关键区别是"谁先拿到地址就用谁"，不必等最慢的那一路超时。
+// 曾踩过的坑：把换源搜索串在 Promise.all 之后，要等 8 个第三方源全部超时（5 秒）
+// 才轮到它，此时请求早已把空结果返回给前端，兜底形同虚设。
+// 参数：promises - 若干返回 { url } 或 null 的 Promise
+function firstUrl(promises) {
+  return new Promise(resolve => {
+    let pending = promises.length
+    if (!pending) return resolve(null)
+    promises.forEach(p => p.then(r => {
+      if (r?.url) return resolve(r)
+      if (--pending === 0) resolve(null)
+    }).catch(() => {
+      if (--pending === 0) resolve(null)
+    }))
+  })
+}
+
 // ---------- 酷我兜底链（从原三处内联代码提取复用）----------
 
 // 酷我关键词搜索：返回首个命中的酷我歌曲ID，失败返回 null
-async function searchKuwoId(title, artist) {
-  try {
-    const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
-    const { data } = await axios.get('http://search.kuwo.cn/r.s', {
-      params: { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' },
-      headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
-    })
-    const hit = data?.abslist?.[0]
-    return hit ? String(hit.MUSICRID || '').replace('MUSIC_', '') : null
-  } catch { return null }
+// 带 ip 仅用于失败日志：这条链是 QQ/咪咕/酷狗三个平台的共同兜底，
+// 一旦酷我搜索被限流，三个平台的兜底会同时失效，必须有日志才能第一时间发现
+async function searchKuwoId(title, artist, ip) {
+  const keyword = artist ? `${title} ${artist.split('/')[0]}` : title
+  const params = { client: 'kt', all: keyword, pn: 0, rn: 1, uid: '794762570', ver: 'kwplayer_ar_9.2.2.1', vipver: '1', show_copyright_off: '1', newver: '1', ft: 'music', cluster: '0', strategy: '2012', encoding: 'utf8', rformat: 'json', vermerge: '1', mobi: '1', issubtitle: '1' }
+  // 两个协议通道轮流试：实测该接口会偶发 403（短时间连续搜索触发临时限流），
+  // 换协议重试一次通常就能恢复。两个通道都失败才认定兜底链不可用
+  let lastErr = null
+  for (const base of ['http://search.kuwo.cn/r.s', 'https://search.kuwo.cn/r.s']) {
+    try {
+      const { data } = await axios.get(base, {
+        params, headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000
+      })
+      const hit = data?.abslist?.[0]
+      if (!hit) {
+        // 通道正常但没有该首歌：换通道结果也一样，直接结束
+        log(`[${ip || '-'}] [KuwoFallback] 酷我搜索无结果: ${keyword}`)
+        return null
+      }
+      return String(hit.MUSICRID || '').replace('MUSIC_', '')
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  log(`[${ip || '-'}] [KuwoFallback] 酷我搜索失败: ${lastErr?.message || 'unknown'} | ${title}`)
+  return null
 }
 
 // 用酷我ID走第三方API解析播放地址；目标音质拿不到时逐级回退标准。返回 { url } 或 null
@@ -196,7 +251,7 @@ async function resolveKuwoById(kuwoId, q, ip) {
 
 // 搜索+解析一步到位：QQ 官方失败时的完整兜底链
 async function resolveViaKuwoSearch(title, artist, q, ip) {
-  const kuwoId = await searchKuwoId(title, artist)
+  const kuwoId = await searchKuwoId(title, artist, ip)
   if (!kuwoId) return null
   log(`[${ip || '-'}] [KuwoFallback] 命中酷我: ${kuwoId}`)
   return resolveKuwoById(kuwoId, q, ip)
@@ -217,7 +272,7 @@ function sanitizeLyricsText(text) {
 }
 
 router.get('/url', async (req, res) => {
-  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source } = req.query
+  const { platform, id, bvid, cid, mid, mediaMid, musicId, contentId, copyrightId, quality, detect, source, refresh } = req.query
   const ip = getClientIp(req)
   log(`[${ip}] [SongURL]`, { platform, id, source, quality, mid, mediaMid, title: req.query.title })
   // 紧跟在入口业务行之后补一行归属地。
@@ -228,9 +283,11 @@ router.get('/url', async (req, res) => {
     return res.json({ code: 400, message: 'platform and id required' })
   }
 
-  // 非探测请求直接查缓存
+  // 非探测请求直接查缓存。refresh=1 表示前端播放失败后的重试，
+  // 此时必须跳过缓存重新解析：缓存里很可能就是那条已经失效的签名地址，
+  // 拿它重试等于必然再失败一次（旧实现"重试也播不了"就是这个原因）
   const cacheKey = `${platform}:${id}:${quality || 'standard'}`
-  if (detect !== '1') {
+  if (detect !== '1' && refresh !== '1') {
     const cached = getCachedUrl(cacheKey)
     if (cached) {
       log(`[${ip}] [SongURL] cache hit`, cacheKey)
@@ -248,8 +305,9 @@ router.get('/url', async (req, res) => {
     const qualityKey = `${platform}:${id}`
 
     // 探测请求的快速通道：播放地址与可用音质双双命中缓存时，
-    // 不再重新解析地址（探测的本意只是拿音质菜单），零上游请求完成响应
-    if (detect === '1') {
+    // 不再重新解析地址（探测的本意只是拿音质菜单），零上游请求完成响应。
+    // refresh=1 时同样跳过，避免把失效地址当探测结果回给前端
+    if (detect === '1' && refresh !== '1') {
       const cachedUrlForDetect = getCachedUrl(cacheKey)
       if (cachedUrlForDetect) {
         return res.json({
@@ -266,7 +324,7 @@ router.get('/url', async (req, res) => {
         const title = req.query.title
         const artist = req.query.artist || ''
         if (title) {
-          const kuwoId = await searchKuwoId(title, artist)
+          const kuwoId = await searchKuwoId(title, artist, ip)
           if (kuwoId) {
             // 探测结果走缓存：同一首歌30分钟内不重复打上游（P1）
             if (detect === '1') {
@@ -287,6 +345,12 @@ router.get('/url', async (req, res) => {
         if (!url && q !== 'standard') {
           const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard', ip)
           url = fallback?.url || null
+        }
+        // 第三方源本身也可能挂（实测部分源已整体失效，返回空 url）：
+        // 拿不到地址时再用歌名+歌手搜一次酷我换源，避免第三方歌直接变成"无法获取"
+        if (!url && req.query.title) {
+          const r = await resolveViaKuwoSearch(req.query.title, req.query.artist || '', q, ip)
+          url = r?.url || null
         }
       }
     } else {
@@ -332,20 +396,36 @@ router.get('/url', async (req, res) => {
         case '汽水音乐':
           url = req.query.sourceUrl || null
           break
-        case '咪咕音乐':
-          {
-            const miguContentId = contentId || (id.startsWith('migu_') ? id.replace('migu_', '') : id)
-            const miguCopyrightId = copyrightId || miguContentId
-            if (detect === '1') {
-              // 探测结果走独立缓存（P1），咪咕按内容ID维度区分
-              availableQualities = await detectQualitiesCached(
-                () => migu.detectQualities(miguContentId, miguCopyrightId),
-                `${qualityKey}:${miguContentId}`)
-            }
-            url = await migu.getSongUrl(miguContentId, miguCopyrightId, q)
-            if (!url && q !== 'standard') url = await migu.getSongUrl(miguContentId, miguCopyrightId, 'standard')
+        case '咪咕音乐': {
+          const miguContentId = contentId || (id.startsWith('migu_') ? id.replace('migu_', '') : id)
+          const miguCopyrightId = copyrightId || miguContentId
+          if (detect === '1') {
+            // 探测结果走独立缓存（P1），咪咕按内容ID维度区分
+            availableQualities = await detectQualitiesCached(
+              () => migu.detectQualities(miguContentId, miguCopyrightId),
+              `${qualityKey}:${miguContentId}`)
           }
+          // P0 双路并行竞速：咪咕官方对 VIP 歌只返回 dialogInfo 不给地址（auditionsLength 仅试听），
+          // 而原先这里只有官方一条路，拿不到就是 null → 前端提示"无法获取"并 2 秒跳歌。
+          // 现在官方与"酷我搜索→第三方解析"兜底同时出发：抓不到地址立即放行第三方，
+          // 官方仍在路上时给 800ms 反超窗口（实测咪咕官方免费歌约 370ms 返回，窗口足够）。
+          const officialFn = async () => {
+            // officialOnly=true：官方拿不到就立刻返回 null，不在 migu.getSongUrl 内部再串第三方。
+            // 这里的第三方兜底已由下方 fallbackFn 并行承担，函数内再串一次只会白等 3 秒
+            let u = await migu.getSongUrl(miguContentId, miguCopyrightId, q, true)
+            if (!u && q !== 'standard') u = await migu.getSongUrl(miguContentId, miguCopyrightId, 'standard', true)
+            return u ? { url: u } : null
+          }
+          const fallbackFn = () => {
+            const title = req.query.title || ''
+            const artist = req.query.artist || ''
+            if (!title) return Promise.resolve(null)
+            return resolveViaKuwoSearch(title, artist, q, ip)
+          }
+          const raced = await raceDualPath(officialFn, fallbackFn, 800, ip)
+          url = raced?.url || null
           break
+        }
         case '酷我音乐':
           // 酷我音乐官方播放 API 需要加密，暂时使用第三方 API
           const kuwoResult = await fetchWithFallback(kuwoThirdPartyApis, id, q, ip)
@@ -359,15 +439,37 @@ router.get('/url', async (req, res) => {
           // 酷狗官方播放接口无需签名：免费歌曲返回直链，付费歌曲 url 为空。
           // P0 双路并行竞速：官方与第三方同时出发先到先得，取代旧的串行逐档回退；
           // 第三方的两个音质档位也并行尝试，不再串行等待
+          // id 可能带 migu 那种风格的前缀（kugou_xxx，来自列表数据/历史记录），
+          // 而官方接口与第三方源都只认 32 位纯 hash。带着前缀去请求，官方必然返 null、
+          // 第三方拼出的 URL 也是错的 —— 表现就是"免费歌也要等兜底 2~3 秒"。
+          // 前端正常播放走 platformId（纯 hash）不会踩到，但历史记录/分享链接会。
+          const kugouHash = String(id).replace(/^kugou_/, '')
           const officialFn = async () => {
-            const u = await kugou.getSongUrl(id)
+            const u = await kugou.getSongUrl(kugouHash)
             return u ? { url: u } : null
           }
           const fallbackFn = async () => {
-            const results = await Promise.all(
-              [...new Set([q, 'standard'])].map(qq => fetchWithFallback(kugouThirdPartyApis, id, qq, ip))
-            )
-            return results.find(r => r?.url) || null
+            const title = req.query.title || ''
+            const artist = req.query.artist || ''
+            let settledUrl = null
+            // 第一路：现有第三方源组（两个音质档位并行）
+            const thirdPartyTask = async () => {
+              const results = await Promise.all(
+                [...new Set([q, 'standard'])].map(qq => fetchWithFallback(kugouThirdPartyApis, kugouHash, qq, ip))
+              )
+              const hit = results.find(r => r?.url) || null
+              if (hit) settledUrl = hit
+              return hit
+            }
+            // 第二路：按歌名换搜酷我。延迟 800ms 启动 —— 第三方正常时（实测 400~600ms 出结果）
+            // 就不必白打一次酷我搜索；第三方全挂时它已经跑起来了，不会像串行那样等到超时之后
+            const kuwoTask = async () => {
+              await new Promise(r => setTimeout(r, 800))
+              if (settledUrl || !title) return null
+              log(`[${ip || '-'}] [KuwoFallback] 酷狗第三方未出结果，改按歌名搜酷我: ${title}`)
+              return resolveViaKuwoSearch(title, artist, q, ip)
+            }
+            return firstUrl([thirdPartyTask(), kuwoTask()])
           }
           const raced = await raceDualPath(officialFn, fallbackFn, 600, ip)
           url = raced?.url || null

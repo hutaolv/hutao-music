@@ -139,7 +139,9 @@ export async function searchArtists(keyword) {
 
 // 获取播放地址。quality: standard/high/lossless（音质档位，由播放器选择并持久化）。
 // detect=true 时后端同时探测该歌曲可用音质，返回 { url, availableQualities }
-export async function getSongUrl(song, quality = 'standard', detect = false) {
+// refresh=true 时后端跳过播放地址缓存强制重新解析，用于播放失败后的重试：
+// 缓存里可能正是那条已过期的签名中转地址，不跳缓存重试必然再失败一次
+export async function getSongUrl(song, quality = 'standard', detect = false, refresh = false) {
   const isThirdParty = song.isThirdParty
   // 第三方歌曲播放用 platformId（官方ID），官方歌曲播放用 platformId 或 id
   const songId = isThirdParty ? (song.platformId || song.id) : (song.platformId || song.id)
@@ -150,6 +152,7 @@ export async function getSongUrl(song, quality = 'standard', detect = false) {
     id: songId
   })
   if (isThirdParty) params.set('source', 'thirdparty')
+  if (refresh) params.set('refresh', '1')
   if (song.title) params.set('title', song.title)
   if (song.artist) params.set('artist', song.artist)
   if (quality && quality !== 'standard') params.set('quality', quality)

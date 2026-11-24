@@ -21,6 +21,10 @@ async function parseKugouFormApi(id, baseUrl) {
   })
   const item = data?.data?.[0]
   if (!item?.url) return { url: null }
+  // 实测（90svip）：无效 hash 也会返回一条形如 api.php?get=url&id=xxx 的地址，
+  // 但没有歌名；真歌一定会带 name。不校验就会把死链当成功，
+  // 后果是前端拿到播不了的地址，而且这条死链还会写进 10 分钟地址缓存。
+  if (!item.name && !item.artist) return { url: null }
   return { url: new URL(item.url, baseUrl).href, name: item.name, artist: item.artist, cover: item.cover, lyric: item.lrc }
 }
 
