@@ -12,6 +12,10 @@ import chartsRouter from './routes/charts.js'
 import searchRouter from './routes/search.js'
 import songRouter from './routes/song.js'
 import accessLogger from './access-log.js'
+import {
+  audioCacheHash, readAudioMeta, writeAudioMeta, audioPartSize,
+  clearAudioEntry, createPartWriter, streamFromDisk, parseRange
+} from './audio-cache.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -358,15 +362,118 @@ function audioStreamGuard(req, res, next) {
   next()
 }
 
+// ---------- 音频代理：缓存键、Range 工具、预缓冲转发 ----------
+
+// 音频缓存键只接受 "platform:id:quality" 这类稳定标识（长度与字符集都限制），
+// 防止被塞任意长字符串造成缓存目录膨胀，或用一个 key 覆盖别人的缓存内容
+function safeAudioCacheKey(raw) {
+  if (typeof raw !== 'string') return ''
+  const k = raw.trim()
+  if (k.length < 3 || k.length > 160) return ''
+  return /^[\w\u4e00-\u9fa5:.\-]+$/.test(k) ? k : ''
+}
+
+// 从 Content-Range 里取整首长度：bytes 0-1023/2829338 -> 2829338
+function totalFromContentRange(cr) {
+  const m = /\/(\d+)\s*$/.exec(String(cr || ''))
+  return m ? Number(m[1]) : 0
+}
+
+// 预缓冲转发：先攒够 preBuffer 字节再开始回写。
+// 原来的 reader.pipe(res) 是裸转发，上游只要抖半秒，客户端立刻欠载 —— 这是移动端
+// "一顿一顿"的直接来源之一。攒够 128KB（约 0.5~1 秒音频）后再开始推，抗抖动能力明显变好，
+// 代价只是起播晚 0.1 秒左右。
+// 同时把流过的数据追加进缓存分片；客户端中途断开时终止上游、保留已写部分，下次可续传。
+async function pumpUpstream({ body, res, writer, preBuffer = 128 * 1024 }) {
+  const reader = Readable.fromWeb(body)
+  let buffered = []
+  let bufferedBytes = 0
+  let started = false
+  let aborted = false
+  const startedAt = Date.now()
+  // 预缓冲不能变成起播延迟：慢网（如 40KB/s）攒 128KB 要 3 秒，
+  // 所以最多等 400ms，到点就把手上已有的数据先发出去
+  const preBufferMaxWait = 400
+  const onClose = () => { aborted = true; try { reader.destroy() } catch {} }
+  res.on('close', onClose)
+
+  const writeOut = async (chunk) => {
+    if (res.destroyed || res.writableEnded) return
+    if (!res.write(chunk)) await new Promise(r => res.once('drain', r))
+  }
+
+  try {
+    for await (const chunk of reader) {
+      if (aborted) break
+      if (writer) { try { writer.write(chunk) } catch { /* 写盘失败不影响播放 */ } }
+      if (!started) {
+        buffered.push(chunk)
+        bufferedBytes += chunk.length
+        if (bufferedBytes >= preBuffer || Date.now() - startedAt >= preBufferMaxWait) {
+          started = true
+          for (const b of buffered) await writeOut(b)
+          buffered = []
+        }
+      } else {
+        await writeOut(chunk)
+      }
+    }
+    if (!started) for (const b of buffered) await writeOut(b)
+  } catch {
+    // 上游中断：已写出的部分留在分片里，下次请求从断点续传
+  } finally {
+    res.off('close', onClose)
+    if (writer) await new Promise(r => { writer.once('finish', r); writer.once('error', r); writer.end() })
+  }
+}
+
+// 整首已缓存在本地：直接回盘，支持 Range/seek，完全不碰上游
+function serveFromCompleteCache(req, res, hash, meta, range) {
+  const total = meta.total
+  let start = 0
+  let end = total - 1
+  let status = 200
+  if (range) {
+    status = 206
+    if (range.suffix != null) {
+      start = Math.max(0, total - range.suffix)
+    } else {
+      // 越界的起点必须回 416：HTTP 里 start >= total 属于不可满足的范围。
+      // 若在这里把 start 钳到 total-1，会返回"最后一个字节 + 206"这种无效响应，
+      // 播放器拿到后会认为续传成功但内容为空，进而反复重试
+      start = range.start ?? 0
+      if (start >= total) {
+        res.status(416).setHeader('Content-Range', `bytes */${total}`)
+        res.end()
+        return Promise.resolve()
+      }
+      end = range.end != null ? Math.min(range.end, total - 1) : total - 1
+    }
+    if (start > end || start < 0) {
+      res.status(416).setHeader('Content-Range', `bytes */${total}`)
+      res.end()
+      return Promise.resolve()
+    }
+  }
+  res.status(status)
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  // 音频流不做浏览器缓存：直链带时效，缓存下来的分段很可能已经失效，
+  // seek 时命中失效片段反而制造卡顿。本地磁盘缓存已经承担了"重复播放不重复下载"的职责
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Accept-Ranges', 'bytes')
+  res.setHeader('Content-Type', meta.contentType || 'audio/mpeg')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Content-Length', end - start + 1)
+  if (status === 206) res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`)
+  return streamFromDisk(res, hash, start, end).then(() => {
+    if (!res.writableEnded) res.end()
+  })
+}
+
 app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
-  const { url, filename } = req.query
+  const { url, filename, key } = req.query
   if (!url) return res.status(400).json({ code: 400, message: 'url required' })
   try {
-    const fetchHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Referer': 'https://www.bilibili.com/'
-    }
-    if (req.headers.range) fetchHeaders['Range'] = req.headers.range
     // 与图片代理一样补全协议相对地址，避免解析失败
     let target = decodeURIComponent(url)
     if (target.startsWith('//')) target = 'https:' + target
@@ -376,47 +483,36 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
       const msg = verdict.status === 400 ? 'invalid url' : verdict.status === 403 ? 'forbidden url' : 'proxy failed'
       return res.status(verdict.status).json({ code: verdict.status, message: msg })
     }
-    // 音频流加超时，避免上游无响应时连接挂死导致客户端卡顿；
-    // redirect: 'manual' 由 safeFetch 手动跟随并逐跳校验，防重定向跳到内网
-    const response = await safeFetch(target, {
-      headers: fetchHeaders,
-      signal: AbortSignal.timeout(15000)
-    })
-    if (!response.ok && response.status !== 206) return res.status(502).json({ code: 502, message: 'proxy failed' })
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Cache-Control', 'public, max-age=3600')
-    res.setHeader('Accept-Ranges', 'bytes')
-    // 白名单外的类型（HTML 错误页等）降级为二进制流，防同源 XSS
-    const contentType = safeContentType(response.headers.get('content-type'), allowAudioCt)
-    res.setHeader('Content-Type', contentType)
-    res.setHeader('X-Content-Type-Options', 'nosniff')
-    // 客户端走浏览器兜底下载时带上文件名，否则浏览器会按 URL 末段命名成 "audio"
-    if (filename) {
-      const name = String(filename).slice(0, 120)
-      const ascii = name.replace(/[^\x20-\x7E]/g, '_')
-      // 必须把 Content-Type 改成二进制流：多数浏览器（含国产浏览器）对 audio/* 会嗅探成内联播放器，
-      // 即使带了 Content-Disposition: attachment 也照样播，octet-stream 才必然触发下载。
-      // 只有带 filename 参数的下载请求会命中此分支，播放用的 URL 不受影响。
-      res.setHeader('Content-Type', 'application/octet-stream')
-      res.setHeader('X-Content-Type-Options', 'nosniff')
-      res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+
+    const range = parseRange(req.headers.range)
+    const isDownload = !!filename
+    // 下载请求不参与缓存（一次性的整包下载，缓存只会白占盘）
+    const cacheKey = isDownload ? '' : safeAudioCacheKey(key)
+    const hash = cacheKey ? audioCacheHash(cacheKey, target) : ''
+
+    if (hash) {
+      const meta = readAudioMeta(hash)
+      const part = audioPartSize(hash)
+      // 1) 整首已经下完：直接回盘，seek 与重播都不再碰上游
+      if (meta.total > 0 && part >= meta.total) {
+        return serveFromCompleteCache(req, res, hash, meta, range)
+      }
+      // 2) 手里有半截分片，且客户端要的起点落在分片内：
+      //    先用本地数据补上，再从上游续传剩余部分。这是断流恢复的关键路径 ——
+      //    上一次播放中断留下的分片不会被浪费，也不必重新下载整首
+      const wantStart = range && range.start != null ? range.start : 0
+      if (part > 0 && wantStart <= part) {
+        const served = await serveResume({ res, target, hash, part, meta, range })
+        if (served) return
+        // 上游不配合（地址已过期 403、或不支持 Range）：清掉分片，退回纯转发。
+        // 若此刻有别的请求正在写这个分片则不清，避免把对方的进度删掉
+        if (!audioCacheInflight.has(hash)) clearAudioEntry(hash)
+      }
     }
-    if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'))
-    if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'))
-    if (req.headers.range) {
-      res.status(206)
-    }
-    // 响应流可能为 null（上游超时 abort）或在 pipe 期间被中断，需挂 error handler 防止 Node crash
-    if (!response.body) {
-      if (!res.headersSent) res.status(502).json({ code: 502, message: 'upstream closed' })
-      return
-    }
-    const reader = Readable.fromWeb(response.body)
-    reader.on('error', (err) => {
-      // abort/超时导致的 TimeoutError 不需要额外处理，连接已断开
-      if (!res.destroyed) res.destroy()
-    })
-    reader.pipe(res)
+
+    // 3) 首次播放：边转发边写盘
+    await servePassthrough({ req, res, target, hash, range, isDownload })
+    return
   } catch (e) {
     // SSRF 拦截/重定向超限：按拦截状态返回，不泄露内部细节
     if (e && e.proxyStatus) {
@@ -432,6 +528,184 @@ app.get('/api/proxy/audio', audioStreamGuard, async (req, res) => {
     if (!res.headersSent) res.status(500).json({ code: 500, message: e.message })
   }
 })
+
+// 正在写盘的缓存键：同一首歌被两个用户同时请求时，只让第一个写分片。
+// 否则两个流都从同一偏移 append，数据会交错重复，缓存文件直接损坏
+// （损坏后下次命中会播出错乱音频，比不缓存还糟）
+const audioCacheInflight = new Set()
+
+// 断点续传：本地分片补 [wantStart, part-1]，上游补 [part, 末尾]
+// 返回 true 表示已经完整响应（调用方不要再走转发）；false 表示上游不配合，需要回退
+async function serveResume({ res, target, hash, part, meta, range }) {
+  const wantStart = range && range.start != null ? range.start : 0
+  const wantEnd = range && range.end != null ? range.end : null
+  const contentType = meta.contentType || 'audio/mpeg'
+
+  // 客户端要的范围完全落在分片内：纯本地响应，不用碰上游
+  if (wantEnd != null && wantEnd < part) {
+    const total = meta.total || part
+    res.status(206)
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Range', `bytes ${wantStart}-${wantEnd}/${total}`)
+    res.setHeader('Content-Length', wantEnd - wantStart + 1)
+    await streamFromDisk(res, hash, wantStart, Math.min(wantEnd, part - 1))
+    if (!res.writableEnded) res.end()
+    return true
+  }
+
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 15000)
+  let response
+  try {
+    response = await safeFetch(target, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.bilibili.com/',
+        'Range': `bytes=${part}-${wantEnd != null ? wantEnd : ''}`
+      },
+      signal: ac.signal
+    })
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+
+  // 只有 206 才说明上游按 Range 返回，可以从 part 处接上；
+  // 返回 200（不支持 Range）或 403（地址已过期）都不能续，交回上层重新拉
+  if (response.status !== 206 || !response.body) {
+    try { response.body?.cancel() } catch {}
+    return false
+  }
+  const total = totalFromContentRange(response.headers.get('content-range'))
+  if (!total) {
+    try { response.body.cancel() } catch {}
+    return false
+  }
+  writeAudioMeta(hash, { total, contentType })
+
+  const localEnd = Math.min(part - 1, total - 1)
+  const respEnd = wantEnd != null ? Math.min(wantEnd, total - 1) : total - 1
+
+  res.status(206)
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Accept-Ranges', 'bytes')
+  res.setHeader('Content-Type', contentType)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Content-Range', `bytes ${wantStart}-${respEnd}/${total}`)
+  res.setHeader('Content-Length', respEnd - wantStart + 1)
+
+  // 先把本地已有的那一段发出去（客户端立刻有数据可播），再续上游
+  if (localEnd >= wantStart) await streamFromDisk(res, hash, wantStart, localEnd)
+  if (res.destroyed || res.writableEnded) {
+    try { response.body.cancel() } catch {}
+    return true
+  }
+  // 并发保护：同一首歌已有请求在写分片时，这次只转发、不写盘，避免两路 append 交错损坏文件
+  const ownCache = !audioCacheInflight.has(hash)
+  let writer = null
+  if (ownCache) {
+    audioCacheInflight.add(hash)
+    writer = createPartWriter(hash, part)
+  }
+  try {
+    await pumpUpstream({ body: response.body, res, writer, preBuffer: 0 })
+  } finally {
+    if (ownCache) audioCacheInflight.delete(hash)
+  }
+  if (!res.writableEnded) res.end()
+  return true
+}
+
+// 纯转发：首次播放走这里。边转发边写盘，客户端断开后保留已下部分供下次续传
+async function servePassthrough({ req, res, target, hash, range, isDownload }) {
+  const fetchHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://www.bilibili.com/'
+  }
+  if (req.headers.range) fetchHeaders['Range'] = req.headers.range
+
+  // 超时只约束"拿到响应头"这一步：音频是长连接，整条流都要受 15 秒限制的话，
+  // 播到 15 秒就会被掐断。拿到响应头即清掉定时器，后续按客户端节奏走
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 15000)
+  let response
+  try {
+    response = await safeFetch(target, { headers: fetchHeaders, signal: ac.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+  if (!response.ok && response.status !== 206) {
+    // 416 要原样透传：上游在说"这个范围取不到"，改写成 502 会让播放器认为
+    // 是服务器故障而反复重试，实际它应该按 Range 不可满足处理（重新从 0 请求）
+    if (response.status === 416) {
+      const cr = response.headers.get('content-range')
+      try { await response.body?.cancel() } catch {}
+      if (cr) res.setHeader('Content-Range', cr)
+      return res.status(416).end()
+    }
+    return res.status(502).json({ code: 502, message: 'proxy failed' })
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  // 与缓存命中分支一致：音频流不进浏览器缓存，避免命中已失效的分段
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Accept-Ranges', 'bytes')
+  // 白名单外的类型（HTML 错误页等）降级为二进制流，防同源 XSS
+  const contentType = safeContentType(response.headers.get('content-type'), allowAudioCt)
+  res.setHeader('Content-Type', contentType)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  // 客户端走浏览器兜底下载时带上文件名，否则浏览器会按 URL 末段命名成 "audio"
+  if (isDownload) {
+    const name = String(req.query.filename).slice(0, 120)
+    const ascii = name.replace(/[^\x20-\x7E]/g, '_')
+    // 必须把 Content-Type 改成二进制流：多数浏览器（含国产浏览器）对 audio/* 会嗅探成内联播放器，
+    // 即使带了 Content-Disposition: attachment 也照样播，octet-stream 才必然触发下载。
+    // 只有带 filename 参数的下载请求会命中此分支，播放用的 URL 不受影响。
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+  }
+  if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'))
+  if (response.headers.get('content-range')) res.setHeader('Content-Range', response.headers.get('content-range'))
+  if (req.headers.range) res.status(206)
+
+  if (!response.body) {
+    if (!res.headersSent) res.status(502).json({ code: 502, message: 'upstream closed' })
+    return
+  }
+
+  // 只有从第 0 字节开始的请求才能顺序写盘（续传场景由 serveResume 处理，避免写空洞）
+  const wantStart = range && range.start != null ? range.start : 0
+  const total = totalFromContentRange(response.headers.get('content-range')) ||
+    Number(response.headers.get('content-length')) || 0
+  const ownCache = !!hash && !isDownload && wantStart === 0 && total > 0 && !audioCacheInflight.has(hash)
+  let writer = null
+  if (ownCache) {
+    audioCacheInflight.add(hash)
+    writeAudioMeta(hash, { total, contentType })
+    writer = createPartWriter(hash, 0)
+  }
+
+  try {
+    await pumpUpstream({
+      body: response.body,
+      res,
+      writer,
+      // 预缓冲量随文件大小自适应：小文件（低码率短音频）若也攒 128KB，
+      // 等于要先下掉总量的一大截才开始出声，起播会明显变慢
+      preBuffer: total > 0 ? Math.min(128 * 1024, Math.max(16 * 1024, Math.floor(total / 4))) : 128 * 1024
+    })
+  } finally {
+    if (ownCache) audioCacheInflight.delete(hash)
+  }
+  if (!res.writableEnded) res.end()
+}
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() })

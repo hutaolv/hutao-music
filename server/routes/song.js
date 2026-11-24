@@ -481,7 +481,11 @@ router.get('/url', async (req, res) => {
     // 音频接入 AudioContext 频谱分析后，浏览器对无 CORS 头的跨域媒体会静音，
     // 代理保证同源可播放且频谱有数据（已走代理的相对路径 /api/... 不再处理）
     if (url && !url.startsWith('/')) {
-      url = `/api/proxy/audio?url=${encodeURIComponent(url)}`
+      // 附带稳定标识 key：同一首歌每次解析出的都是带新签名的地址，代理层若按 URL 做缓存键
+      // 则永远命中不了（等于没缓存）。这里用 platform:id:quality，同一首歌不同次解析共享一份缓存，
+      // 才能实现"播过的歌 seek/重播直接走本地、不再依赖已失效的直链"
+      const cacheTag = String(cacheKey).replace(/[^\w\u4e00-\u9fa5:.\-]/g, '_').slice(0, 160)
+      url = `/api/proxy/audio?url=${encodeURIComponent(url)}&key=${encodeURIComponent(cacheTag)}`
     }
     // 探测请求解析出的地址同样写入缓存：前端开播后立刻会发一次后台探测，
     // 这次结果若不落缓存，用户短期内重播同一首还得再解析一遍
