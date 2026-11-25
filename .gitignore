@@ -11,3 +11,5 @@ server/log/*.json
 server/log/history/
 # 图片代理磁盘缓存（运行时生成）
 server/cache/
+# 临时诊断脚本（一次性验证用，不入库）
+.diag/

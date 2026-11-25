@@ -1,4 +1,4 @@
-// IP 归属地服务（hiofd 优先）：签名调用 + 每分钟限流 + 2 小时缓存 + 排队重试
+// IP 归属地服务（hiofd 优先）：签名调用 + 匀速限流 + 24 小时缓存 + 排队重试
 //
 // 为什么单独抽一个模块：
 // 1. hiofd（tool.hiofd.com）的 IP 库比现有的 pconline / ip-api 精细，能给出区县、街道和
@@ -9,7 +9,8 @@
 //    - geoTag(ip) / geoFullOf(ip)：只读内存缓存，无 IO、无 await、绝不抛错，
 //      供日志行拼接与访问统计取值；
 //    - lookupOrQueue(ip, cb)：未命中则入队，解析完成（含失败）回调一次。
-// 3. 限流是硬约束：默认每分钟最多 5 次，超出排队。缓存 2 小时，同一地址 2 小时内不重复查。
+// 3. 节奏是硬约束：默认每 10 秒最多查一个地址（≈ 每分钟 6 次），超出排队。
+//    缓存 24 小时，同一地址 24 小时内不重复查。
 //
 // 故障隔离：本模块任何异常都只在自己的 ip-geo 日志里留痕，绝不向调用方抛出，
 // 也不阻塞请求——hiofd 挂掉时，业务日志与播放接口表现与接入前完全一致。
@@ -23,7 +24,8 @@ import {
   writeGeoFail,
   writeGeoQueue,
   writeGeoDrop,
-  writeGeoBrief
+  writeGeoBrief,
+  writeGeoFill
 } from './geo-log.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -32,16 +34,28 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // 总开关：置 0 可整体关闭 hiofd 解析（access-log 会回落到原有解析链）
 const ENABLED = String(process.env.IP_LOOKUP_ENABLED ?? '1') !== '0'
-// 每分钟最多查询次数
-const MAX_PER_MIN = Math.max(1, Number(process.env.IP_LOOKUP_MAX_PER_MIN) || 5)
-// 缓存有效期：2 小时，期间同一 IP 不再发起查询
-const TTL = Math.max(60_000, Number(process.env.IP_LOOKUP_TTL_MS) || 2 * 60 * 60 * 1000)
+// 查询节奏：每隔多少毫秒最多发出一次查询。
+// 默认 10 秒 ≈ 每分钟 6 次。
+// 为什么不是 12 秒（严格 5 次/分钟）：2026-11-25 实测按 10 秒间隔连发 7 个不同 IP，
+// 第 6 次发出时 60 秒窗口内已有 6 次，7 次查询全部成功、fail=0，
+// 说明上游额度并没有卡死在 5 次。若线上冒出 [IP-GEO-FAIL] 且带限流错误码，
+// 用 IP_LOOKUP_INTERVAL_MS=12000 调回去即可，不用改代码。
+// 取代了原来的"每分钟最多 N 次"滑动窗口——那个实现会在第 1~5 秒连发 5 次，
+// 随后整整卡 55 秒，队列推进节奏完全不可预测，第 N 个 IP 要等多久算不出来。
+const INTERVAL_MS = Math.max(1000, Number(process.env.IP_LOOKUP_INTERVAL_MS) || 10_000)
+// 缓存有效期：24 小时。
+// 为什么不是 2 小时：IP 归属地几乎不会变，2 小时意味着回头客每两小时就重新消耗
+// 一次本就稀缺的查询额度。按 10 秒/个的节奏，2 小时 TTL 下日活 500 个 IP 一天要
+// 查约 6000 次（产能只有 7200，毫无余量）；放到 24 小时只需 500 次，余量 14 倍。
+const TTL = Math.max(60_000, Number(process.env.IP_LOOKUP_TTL_MS) || 24 * 60 * 60 * 1000)
 // 失败后的冷却时间：避免对超时/限流的地址反复重试，打满本就稀缺的调用额度
 const NEG_TTL = Math.max(60_000, Number(process.env.IP_LOOKUP_NEG_TTL_MS) || 10 * 60 * 1000)
 // 队列上限：满了丢弃最早入队的地址，防止突发流量把内存撑爆
 const QUEUE_MAX = Math.max(10, Number(process.env.IP_LOOKUP_QUEUE_MAX) || 300)
-// 缓存条目上限（按插入顺序淘汰）
-const CACHE_MAX = 5000
+// 缓存条目上限（按插入顺序淘汰）。
+// TTL 放到 24 小时后，一天的独立 IP 会全部留在缓存里，上限需要相应放宽：
+// 2 万条 × 约 300 字节 ≈ 6MB 内存，压力可忽略
+const CACHE_MAX = 20000
 // 单次请求超时：实测该接口耗时波动很大（0.7s ~ 12.7s，冷查询尤慢），
 // 超时设太紧会把慢响应误判为失败，进而落入 10 分钟负缓存，导致日志缺归属地
 const REQUEST_TIMEOUT = Math.max(5000, Number(process.env.IP_LOOKUP_TIMEOUT_MS) || 20_000)
@@ -90,19 +104,20 @@ const waiters = new Map()
 const inflight = new Set()
 // 负缓存：ip -> 冷却截止时间戳
 const negative = new Map()
-// 限流窗口：最近 60 秒内实际发出的请求时间戳。
-// 这里刻意不用"桶容量 5 + 每 12 秒补 1"的令牌桶——那种算法在首个 60 秒内最多会发出
-// 5 + 4 = 9 次（初始满桶 5 次，再叠加 4 次补充），与"每分钟最多 5 次"的硬约束不符。
-// 滑动窗口能严格保证"任意 60 秒区间内不超过 MAX_PER_MIN 次"。
-const windowHits = []
+// 上次实际发出查询的时间戳：匀速闸门唯一需要的状态。
+// 距它不足 INTERVAL_MS 时，出队循环一律拿不到配额。
+let lastSentAt = 0
 // 当前报告周期内已发出的请求数（水位线日志用，报告后清零）
 let sentSinceReport = 0
-// 累计计数（归档汇总用）
-const counters = { lookup: 0, hit: 0, fail: 0, drop: 0 }
+// 累计计数（归档汇总用）。
+// brief/briefMiss 是"日志覆盖率"的分子分母：每次业务入口尝试写 [IP-GEO] 行时计数，
+// 命中缓存记 brief，未命中记 briefMiss。没有这两个数就无法判断这套解析到底有没有用，
+// 只能凭感觉调参数。
+const counters = { lookup: 0, hit: 0, fail: 0, drop: 0, brief: 0, briefMiss: 0 }
 // 缓存是否有变更待落盘
 let dirty = false
 
-// 缓存持久化文件：进程重启后不必重查，也让 2 小时 TTL 跨重启生效。
+// 缓存持久化文件：进程重启后不必重查，也让缓存 TTL 跨重启生效。
 // 这是"数据"不是"日志"，日志统一走 ip-geo-*.log
 const LOG_DIR = resolve(__dirname, 'log')
 const CACHE_FILE = resolve(LOG_DIR, 'ip-locations.json')
@@ -284,14 +299,14 @@ function notify(ip, rec) {
 
 // ---------- 限流判定 ----------
 
-// 申请一次发送配额：严格滑动窗口，任意 60 秒内不超过 MAX_PER_MIN 次。
-// 不足时返回 false，由调用方把 IP 留在队列里等待下一个 tick。
+// 申请一次发送配额：匀速闸门，距上次发出不足 INTERVAL_MS 就拒绝。
+// 拿不到时由调用方把 IP 留在队列里，等下一个 tick 再来。
+// 与滑动窗口的区别：窗口是"攒满 5 个额度一口气打完"，闸门是"每 10 秒稳定放一个"。
+// 后者让队列里第 N 个 IP 的等待时间可以直接按 N × 10 秒预估，便于判断缓冲够不够用。
 function takeToken() {
   const now = Date.now()
-  // 移出窗口外的历史记录（数组按时间递增，只需从头弹出）
-  while (windowHits.length && now - windowHits[0] >= 60_000) windowHits.shift()
-  if (windowHits.length >= MAX_PER_MIN) return false
-  windowHits.push(now)
+  if (now - lastSentAt < INTERVAL_MS) return false
+  lastSentAt = now
   sentSinceReport++
   return true
 }
@@ -311,6 +326,16 @@ async function runLookup(ip, enqueuedAt) {
     dirty = true
     counters.lookup++
     writeGeoRecord(rec)
+    // 补写一行带 forAt 的归属地：enqueuedAt 就是"正在等归属地的那次请求"的时刻。
+    // 之前这类新 IP 的那次请求在 app 日志里永远是一行空白（只有缓存命中才写 [IP-GEO]），
+    // 现在查到后补一行 FILL，把这段空白补上。
+    // 命令行直查（enqueuedAt 为空）不产生这条噪音。
+    if (enqueuedAt) {
+      writeGeoFill(rec, {
+        forAt: localIso(new Date(enqueuedAt)),
+        waitMs: Date.now() - enqueuedAt
+      })
+    }
     notify(ip, rec)
   } catch (e) {
     counters.fail++
@@ -330,9 +355,11 @@ async function runLookup(ip, enqueuedAt) {
   }
 }
 
-// 每秒尝试出队一条：有令牌且在途未满才发车。
-// 用"唯一消费者"而不是"谁需要谁去发"，是因为每分钟 5 次是全局配额，
+// 每 500ms 尝试出队一条：有配额且在途未满才发车。
+// 用"唯一消费者"而不是"谁需要谁去发"，是因为这个节奏是全局的，
 // 必须有单一出口统一分配，否则并发一高就会超发被上游限流。
+// tick 取 500ms 而不是 1000ms：闸门判的是"距上次 ≥INTERVAL_MS"，检查粒度越粗，
+// 实际间隔的漂移越大（1 秒粒度下 10 秒闸门会漂到 10~11 秒），500ms 能压到 10.0~10.5 秒。
 const drainTimer = setInterval(() => {
   if (!queue.size) return
   if (inflight.size >= MAX_INFLIGHT) return
@@ -341,7 +368,7 @@ const drainTimer = setInterval(() => {
   const enqueuedAt = queue.get(ip)
   queue.delete(ip)
   runLookup(ip, enqueuedAt)
-}, 1000)
+}, 500)
 // unref：定时器不能阻止进程正常退出
 drainTimer.unref()
 
@@ -394,12 +421,34 @@ export function geoFullOf(ip) {
   return getCached(ip)
 }
 
+// 判定是否为需要归属地的公网地址：
+// IPv4 排除内网/保留段；IPv6 仅排除回环与本地前缀，公网 IPv6 同样可查。
+// 该判定同时用于"要不要去查"和"日志覆盖率的分母"，两处必须一致，
+// 否则会出现"查了但不计入覆盖率"这种自相矛盾的数字。
+export function isPublicIp(ip) {
+  if (!ip || ip === 'unknown') return false
+  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return false
+  if (ip.includes(':')) {
+    const lower = ip.toLowerCase()
+    return !(lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd'))
+  }
+  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return false
+  return true
+}
+
 // 业务日志用：若该 IP 已有归属地缓存，就在业务行之后紧邻输出一条精简 [IP-GEO] 行。
-// 只读缓存、同步完成，未命中时什么都不做（业务日志不会多出占位行）
+// 只读缓存、同步完成，未命中时什么都不做（业务日志不会多出占位行）。
+//
+// 命中与未命中都计数：这两个数字构成"[IP-GEO] 行覆盖率"。
+// 内网/本机地址不进分母——本地开发时全是 127.0.0.1，算进来覆盖率会永远是 0%，失去意义。
 export function logGeoBrief(ip) {
-  if (!ENABLED || !ip) return
+  if (!ENABLED || !isPublicIp(ip)) return
   const rec = getCached(ip)
-  if (!rec) return
+  if (!rec) {
+    counters.briefMiss++
+    return
+  }
+  counters.brief++
   writeGeoBrief(rec)
 }
 
@@ -424,7 +473,11 @@ export function lookupOrQueue(ip, onDone) {
   }
   if (onDone) {
     if (!waiters.has(ip)) waiters.set(ip, [])
-    waiters.get(ip).push(onDone)
+    // 同一 IP 在排队期间可能被反复请求（record 现在每个请求都会调用本函数），
+    // 回调里做的是同一件事（把结果写回同一个统计对象），因此只需少量样本即可。
+    // 不设上限的话，一个排队几分钟的热门 IP 会堆积成百上千个闭包。
+    const list = waiters.get(ip)
+    if (list.length < 8) list.push(onDone)
   }
   // 已在队列或在途：等待者挂上即可，不重复排队
   if (queue.has(ip) || inflight.has(ip)) return
@@ -452,13 +505,23 @@ export function getIpLookupStats() {
   return {
     enabled: ENABLED,
     lookup: counters.lookup,
+    // hit 只统计 lookupOrQueue 内部命中。正常路径下 resolveGeo 会先查缓存并提前返回，
+    // 走不到 lookupOrQueue，所以这个值几乎恒为 0——判断命中率请用下面的 brief / coverage
     hit: counters.hit,
     fail: counters.fail,
     drop: counters.drop,
     pending: queue.size,
     cacheSize: cache.size,
-    maxPerMin: MAX_PER_MIN,
-    ttlHours: +(TTL / 3_600_000).toFixed(1)
+    intervalMs: INTERVAL_MS,
+    ttlHours: +(TTL / 3_600_000).toFixed(1),
+    // 日志覆盖率：入口业务行里成功带上归属地的比例（分母排除内网/本机）。
+    // 这是判断"解析够不够用"的唯一客观依据——没有它只能凭感觉调限流和 TTL。
+    brief: counters.brief,
+    briefMiss: counters.briefMiss,
+    coverage: (() => {
+      const total = counters.brief + counters.briefMiss
+      return total ? +(counters.brief / total * 100).toFixed(1) : 0
+    })()
   }
 }
 
@@ -470,6 +533,8 @@ export function takeIpLookupStats() {
   counters.hit = 0
   counters.fail = 0
   counters.drop = 0
+  counters.brief = 0
+  counters.briefMiss = 0
   return snapshot
 }
 
@@ -477,6 +542,10 @@ export function takeIpLookupStats() {
 
 process.on('SIGTERM', flushCacheSync)
 process.on('SIGINT', flushCacheSync)
+// process.exit()、未捕获异常等退出路径不会触发上面两个信号，
+// 会丢掉最近 30 秒（FLUSH_INTERVAL）尚未落盘的缓存，重启后只能重新查一遍。
+// exit 钩子里只能做同步操作，flushCacheSync 正好是同步的。
+process.on('exit', flushCacheSync)
 
 // 命令行自测入口：node server/ip-location.js 61.171.246.254
 // 绕过队列与限流直接查一次，用于部署后验证签名算法是否仍然有效

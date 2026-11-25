@@ -14,9 +14,11 @@ import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from '
 import { writeFile, rename } from 'fs/promises'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-// hiofd 归属地服务：精确到区县/街道/经纬度，命中 2 小时缓存时零网络开销。
+// hiofd 归属地服务：精确到区县/街道/经纬度，命中 24 小时缓存时零网络开销。
 // 它与本模块的访问统计是独立职责，故障只影响 geoFull 字段，不影响统计本身
-import { geoFullOf, lookupOrQueue, takeIpLookupStats } from './ip-location.js'
+// isPublicIp 由 ip-location 统一提供：原先这里有一份同名逻辑（isExternalIp），
+// 两份判定一旦漂移就会出现"查了却不计入覆盖率"的矛盾数字，所以合并为一处
+import { geoFullOf, lookupOrQueue, takeIpLookupStats, isPublicIp } from './ip-location.js'
 // 归档汇总写到独立的 ip-geo 日志，避免业务日志里混入运维信息
 import { writeGeoArchive } from './geo-log.js'
 
@@ -66,7 +68,15 @@ let writeBusy = false
 
 // 把指定日期的内存数据序列化为文件内容（带 date 字段，启动恢复时据此判断是否属于今天）
 function serialize(date, map) {
-  return JSON.stringify({ date, savedAt: localIso(new Date()), ips: Object.fromEntries(map) }, null, 2)
+  // 剔除下划线开头的内部字段（如 _geoAt 兜底链节流时间戳）：
+  // 它们只服务于运行时判断，不该出现在对外的访问统计文件里
+  const ips = {}
+  for (const [ip, s] of map) {
+    const clean = {}
+    for (const k of Object.keys(s)) if (!k.startsWith('_')) clean[k] = s[k]
+    ips[ip] = clean
+  }
+  return JSON.stringify({ date, savedAt: localIso(new Date()), ips }, null, 2)
 }
 
 // 原子写：先写同目录临时文件，再 rename 覆盖目标——rename 在同一文件系统上是原子的，
@@ -192,18 +202,10 @@ function localGeoLabel(ip) {
   return ''
 }
 
-// 判定是否为可在线解析的外部地址：
-// IPv4 排除内网/保留段；IPv6 仅排除回环与本地前缀，公网 IPv6 同样可查归属地
-function isExternalIp(ip) {
-  if (!ip || ip === 'unknown') return false
-  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return false
-  if (ip.includes(':')) {
-    const lower = ip.toLowerCase()
-    return !(lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd'))
-  }
-  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) return false
-  return true
-}
+// 判定是否为可在线解析的外部地址：IPv4 排除内网/保留段；
+// IPv6 仅排除回环与本地前缀，公网 IPv6 同样可查归属地。
+// 实现已上移到 ip-location.js（与日志覆盖率共用同一份判定），此处保留别名便于阅读
+const isExternalIp = isPublicIp
 
 // 把 hiofd 的完整记录写进统计对象。
 // 注意字段拆分方式：geo 用"国家 省 市"三段拼接，与本模块原有格式保持一致；
@@ -233,9 +235,13 @@ function applyHiofdGeo(s, rec) {
 // 为什么不 await hiofd：
 // hiofd 有每分钟 5 次的硬限流，新 IP 要排队，可能几分钟才有结果。若在这里等它，
 // 访问统计会被一个第三方接口拖住，得不偿失。所以拆成两路：
-// ① 缓存命中（2 小时内查过）→ 立即填充，零网络；
+// ① 缓存命中（24 小时内查过）→ 立即填充，零网络；
 // ② 未命中 → 入队等 hiofd，结果回来后再覆盖（此时用户可能早已又请求过几次）；
 // 同时用原有解析链先填一个大概的省市，保证这段时间统计里不至于整片空白。
+//
+// 本函数由 record() 在每个请求上调用（不再只限 IP 首次出现），因此：
+// - 入队本身依赖 lookupOrQueue 的 queue/inflight 去重，重复调用不会再排一次；
+// - 兜底链做了节流，失败后 10 分钟内不再重打，否则每个请求都要白等一轮 pconline。
 async function resolveGeo(ip, s) {
   if (!isExternalIp(ip)) return
   const cached = geoFullOf(ip)
@@ -245,6 +251,13 @@ async function resolveGeo(ip, s) {
   }
   // 入队：成功后用更精确的数据覆盖兜底结果；失败则保留兜底值
   lookupOrQueue(ip, rec => { if (rec) applyHiofdGeo(s, rec) })
+  // 兜底链只在该 IP 还没有任何省市信息时跑
+  if (s.geo) return
+  // 节流：实测 pconline 384ms、ip-api 2.7s，失败后每个请求都重试一次毫无意义。
+  // _geoAt 用下划线前缀标记为内部字段，不参与对外展示
+  const now = Date.now()
+  if (s._geoAt && now - s._geoAt < 10 * 60 * 1000) return
+  s._geoAt = now
   await fallbackGeo(ip, s)
 }
 
@@ -381,8 +394,6 @@ async function record(req) {
       paths: {}
     }
     stats.set(ip, s)
-    // 首次见到该 IP：异步解析归属地（内网地址跳过在线解析）
-    resolveGeo(ip, s)
   } else {
     s.requests++
     // 老访客再次访问：lastSeen 同样用本地时区格式（此前漏改成 UTC，导致同一记录里两种格式混排）
@@ -390,6 +401,11 @@ async function record(req) {
     // 后续访问用最新上报/解析的网络类型覆盖（网络环境可能切换）
     if (network) s.network = network
   }
+  // 归属地缓存保鲜：每次请求都检查一次，而不是只在 IP 首次出现时查。
+  // 老实现把 resolveGeo 写在 if (!s) 分支里，导致 2 小时缓存过期后该 IP 永不刷新——
+  // 只要进程不重启、stats 不清空，它之后一整天所有请求的 [IP-GEO] 行都会一直缺。
+  // resolveGeo 内部对缓存命中、入队去重、失败冷却都有判断，重复调用只多一次 Map 查找。
+  resolveGeo(ip, s).catch(() => {})
   // 累计路径访问次数（不记录查询参数，避免入库搜索关键词等敏感信息）
   s.paths[req.method + ' ' + req.path] = (s.paths[req.method + ' ' + req.path] || 0) + 1
   dirty = true

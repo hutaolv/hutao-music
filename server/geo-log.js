@@ -42,6 +42,23 @@ export function writeGeoBrief(rec) {
   } catch { /* 归属地日志失败不影响业务日志，也不影响请求 */ }
 }
 
+// 补写行：查询是异步的，用户可能早在几十秒前就发完了请求。
+// 这一行在查到结果的那一刻写进 app 日志，用 forAt 标明它属于哪一次请求——
+// 时间戳是乱的，但带上 forAt 和 waitMs 后，一个 IP 从入队到查到可以在一处看全。
+// 这是"日志里有的有归属地、有的没有"的直接解法：
+// 以前只有缓存命中的请求才有 [IP-GEO]，新 IP 的那次请求永远等不到；
+// 现在新 IP 查到后补一行 FILL，当次请求的结果就不再是空白。
+export function writeGeoFill(rec, meta) {
+  try {
+    appLog('[IP-GEO-FILL]', {
+      ip: rec.ip,
+      forAt: meta.forAt,
+      waitMs: meta.waitMs,
+      ...briefFields(rec)
+    })
+  } catch { /* 补写失败不影响业务日志，也不影响请求 */ }
+}
+
 // 全量记录写入 ip-geo 日志：hiofd 原始字段全量保留（不改字段名，方便 jq 过滤），
 // 另附本次查询的耗时与排队时长，用于判断限流是否成为瓶颈
 export function writeGeoRecord(rec) {
@@ -70,7 +87,7 @@ export function writeGeoFail(info) {
 }
 
 // 队列水位线：pending 持续上涨说明 5 次/分钟的额度不够用，
-// 这是是否需要调整 IP_LOOKUP_MAX_PER_MIN 或缓存时长的唯一依据
+// 这是是否需要调整 IP_LOOKUP_INTERVAL_MS 或缓存时长的唯一依据
 export function writeGeoQueue(info) {
   try {
     geoLogger.log('[IP-GEO-QUEUE]', info)

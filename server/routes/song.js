@@ -13,7 +13,7 @@ import { kuwoThirdPartyApis } from '../services/hutao-kuwo.js'
 import { kugouThirdPartyApis } from '../services/hutao-kugou.js'
 import { fetchWithFallback } from '../services/thirdPartyApis.js'
 import { log, warn } from '../logger.js'
-// 归属地精简行：仅当该 IP 已有 2 小时内的解析缓存时才输出，
+// 归属地精简行：仅当该 IP 已有 24 小时内的解析缓存时才输出，
 // 同步读内存、无网络请求，失败时静默（不影响下面的业务日志）
 import { logGeoBrief } from '../ip-location.js'
 
