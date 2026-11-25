@@ -31,8 +31,6 @@ const OUT_FILE = resolve(LOG_DIR, 'access.json')
 const HISTORY_DIR = resolve(LOG_DIR, 'history')
 // 内存有变更时隔多少毫秒落盘一次（仅快照当日数据，供进程重启后恢复当天进度）
 const FLUSH_INTERVAL = 30000
-// 在线 IP 归属地接口超时（毫秒）
-const GEO_TIMEOUT = 4000
 
 mkdirSync(LOG_DIR, { recursive: true })
 mkdirSync(HISTORY_DIR, { recursive: true })
@@ -68,8 +66,8 @@ let writeBusy = false
 
 // 把指定日期的内存数据序列化为文件内容（带 date 字段，启动恢复时据此判断是否属于今天）
 function serialize(date, map) {
-  // 剔除下划线开头的内部字段（如 _geoAt 兜底链节流时间戳）：
-  // 它们只服务于运行时判断，不该出现在对外的访问统计文件里
+  // 剔除下划线开头的内部字段：这类字段只服务于运行时判断（如各种节流时间戳），
+  // 不该出现在对外的访问统计文件里
   const ips = {}
   for (const [ip, s] of map) {
     const clean = {}
@@ -231,17 +229,11 @@ function applyHiofdGeo(s, rec) {
   }
 }
 
-// 归属地解析编排：hiofd 优先，原解析链只做兜底。
-// 为什么不 await hiofd：
-// hiofd 有每分钟 5 次的硬限流，新 IP 要排队，可能几分钟才有结果。若在这里等它，
-// 访问统计会被一个第三方接口拖住，得不偿失。所以拆成两路：
-// ① 缓存命中（24 小时内查过）→ 立即填充，零网络；
-// ② 未命中 → 入队等 hiofd，结果回来后再覆盖（此时用户可能早已又请求过几次）；
-// 同时用原有解析链先填一个大概的省市，保证这段时间统计里不至于整片空白。
-//
-// 本函数由 record() 在每个请求上调用（不再只限 IP 首次出现），因此：
-// - 入队本身依赖 lookupOrQueue 的 queue/inflight 去重，重复调用不会再排一次；
-// - 兜底链做了节流，失败后 10 分钟内不再重打，否则每个请求都要白等一轮 pconline。
+// 归属地解析编排：全部交给 ip-location（hiofd 主源 + 备用源）。
+// 本函数由 record() 在每个请求上调用，不在这里 await 任何网络请求：
+// - 缓存命中（24 小时内查过）→ 立即填充，零网络；
+// - 未命中 → 入队，查询完成（或失败）后通过 waiters 回调回填。
+// 入队本身依赖 lookupOrQueue 的 queue/inflight 去重，重复调用不会再排一次。
 async function resolveGeo(ip, s) {
   if (!isExternalIp(ip)) return
   const cached = geoFullOf(ip)
@@ -249,74 +241,16 @@ async function resolveGeo(ip, s) {
     applyHiofdGeo(s, cached)
     return
   }
-  // 入队：成功后用更精确的数据覆盖兜底结果；失败则保留兜底值
   lookupOrQueue(ip, rec => { if (rec) applyHiofdGeo(s, rec) })
-  // 兜底链只在该 IP 还没有任何省市信息时跑
-  if (s.geo) return
-  // 节流：实测 pconline 384ms、ip-api 2.7s，失败后每个请求都重试一次毫无意义。
-  // _geoAt 用下划线前缀标记为内部字段，不参与对外展示
-  const now = Date.now()
-  if (s._geoAt && now - s._geoAt < 10 * 60 * 1000) return
-  s._geoAt = now
-  await fallbackGeo(ip, s)
 }
 
-// 原有的在线解析链（pconline → ip-api → ipinfo），仅作为 hiofd 未命中/失败时的兜底。
-// 优先级（实测结论）：
-// 接口一 pconline 太平洋电脑网：全中文含运营商；注意必须 https，http 会被 403 封禁；
-//         返回 GBK 编码需用 TextDecoder 解码
-// 接口二 ip-api.com：zh-CN 下国家省份中文，免费版限 45 次/分钟
-// 接口三 ipinfo.io：全英文，仅作最终兜底
-// 该链给不出区县/街道/经纬度，所以不会写 [IP-GEO] 日志行，只用于补 geo/isp
-async function fallbackGeo(ip, s) {
-  if (!isExternalIp(ip)) return
-  const isV6 = ip.includes(':')
-  // 接口一：pconline —— 仅用于 IPv4！
-  // 实测两个坑：① 境外 IP 会直接 503 拒绝；② IPv6 查询会忽略 ip 参数、
-  // 错误地返回调用方自身的归属地，因此 IPv6 必须跳过此接口
-  if (!isV6) {
-    try {
-      const res = await fetch(`https://whois.pconline.com.cn/ipJson.jsp?ip=${ip}&json=true`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: AbortSignal.timeout(GEO_TIMEOUT)
-      })
-      const buf = await res.arrayBuffer()
-      // 返回为 GBK 编码，先解码成字符串再 JSON.parse
-      const json = JSON.parse(new TextDecoder('gbk').decode(buf))
-      if (json?.addr) {
-        s.geo = String(json.addr)
-        // addr 形如 "上海市 电信"：末段是运营商；境外 IP 可能只有一段（无运营商）
-        const parts = s.geo.split(/\s+/).filter(Boolean)
-        s.isp = parts.length > 1 ? parts[parts.length - 1] : ''
-        return
-      }
-    } catch { /* 该接口失败则继续尝试下一个 */ }
-  }
-  // 接口二：ip-api.com（UTF-8 中文结果，国际可访问）
-  try {
-    const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`, {
-      signal: AbortSignal.timeout(GEO_TIMEOUT)
-    })
-    const json = await res.json()
-    if (json?.status === 'success') {
-      s.geo = [json.country, json.regionName, json.city].filter(Boolean).join(' ')
-      s.isp = json.isp || ''
-      return
-    }
-  } catch { /* 该接口失败则继续尝试下一个 */ }
-  // 接口三：ipinfo.io（英文，最终兜底）
-  try {
-    const res = await fetch(`https://ipinfo.io/${ip}/json`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(GEO_TIMEOUT)
-    })
-    const json = await res.json()
-    if (json?.city) {
-      s.geo = [json.country, json.region, json.city].filter(Boolean).join(' ')
-      s.isp = (json.org || '').replace(/^AS\d+\s+/, '') || ''
-    }
-  } catch { /* 全部失败则保持空值 */ }
-}
+// 归属地的在线解析已统一收拢到 ip-location.js（hiofd 主源 + pconline/ip-api 备用源）。
+// 这里原先还有一条 pconline → ip-api → ipinfo 的兜底链，作用是"入队等 hiofd 期间
+// 先给统计填个大概的省市"。现在 ip-location 自己就带备用源、失败会自动降级，
+// 再跑一遍只会对同一个 IP 重复请求同一个接口——额度翻倍，反而更容易触发 pconline 限流
+// （实测 1 秒间隔查到第 3 个就 503），所以整条链删掉，只走 lookupOrQueue 的回调回填。
+//
+// 代价：新 IP 首次请求写进统计时 geo 还是空的，等查询完成（10 秒内）由回调补上。
 
 // ---------- 请求记录 ----------
 

@@ -60,13 +60,15 @@ export function writeGeoFill(rec, meta) {
 }
 
 // 全量记录写入 ip-geo 日志：hiofd 原始字段全量保留（不改字段名，方便 jq 过滤），
-// 另附本次查询的耗时与排队时长，用于判断限流是否成为瓶颈
+// 另附本次查询的耗时与排队时长，用于判断限流是否成为瓶颈。
+// fallbackFrom 只在降级时出现：看到它就知道这条是备用源查的，以及主源为什么被跳过
 export function writeGeoRecord(rec) {
   try {
     geoLogger.log('[IP-GEO]', {
       ...briefFields(rec),
       costMs: rec.costMs,
-      queueMs: rec.queueMs
+      queueMs: rec.queueMs,
+      ...(rec.fallbackFrom ? { fallbackFrom: rec.fallbackFrom } : {})
     })
   } catch { /* 同上，静默 */ }
 }

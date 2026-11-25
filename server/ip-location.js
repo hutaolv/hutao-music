@@ -1,19 +1,23 @@
-// IP 归属地服务（hiofd 优先）：签名调用 + 匀速限流 + 24 小时缓存 + 排队重试
+// IP 归属地服务（hiofd 优先，pconline / ip-api 兜底）：签名调用 + 匀速限流 + 24 小时缓存 + 排队重试
 //
 // 为什么单独抽一个模块：
-// 1. hiofd（tool.hiofd.com）的 IP 库比现有的 pconline / ip-api 精细，能给出区县、街道和
-//    经纬度，但接口需要前端混淆逻辑还原出来的 k/t/x/r 签名参数，且有调用频率限制，
+// 1. hiofd（tool.hiofd.com）的 IP 库比公开接口精细，能给出区县、街道和经纬度，
+//    但接口需要前端混淆逻辑还原出来的 k/t/x/r 签名参数，且有调用频率限制，
 //    不是能随手 fetch 的公开 API。签名、限流、排队、缓存这四件事集中在这里，
 //    业务代码只调用出口函数，不感知细节。
-// 2. 对外出口刻意设计成"同步查缓存 + 异步排队"两套：
+// 2. 双源设计：hiofd 会按来源 IP 拒绝请求（云服务器实测每次都返回 resultCode=1
+//    "服务异常2"，同一个 IP 从家用宽带查却正常），所以必须有退路——
+//    主源连续失败 3 次即熔断 30 分钟，期间全部改走 pconline（IPv4）/ ip-api（IPv6）。
+//    备用源精度只到省市级、没有区县街道经纬度，但保证日志里不会整片空白。
+// 3. 对外出口刻意设计成"同步查缓存 + 异步排队"两套：
 //    - geoTag(ip) / geoFullOf(ip)：只读内存缓存，无 IO、无 await、绝不抛错，
 //      供日志行拼接与访问统计取值；
 //    - lookupOrQueue(ip, cb)：未命中则入队，解析完成（含失败）回调一次。
-// 3. 节奏是硬约束：默认每 10 秒最多查一个地址（≈ 每分钟 6 次），超出排队。
+// 4. 节奏是硬约束：默认每 10 秒最多查一个地址（≈ 每分钟 6 次），超出排队。
 //    缓存 24 小时，同一地址 24 小时内不重复查。
 //
 // 故障隔离：本模块任何异常都只在自己的 ip-geo 日志里留痕，绝不向调用方抛出，
-// 也不阻塞请求——hiofd 挂掉时，业务日志与播放接口表现与接入前完全一致。
+// 也不阻塞请求——两个源全挂时，业务日志与播放接口表现与接入前完全一致。
 import { createHash, randomInt } from 'crypto'
 import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from 'fs'
 import { rename, writeFile } from 'fs/promises'
@@ -59,8 +63,18 @@ const CACHE_MAX = 20000
 // 单次请求超时：实测该接口耗时波动很大（0.7s ~ 12.7s，冷查询尤慢），
 // 超时设太紧会把慢响应误判为失败，进而落入 10 分钟负缓存，导致日志缺归属地
 const REQUEST_TIMEOUT = Math.max(5000, Number(process.env.IP_LOOKUP_TIMEOUT_MS) || 20_000)
+// 备用源单独的超时：ip-api 实测可从 0.4s 飙到 15s，用主源那 20 秒的额度会把
+// 并发槽位（MAX_INFLIGHT=2）占死，后面排队的地址跟着一起卡住，所以收紧到 8 秒
+const BACKUP_TIMEOUT = 8000
 // 同时在途请求上限：该接口偶发 10 秒以上的慢响应，限制并发数避免堆积一堆连接
 const MAX_INFLIGHT = 2
+// 主源熔断：连续失败达到阈值后停用一段时间，期间全部直接走备用源。
+// 为什么必须熔断：hiofd 会按来源 IP 拒绝请求——实测某台云服务器每次查询都返回
+// resultCode=1"服务异常2"，而同一个 IP 从家用宽带查就正常返回。不熔断的话，
+// 每个新地址都要先白等 1~2 秒（实测 461~2281ms）才降级，纯属浪费，
+// 而且这些注定失败的请求还会持续给上游风控送弹药。
+const BREAKER_THRESHOLD = 3
+const BREAKER_COOLDOWN = Math.max(60_000, Number(process.env.IP_LOOKUP_BREAK_MS) || 30 * 60 * 1000)
 // 缓存落盘间隔（有变更才写）
 const FLUSH_INTERVAL = 30_000
 // 队列水位线日志间隔：用来判断额度是否够用
@@ -70,6 +84,13 @@ const WATERLINE_INTERVAL = 60_000
 
 const API_URL = 'https://toola.hiofd.com/router/rest'
 const SERVICE_ID = 'IpQuery'
+// 备用源：不依赖 key/签名，代价是精度只到省市级、没有区县街道经纬度。
+// hiofd 按来源 IP 拒绝时，全靠它兜底，否则整条链路会一个地址都查不出来。
+// pconline：全中文含运营商，仅 IPv4；实测有限流（1 秒间隔第 3 个起 503，
+//           4 秒间隔全部正常），本模块 10 秒一个的节奏不会触发
+const PCONLINE_URL = 'https://whois.pconline.com.cn/ipJson.jsp'
+// ip-api：支持 IPv4/IPv6，返回中文；免费版只走 http、限 45 次/分钟，实测约 2.7 秒
+const IPAPI_URL = 'http://ip-api.com/json'
 // key/pwd 来自站点前端硬编码；站点若调整，可用环境变量覆盖，避免改代码重打镜像
 const API_KEY = process.env.IP_LOOKUP_KEY || 'key11'
 const API_PWD = process.env.IP_LOOKUP_PWD || 'pwd11'
@@ -104,6 +125,9 @@ const waiters = new Map()
 const inflight = new Set()
 // 负缓存：ip -> 冷却截止时间戳
 const negative = new Map()
+// 主源熔断状态：连续失败次数 + 停用截止时间戳
+let primaryFailStreak = 0
+let primaryDownUntil = 0
 // 上次实际发出查询的时间戳：匀速闸门唯一需要的状态。
 // 距它不足 INTERVAL_MS 时，出队循环一律拿不到配额。
 let lastSentAt = 0
@@ -285,6 +309,124 @@ async function queryOnce(ip) {
   }
 }
 
+// ---------- 备用源 ----------
+//
+// 作用：主源按来源 IP 拒绝时的唯一退路。返回结构与 queryOnce 保持一致，
+// 下游（缓存、日志、统计）不需要区分数据来自哪个源，只靠 source 字段区分。
+// 精度差异：没有区县、街道、经纬度，只有国家/省/市/运营商。
+
+// 中国省级行政区前缀，用来判断 pconline 返回的 pro 是境内省份还是境外国家
+const CN_REGION_RE = /^(北京|天津|上海|重庆|河北|山西|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|海南|四川|贵州|云南|陕西|甘肃|青海|台湾|内蒙古|广西|西藏|宁夏|新疆|香港|澳门)/
+
+// pconline（太平洋电脑网）：全中文，含运营商。
+// 两个坑：① 只支持 IPv4，传 IPv6 会忽略参数、返回调用方自己的归属地；
+//        ② 返回体是 GBK 编码，必须先按 GBK 解码再 JSON.parse
+async function queryPconline(ip) {
+  if (ip.includes(':')) throw new Error('pconline 不支持 IPv6')
+  const res = await fetch(`${PCONLINE_URL}?ip=${encodeURIComponent(ip)}&json=true`, {
+    headers: { 'user-agent': USER_AGENT, referer: 'https://whois.pconline.com.cn/' },
+    signal: AbortSignal.timeout(BACKUP_TIMEOUT)
+  })
+  if (!res.ok) {
+    const err = new Error(`pconline HTTP ${res.status}`)
+    err.httpStatus = res.status
+    throw err
+  }
+  const json = JSON.parse(new TextDecoder('gbk').decode(await res.arrayBuffer()))
+  if (!json?.pro) throw new Error(`pconline 无结果${json?.err ? ': ' + json.err : ''}`)
+  // addr 形如"广东省深圳市 电信"：空格后是运营商；港澳台等可能只有一段，此时不填 isp
+  const parts = String(json.addr || '').split(/\s+/).filter(Boolean)
+  const now = new Date()
+  return {
+    ip,
+    country: CN_REGION_RE.test(json.pro) ? '中国' : '',
+    province: String(json.pro || '').trim(),
+    city: String(json.city || '').trim(),
+    district: '',
+    street: '',
+    isp: parts.length > 1 ? parts[parts.length - 1] : '',
+    latitude: '',
+    longitude: '',
+    source: 'pconline',
+    queryAt: localIso(now),
+    fetchedAt: now.getTime(),
+    costMs: 0,
+    queueMs: 0
+  }
+}
+
+// ip-api：IPv6 的唯一退路（pconline 查不了 IPv6）。
+// 免费版只提供 http 明文接口，部分机房会禁明文出网，此时会抛错并落负缓存
+async function queryIpApi(ip) {
+  const res = await fetch(`${IPAPI_URL}/${encodeURIComponent(ip)}?lang=zh-CN&fields=status,message,country,regionName,city,isp`, {
+    signal: AbortSignal.timeout(BACKUP_TIMEOUT)
+  })
+  if (!res.ok) {
+    const err = new Error(`ip-api HTTP ${res.status}`)
+    err.httpStatus = res.status
+    throw err
+  }
+  const json = await res.json()
+  if (json?.status !== 'success') throw new Error(`ip-api 无结果${json?.message ? ': ' + json.message : ''}`)
+  const now = new Date()
+  return {
+    ip,
+    country: String(json.country || '').trim(),
+    province: String(json.regionName || '').trim(),
+    city: String(json.city || '').trim(),
+    district: '',
+    street: '',
+    isp: String(json.isp || '').trim(),
+    latitude: '',
+    longitude: '',
+    source: 'ip-api',
+    queryAt: localIso(now),
+    fetchedAt: now.getTime(),
+    costMs: 0,
+    queueMs: 0
+  }
+}
+
+// 备用源本身也是两级：IPv4 先试 pconline（快、直接给运营商），
+// 被限流（实测 1 秒间隔就 503）或返回无结果时再退到 ip-api；IPv6 只能走 ip-api。
+// 两个都失败才抛错——把两条错误拼在一起，日志里能直接看出是哪边挂了。
+async function queryBackup(ip) {
+  const errors = []
+  if (!ip.includes(':')) {
+    try {
+      return await queryPconline(ip)
+    } catch (e) {
+      errors.push(`pconline: ${e.message}`)
+    }
+  }
+  try {
+    return await queryIpApi(ip)
+  } catch (e) {
+    errors.push(`ip-api: ${e.message}`)
+  }
+  throw new Error(errors.join(' / '))
+}
+
+// 主源是否可用（未处于熔断期）
+function primaryUsable() {
+  return Date.now() >= primaryDownUntil
+}
+
+// 记录一次主源失败；达到阈值则熔断并写一条明显的告警，便于运维一眼看到降级
+function onPrimaryFail(err) {
+  primaryFailStreak++
+  if (primaryFailStreak < BREAKER_THRESHOLD || Date.now() < primaryDownUntil) return
+  primaryDownUntil = Date.now() + BREAKER_COOLDOWN
+  writeGeoFail({
+    ip: '-',
+    error: `主源连续失败 ${primaryFailStreak} 次，熔断 ${Math.round(BREAKER_COOLDOWN / 60000)} 分钟，期间只走备用源：${err.message}`,
+    httpStatus: err.httpStatus,
+    resultCode: err.resultCode,
+    costMs: 0,
+    retryAfterMs: BREAKER_COOLDOWN
+  })
+}
+
 // ---------- 结果分发 ----------
 
 // 把结果（null 表示失败）通知给该 IP 的所有等待者，并清理等待队列
@@ -313,12 +455,34 @@ function takeToken() {
 
 // ---------- 队列消费 ----------
 
-// 实际发起一次查询并回填缓存
+// 实际发起一次查询并回填缓存。
+// 两级源：主源（hiofd）可用就先试，失败或熔断中则降级到备用源；
+// 只有两级都失败才落负缓存。这样单边故障不会让归属地整体空掉。
 async function runLookup(ip, enqueuedAt) {
   inflight.add(ip)
   const started = Date.now()
+  // 提到 try 外层，失败日志里要能说清"主源当时是什么状态"
+  let primaryError = null
+  let primarySkipped = false
   try {
-    const rec = await queryOnce(ip)
+    let rec = null
+    if (primaryUsable()) {
+      try {
+        rec = await queryOnce(ip)
+        primaryFailStreak = 0
+      } catch (e) {
+        primaryError = e
+        onPrimaryFail(e)
+      }
+    } else {
+      primarySkipped = true
+    }
+    if (!rec) {
+      rec = await queryBackup(ip)
+      // 降级原因写进记录，ip-geo 日志里靠它区分"本来就该用备用源"和"主源挂了"
+      if (primaryError) rec.fallbackFrom = primaryError.message
+      else if (primarySkipped) rec.fallbackFrom = 'primary breaker open'
+    }
     rec.costMs = Date.now() - started
     rec.queueMs = enqueuedAt ? started - enqueuedAt : 0
     cache.set(ip, rec)
@@ -341,9 +505,14 @@ async function runLookup(ip, enqueuedAt) {
     counters.fail++
     // 负缓存：冷却期内不再重试同一地址，把额度让给新地址
     negative.set(ip, Date.now() + NEG_TTL)
+    // 备用源也失败时，把主源的状态一并写进错误信息——
+    // 否则只能看到"pconline HTTP 503"，不知道 hiofd 那边是不是早就熔断了
+    const note = primaryError
+      ? ` [主源: ${primaryError.message}]`
+      : primarySkipped ? ' [主源熔断中]' : ''
     writeGeoFail({
       ip,
-      error: e.body ? `${e.message} ${e.body}` : e.message,
+      error: `${e.body ? e.message + ' ' + e.body : e.message}${note}`,
       httpStatus: e.httpStatus,
       resultCode: e.resultCode,
       costMs: Date.now() - started,
@@ -514,6 +683,11 @@ export function getIpLookupStats() {
     cacheSize: cache.size,
     intervalMs: INTERVAL_MS,
     ttlHours: +(TTL / 3_600_000).toFixed(1),
+    // 主源健康度：连续失败次数与熔断剩余时间。排查"为什么日志里 source 全是 pconline"看这里
+    primary: {
+      failStreak: primaryFailStreak,
+      downForMs: Math.max(0, primaryDownUntil - Date.now())
+    },
     // 日志覆盖率：入口业务行里成功带上归属地的比例（分母排除内网/本机）。
     // 这是判断"解析够不够用"的唯一客观依据——没有它只能凭感觉调限流和 TTL。
     brief: counters.brief,
