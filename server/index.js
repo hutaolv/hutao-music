@@ -557,38 +557,35 @@ async function serveResume({ res, target, hash, part, meta, range }) {
     return true
   }
 
+  // 上游请求与"发本地分片"并行：发车但不等它。
+  //
+  // 旧实现是 await safeFetch 之后才发本地数据，等于让客户端为一个握手白等一次。
+  // 线上实测这段等待是 1.9~2.7 秒（跨网到 CDN），而客户端每 stalled 一次就要重发
+  // Range，于是听感变成"播一点 → 转圈两秒 → 播一点 → 转圈两秒"，正是卡顿循环的成因。
+  // 本地分片本来就在盘上，没有任何理由等上游。
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), 15000)
-  let response
-  try {
-    response = await safeFetch(target, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://www.bilibili.com/',
-        'Range': `bytes=${part}-${wantEnd != null ? wantEnd : ''}`
-      },
-      signal: ac.signal
-    })
-  } catch {
+  const upstreamPromise = safeFetch(target, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Referer': 'https://www.bilibili.com/',
+      'Range': `bytes=${part}-${wantEnd != null ? wantEnd : ''}`
+    },
+    signal: ac.signal
+  }).finally(() => clearTimeout(timer))
+  // 发本地分片期间没人 await 它：若此时上游超时/复位，Promise 会以 rejected 状态
+  // 悬空，Node 视为 unhandledRejection（默认会让进程退出）。这里先挂一个空 catch 占位，
+  // 后面真正 await 时仍能拿到异常
+  upstreamPromise.catch(() => {})
+
+  // 没有 total 元数据（首次落盘被打断等）时无法提前构造 Content-Range，
+  // 索性放弃续传，交回上层重新整首拉取 —— 那条路径会重写 meta.total，之后就能正常续传
+  if (!(meta.total > 0)) {
+    upstreamPromise.then(r => { try { r.body?.cancel() } catch {} }).catch(() => {})
     return false
-  } finally {
-    clearTimeout(timer)
   }
 
-  // 只有 206 才说明上游按 Range 返回，可以从 part 处接上；
-  // 返回 200（不支持 Range）或 403（地址已过期）都不能续，交回上层重新拉
-  if (response.status !== 206 || !response.body) {
-    try { response.body?.cancel() } catch {}
-    return false
-  }
-  const total = totalFromContentRange(response.headers.get('content-range'))
-  if (!total) {
-    try { response.body.cancel() } catch {}
-    return false
-  }
-  writeAudioMeta(hash, { total, contentType })
-
-  const localEnd = Math.min(part - 1, total - 1)
+  const total = meta.total
   const respEnd = wantEnd != null ? Math.min(wantEnd, total - 1) : total - 1
 
   res.status(206)
@@ -601,9 +598,59 @@ async function serveResume({ res, target, hash, part, meta, range }) {
   res.setHeader('Content-Length', respEnd - wantStart + 1)
 
   // 先把本地已有的那一段发出去（客户端立刻有数据可播），再续上游
+  const localEnd = Math.min(part - 1, total - 1)
   if (localEnd >= wantStart) await streamFromDisk(res, hash, wantStart, localEnd)
   if (res.destroyed || res.writableEnded) {
-    try { response.body.cancel() } catch {}
+    upstreamPromise.then(r => { try { r.body?.cancel() } catch {} }).catch(() => {})
+    return true
+  }
+
+  // 本地发完了，这时才真正需要上游数据
+  let response
+  try {
+    response = await upstreamPromise
+  } catch {
+    // 上游连不上：头已经发出去了，撤回不了。
+    // 直接收尾，让客户端按"响应长度不足"判为中断并重发 Range —— 下次请求还有机会
+    // 命中上游。这比旧实现"先失败再退回去重新拉"少绕一圈，也不会让已发出的数据白费
+    if (!res.writableEnded) res.end()
+    return true
+  }
+
+  // 416：上游说"从 part 起取不到"，只有一个原因 —— 本地分片已经不短于上游文件总长，
+  // 也就是 meta 里的 total 是旧的（同一首歌换了码率或换了源，而缓存 key 没变）。
+  // 旧分片和新地址不是同一份内容，只能丢弃重建；同时把真实总长写回去，
+  // 否则下次还会照着旧 total 判定"没下完"，再撞一次 416，形成无限重试
+  if (response.status === 416) {
+    const realTotal = totalFromContentRange(response.headers.get('content-range'))
+    clearAudioEntry(hash)
+    if (realTotal > 0) writeAudioMeta(hash, { total: realTotal, contentType })
+    try { response.body?.cancel() } catch {}
+    if (!res.writableEnded) res.end()
+    return true
+  }
+
+  // 只有 206 才说明上游按 Range 返回，可以从 part 处接上；
+  // 返回 200（不支持 Range）或 403（地址已过期）都不能续
+  if (response.status !== 206 || !response.body) {
+    try { response.body?.cancel() } catch {}
+    if (!res.writableEnded) res.end()
+    return true
+  }
+  const upTotal = totalFromContentRange(response.headers.get('content-range'))
+  if (upTotal && upTotal !== total) {
+    // 上游给的总长和本地元数据不一致，说明这份 key 底下的内容变了：
+    // 最典型的是音质档位换了实现（例如 standard 过去误发 320k 的 15.6MB，
+    // 修好参数后变成 128k 的 4.7MB）。本地分片是另一种码率，硬拼会得到
+    // "前半段 320k + 后半段 128k"的畸形文件，播放必然错乱或直接失败。
+    //
+    // 此时响应头已经发出去了，撤不回来：清掉分片让下次请求从零重建。
+    // 本次直接收尾，客户端按长度不足判为中断 — 这是唯一一次性的代价，
+    // 第二次请求就会命中正确的新缓存
+    clearAudioEntry(hash)
+    writeAudioMeta(hash, { total: upTotal, contentType })
+    try { response.body?.cancel() } catch {}
+    if (!res.writableEnded) res.end()
     return true
   }
   // 并发保护：同一首歌已有请求在写分片时，这次只转发、不写盘，避免两路 append 交错损坏文件
@@ -611,7 +658,12 @@ async function serveResume({ res, target, hash, part, meta, range }) {
   let writer = null
   if (ownCache) {
     audioCacheInflight.add(hash)
-    writer = createPartWriter(hash, part)
+    // 追加位置以"此刻实际大小"为准，而不是入口时读到的 part：
+    // 发本地分片这段时间里可能有别的请求把文件写长了，用旧 part 会在中间留空洞，
+    // 分片从此错位（表现为歌能播但内容错乱、或后半段无声）
+    const curPart = audioPartSize(hash)
+    writer = curPart === part ? createPartWriter(hash, part) : null
+    if (!writer) audioCacheInflight.delete(hash)
   }
   try {
     await pumpUpstream({ body: response.body, res, writer, preBuffer: 0 })

@@ -286,7 +286,12 @@ router.get('/url', async (req, res) => {
   // 非探测请求直接查缓存。refresh=1 表示前端播放失败后的重试，
   // 此时必须跳过缓存重新解析：缓存里很可能就是那条已经失效的签名地址，
   // 拿它重试等于必然再失败一次（旧实现"重试也播不了"就是这个原因）
-  const cacheKey = `${platform}:${id}:${quality || 'standard'}`
+  // 部分平台的 id 会带平台前缀：搜索结果、排行榜、历史记录里都是 kuwo_888898 这种形状，
+  // 而取地址用的第三方源只认纯数字。不剥离的话每个源都返回空，前端只能拿到 url:null ——
+  // 表现为点了歌一直转圈、不出声（酷狗早期踩过同一个坑，已在其分支单独处理）。
+  // 归一化同时用于缓存键：否则同一首歌按 kuwo_888898 / 888898 各存一份地址，白占缓存
+  const songId = platform === '酷我音乐' ? String(id).replace(/^kuwo_/, '') : id
+  const cacheKey = `${platform}:${songId}:${quality || 'standard'}`
   if (detect !== '1' && refresh !== '1') {
     const cached = getCachedUrl(cacheKey)
     if (cached) {
@@ -338,12 +343,12 @@ router.get('/url', async (req, res) => {
       } else {
         const thirdPartyApis = platform === '酷我音乐' ? kuwoThirdPartyApis : neteaseThirdPartyApis
         if (detect === '1') {
-          availableQualities = await probeQualitiesByApis(thirdPartyApis, id, qualityKey, ip)
+          availableQualities = await probeQualitiesByApis(thirdPartyApis, songId, qualityKey, ip)
         }
-        const result = await fetchWithFallback(thirdPartyApis, id, q, ip)
+        const result = await fetchWithFallback(thirdPartyApis, songId, q, ip)
         url = result?.url || null
         if (!url && q !== 'standard') {
-          const fallback = await fetchWithFallback(thirdPartyApis, id, 'standard', ip)
+          const fallback = await fetchWithFallback(thirdPartyApis, songId, 'standard', ip)
           url = fallback?.url || null
         }
         // 第三方源本身也可能挂（实测部分源已整体失效，返回空 url）：
@@ -428,10 +433,11 @@ router.get('/url', async (req, res) => {
         }
         case '酷我音乐':
           // 酷我音乐官方播放 API 需要加密，暂时使用第三方 API
-          const kuwoResult = await fetchWithFallback(kuwoThirdPartyApis, id, q, ip)
+          // 用 songId（已剥 kuwo_ 前缀），第三方源只认纯数字
+          const kuwoResult = await fetchWithFallback(kuwoThirdPartyApis, songId, q, ip)
           url = kuwoResult?.url || null
           if (!url && q !== 'standard') {
-            const fallback = await fetchWithFallback(kuwoThirdPartyApis, id, 'standard', ip)
+            const fallback = await fetchWithFallback(kuwoThirdPartyApis, songId, 'standard', ip)
             url = fallback?.url || null
           }
           break

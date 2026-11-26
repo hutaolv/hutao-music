@@ -23,13 +23,18 @@ export const kuwoThirdPartyApis = [
       return { url: data?.data?.url, name: data?.data?.name, artist: data?.data?.artist, cover: data?.data?.pic }
     }
   },
-  // haitangw：稳定，支持歌词和封面（不区分音质，固化为高音质档），作兜底
+  // haitangw：稳定，支持歌词和封面。作兜底
+  // 音质词表只有两个有效值（实测）：standard → aac（约 100kbps）、lossless → flac。
+  // 其余任何值（128k / 320k / exhigh / 不传）都会被忽略并退回默认的 M800 320k mp3。
+  // 之前 standard 传 '128k'，等于每次都拿到 320k（15.6MB，体积是 128k 的 3.4 倍），
+  // 在慢速出口上边播边下必然追不上播放速度，听感就是"播一点、卡一下"。
+  // lossless 传 'flac' 同样是无效词，实际拿到的是 320k mp3 —— 用户选无损却得到有损。
   {
     name: 'haitangw-kuwo',
     fetch: async (id, quality) => {
-      const qMap = { standard: '128k', high: '320k', lossless: 'flac' }
+      const qMap = { standard: 'standard', high: '320k', lossless: 'lossless' }
       const { data } = await axios.get(`https://musicapi.haitangw.net/music/kw.php`, {
-        params: { id, level: qMap[quality] || 'flac', type: 'json' },
+        params: { id, level: qMap[quality] || 'standard', type: 'json' },
         headers, timeout: 5000
       })
       return { url: data?.data?.url, name: data?.data?.name, artist: data?.data?.artist, cover: data?.data?.pic }
